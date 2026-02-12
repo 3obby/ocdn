@@ -113,13 +113,13 @@ STEP 3: PUSH (let users bring content)
     [x] /v/[ref] not-indexed state: show "Push" CTA instead        src/app/v/[ref]/page.tsx
         of bare Fortify on an empty hash
 
---- LATER (not needed for core loop test) ---
+--- ECOSYSTEM INTEGRATION (DONE) ---
 
-[ ] NOSTR RELAY PUBLISHING
-    [ ] publish NIP-POOL events to relays on fortify               src/app/api/fortify/route.ts
-    [ ] publish NIP-IMPORTANCE events to relays                    src/workers/settler.ts
-    [ ] accept inbound Zaps as pool credits                        src/workers/relay-sub.ts
+[x] NOSTR RELAY PUBLISHING
+    [x] publish NIP-POOL events to relays on fortify               src/app/api/fortify/route.ts
+    [x] publish NIP-IMPORTANCE events to relays                    src/workers/settler.ts
+    [x] accept inbound Zaps as pool credits                        src/workers/relay-sub.ts
 
-[ ] POLISH
-    [ ] embed code generator ("Embed this" snippet)                src/app/v/[ref]/page.tsx
-    [ ] live activity feed (funding events, new content)           src/components/shared/ActivityFeed.tsx
+[x] POLISH
+    [x] embed code generator ("Embed this" snippet)                src/components/content/EmbedGenerator.tsx
+    [x] live activity feed (funding events, new content)           src/components/shared/ActivityFeed.tsx

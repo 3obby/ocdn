@@ -8,6 +8,7 @@ import { CitationList } from "@/components/content/CitationList";
 import { FortifyButton } from "@/components/fortify/FortifyButton";
 import { ShareButton } from "@/components/shared/ShareButton";
 import { PushCTA } from "@/components/content/PushCTA";
+import { EmbedGenerator } from "@/components/content/EmbedGenerator";
 import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
@@ -131,6 +132,7 @@ export default async function ContentPage({ params }: PageProps) {
             citedBy={citedBy.map((e) => ({ hash: e.sourceHash, edgeType: e.edgeType }))}
             cites={cites.map((e) => ({ hash: e.targetHash, edgeType: e.edgeType }))}
           />
+          <EmbedGenerator contentHash={ref} />
         </div>
       </div>
     </div>

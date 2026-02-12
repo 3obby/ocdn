@@ -62,6 +62,7 @@ export function FortifyButton({ contentHash, size = "md", onSuccess }: FortifyBu
           proof,
           eventId: result.event.id,
           funderPubkey: result.event.pubkey,
+          signedEvent: result.event,
         }),
       });
 

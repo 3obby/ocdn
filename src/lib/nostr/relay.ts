@@ -11,12 +11,14 @@ interface Subscription {
   close: () => void;
 }
 
-/** Subscribe to all protocol event kinds on configured relays */
+const NIP57_ZAP_RECEIPT_KIND = 9735;
+
+/** Subscribe to all protocol event kinds + NIP-57 zaps on configured relays */
 export async function subscribeProtocolEvents(
   onEvent: EventHandler,
   since?: number
 ): Promise<Subscription[]> {
-  const kinds = Object.values(NIP_KINDS);
+  const kinds = [...Object.values(NIP_KINDS), NIP57_ZAP_RECEIPT_KIND];
   const subs: Subscription[] = [];
 
   for (const url of RELAY_URLS) {

@@ -1,14 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { netAfterRoyalty } from "@/lib/royalty";
+import { publishEvent } from "@/lib/nostr/relay";
+import { type NostrEvent } from "@/lib/nostr/types";
 
 /**
  * POST /api/fortify — Accept a pool credit (NIP-POOL event + payment proof).
- * Body: { contentHash, sats, proof, eventId, funderPubkey }
+ * Body: { contentHash, sats, proof, eventId, funderPubkey, signedEvent? }
+ *
+ * If signedEvent is provided, publishes it to configured Nostr relays
+ * so the broader ecosystem can see the funding activity.
  */
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { contentHash, sats, proof, eventId, funderPubkey } = body;
+  const { contentHash, sats, proof, eventId, funderPubkey, signedEvent } = body;
 
   if (!contentHash || !sats || !proof || !eventId || !funderPubkey) {
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -47,6 +52,13 @@ export async function POST(req: NextRequest) {
     ]);
 
     const pool = await prisma.pool.findUnique({ where: { hash: contentHash } });
+
+    // Publish signed event to Nostr relays (non-blocking)
+    if (signedEvent && signedEvent.id && signedEvent.sig) {
+      publishEvent(signedEvent as NostrEvent).catch((err) => {
+        console.error("[fortify] Failed to publish to relays:", err);
+      });
+    }
 
     return NextResponse.json({
       success: true,

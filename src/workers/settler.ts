@@ -12,7 +12,9 @@
 import { prisma } from "@/lib/db";
 import { epochRewardCap, payoutWeight, hostShare } from "@/lib/pool";
 import { computeRoyalty, splitRoyalty } from "@/lib/royalty";
-import { EPOCH_LENGTH_SECS } from "@/lib/constants";
+import { EPOCH_LENGTH_SECS, NIP_IMPORTANCE_KIND } from "@/lib/constants";
+import { publishEvent } from "@/lib/nostr/relay";
+import { buildServerEvent } from "@/lib/nostr/server-sign";
 
 export interface EpochResult {
   epoch: number;
@@ -128,6 +130,39 @@ export async function settleEpoch(epoch: number): Promise<EpochResult> {
   return { epoch, settlements, totalRewarded, totalRoyalty };
 }
 
+/** Publish NIP-IMPORTANCE events to Nostr relays for all scored content */
+async function publishImportanceEvents(epoch: number) {
+  try {
+    const items = await prisma.importance.findMany({
+      where: { epoch },
+      take: 200,
+    });
+
+    for (const item of items) {
+      const event = await buildServerEvent(
+        NIP_IMPORTANCE_KIND,
+        [
+          ["r", item.hash],
+          ["commitment", item.commitment.toString()],
+          ["demand", item.demand.toString()],
+          ["centrality", item.centrality.toString()],
+          ["score", item.score.toString()],
+          ...(item.label ? [["label", item.label]] : []),
+        ],
+        ""
+      );
+
+      publishEvent(event).catch((err) => {
+        console.error(`[settler] Failed to publish importance for ${item.hash.slice(0, 8)}:`, err);
+      });
+    }
+
+    console.log(`[settler] Published ${items.length} NIP-IMPORTANCE events to relays`);
+  } catch (err) {
+    console.error("[settler] Failed to publish importance events:", err);
+  }
+}
+
 /** Run settler on a timer (every EPOCH_LENGTH_SECS) */
 export function startSettler() {
   console.log("[settler] Starting epoch settler...");
@@ -147,6 +182,9 @@ export function startSettler() {
         `[settler] Epoch ${epoch}: ${result.settlements.length} CIDs, ` +
           `${result.totalRewarded} sats rewarded, ${result.totalRoyalty} sats royalty`
       );
+
+      // Publish importance scores to relays after settlement
+      await publishImportanceEvents(epoch);
     } catch (err) {
       console.error(`[settler] Epoch ${epoch} failed:`, err);
     }

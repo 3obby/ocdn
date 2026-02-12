@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { LeaderboardFeed } from "@/components/leaderboard/Feed";
 import { RefResolver } from "@/components/resolve/RefResolver";
+import { ActivityFeed } from "@/components/shared/ActivityFeed";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,12 @@ export default async function Home() {
           <span>{feed.length} documents</span>
         </div>
         <LeaderboardFeed items={feed} />
+      </section>
+
+      {/* Live activity */}
+      <section className="border-t border-border px-4 py-4">
+        <h2 className="text-sm font-medium text-muted mb-2">Recent activity</h2>
+        <ActivityFeed />
       </section>
     </div>
   );

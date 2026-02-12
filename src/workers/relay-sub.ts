@@ -175,6 +175,86 @@ async function handleOfferEvent(event: NostrEvent) {
   });
 }
 
+const NIP57_ZAP_RECEIPT_KIND = 9735;
+
+/** Process a NIP-57 Zap receipt — credit pool if it targets a content hash */
+async function handleZapEvent(event: NostrEvent) {
+  try {
+    // The zap request is in the "description" tag
+    const descriptionTag = event.tags.find((t) => t[0] === "description");
+    if (!descriptionTag?.[1]) return;
+
+    let zapRequest: { tags?: string[][] };
+    try {
+      zapRequest = JSON.parse(descriptionTag[1]);
+    } catch {
+      return; // Malformed zap request
+    }
+
+    if (!zapRequest.tags) return;
+
+    // Look for an "r" tag in the zap request pointing to a content hash
+    const rTag = zapRequest.tags.find(
+      (t: string[]) => t[0] === "r" && /^[0-9a-f]{64}$/.test(t[1])
+    );
+    if (!rTag) return; // Not a content-targeted zap
+
+    const contentHash = rTag[1];
+
+    // Extract amount from bolt11 tag
+    const bolt11Tag = event.tags.find((t) => t[0] === "bolt11");
+    const bolt11 = bolt11Tag?.[1] ?? "";
+    const sats = parseBolt11Amount(bolt11);
+    if (!sats || sats <= 0n) return;
+
+    const cumVol = await getCumulativeVolume();
+    const net = netAfterRoyalty(sats, cumVol);
+
+    await prisma.pool.upsert({
+      where: { hash: contentHash },
+      update: {
+        balance: { increment: net },
+        totalFunded: { increment: sats },
+        funderCount: { increment: 1 },
+      },
+      create: {
+        hash: contentHash,
+        balance: net,
+        totalFunded: sats,
+        funderCount: 1,
+      },
+    });
+
+    console.log(`[relay-sub] Zap credited ${sats} sats to pool ${contentHash.slice(0, 12)}...`);
+  } catch (err) {
+    console.error("[relay-sub] Error processing zap:", err);
+  }
+}
+
+/**
+ * Parse a bolt11 invoice to extract amount in sats.
+ * Bolt11 amounts are encoded after 'lnbc' prefix with a multiplier suffix:
+ * m = milli (0.001), u = micro (0.000001), n = nano, p = pico
+ */
+function parseBolt11Amount(bolt11: string): bigint | null {
+  if (!bolt11) return null;
+  const match = bolt11.match(/^lnbc(\d+)([munp]?)1/i);
+  if (!match) return null;
+
+  const amount = BigInt(match[1]);
+  const suffix = match[2].toLowerCase();
+
+  // Convert to sats (1 BTC = 100_000_000 sats)
+  switch (suffix) {
+    case "":   return amount * 100_000_000n; // BTC
+    case "m":  return amount * 100_000n;     // mBTC
+    case "u":  return amount * 100n;         // uBTC (microsats → sats)
+    case "n":  return amount / 10n;          // nBTC
+    case "p":  return amount / 10_000n;      // pBTC
+    default:   return null;
+  }
+}
+
 /** Route event to appropriate handler */
 async function handleEvent(event: NostrEvent) {
   await storeRawEvent(event);
@@ -197,6 +277,9 @@ async function handleEvent(event: NostrEvent) {
       break;
     case NIP_KINDS.clearing:
       // Clearing events handled by clearing worker
+      break;
+    case NIP57_ZAP_RECEIPT_KIND:
+      await handleZapEvent(event);
       break;
   }
 }
