@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { FortifyButton } from "@/components/fortify/FortifyButton";
+import { ShareButton } from "@/components/shared/ShareButton";
 
 export interface ContentCardProps {
   rank: number;
@@ -93,7 +94,10 @@ export function ContentCard({
             >
               View content &rarr;
             </Link>
-            <FortifyButton contentHash={hash} size="sm" />
+            <div className="flex items-center gap-2">
+              <ShareButton contentHash={hash} funderCount={funderCount} poolBalance={poolBalance} />
+              <FortifyButton contentHash={hash} size="sm" />
+            </div>
           </div>
         </div>
       )}

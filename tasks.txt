@@ -84,3 +84,42 @@ OCDN MVP — Task Checklist
     [ ] configure real nostr relay URLs                         .env NOSTR_RELAYS
     [ ] generate + distribute mint keypairs                     .env MINT_PRIVATE_KEY
     [ ] set FOUNDER_PUBKEY                                      .env
+
+--- CORE LOOP: Fortify → Share → Push ---
+--- Build as one pipeline. Each step unblocks the next. ---
+
+STEP 1: FORTIFY (simplify the revenue action)
+
+    [x] strip FortifyButton to single mode: button + amount       src/components/fortify/FortifyButton.tsx
+        presets (21/100/1k/10k) + pay. kill mode selector,
+        kill "fund" mode, hide preserve entirely for now.
+    [x] after successful payment: show confirmation + share        src/components/fortify/FortifyButton.tsx
+        prompt inline ("You fortified this. Share it.")
+
+STEP 2: SHARE (close the viral loop)
+
+    [x] share button on /v/[ref]: copy link + Nostr + Twitter     src/app/v/[ref]/page.tsx
+        (OG card already exists — it IS the payload)
+    [x] share button on leaderboard ContentCard                    src/components/leaderboard/Card.tsx
+    [x] post-Fortify share: surface share buttons immediately      src/components/fortify/FortifyButton.tsx
+        after payment success (Fortify→Share is one motion)
+
+STEP 3: PUSH (let users bring content)
+
+    [x] RefResolver: detect file input, upload to Blossom via      src/components/resolve/RefResolver.tsx
+        uploadBlob(), create pool entry via POST /api/push,        src/lib/blossom/client.ts
+        redirect to /v/{hash}
+    [x] POST /api/push: create pool entry + optional announce      src/app/api/push/route.ts
+    [x] /v/[ref] not-indexed state: show "Push" CTA instead        src/app/v/[ref]/page.tsx
+        of bare Fortify on an empty hash
+
+--- LATER (not needed for core loop test) ---
+
+[ ] NOSTR RELAY PUBLISHING
+    [ ] publish NIP-POOL events to relays on fortify               src/app/api/fortify/route.ts
+    [ ] publish NIP-IMPORTANCE events to relays                    src/workers/settler.ts
+    [ ] accept inbound Zaps as pool credits                        src/workers/relay-sub.ts
+
+[ ] POLISH
+    [ ] embed code generator ("Embed this" snippet)                src/app/v/[ref]/page.tsx
+    [ ] live activity feed (funding events, new content)           src/components/shared/ActivityFeed.tsx

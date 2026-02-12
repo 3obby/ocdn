@@ -6,6 +6,8 @@ import { InstrumentCluster } from "@/components/content/InstrumentCluster";
 import { Discussion } from "@/components/content/Discussion";
 import { CitationList } from "@/components/content/CitationList";
 import { FortifyButton } from "@/components/fortify/FortifyButton";
+import { ShareButton } from "@/components/shared/ShareButton";
+import { PushCTA } from "@/components/content/PushCTA";
 import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
@@ -73,18 +75,17 @@ export default async function ContentPage({ params }: PageProps) {
   const drain = pool ? epochRewardCap(pool.balance) : 0n;
   const sustainability = sustainabilityRatio(autoBid, drain);
 
-  // Not indexed state
+  // Not indexed state — show Push CTA
   if (!pool && !importance) {
     return (
       <div className="mx-auto max-w-4xl px-4 py-12">
-        <div className="text-center space-y-4">
+        <div className="text-center space-y-6">
           <h1 className="text-2xl font-bold">Not Indexed</h1>
           <p className="font-mono text-sm text-muted break-all">{ref}</p>
           <p className="text-muted">
-            This content is not yet in the importance index. Be the first to
-            Fortify it.
+            This hash isn&apos;t in the index yet. Push content to bring it to life.
           </p>
-          <FortifyButton contentHash={ref} size="lg" />
+          <PushCTA contentHash={ref} />
         </div>
       </div>
     );
@@ -92,10 +93,18 @@ export default async function ContentPage({ params }: PageProps) {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
-      {/* Hash header */}
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="font-mono text-sm text-muted break-all">{ref}</h1>
-        <FortifyButton contentHash={ref} />
+      {/* Hash header + actions */}
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <h1 className="font-mono text-sm text-muted break-all min-w-0">{ref}</h1>
+        <div className="flex items-center gap-2 shrink-0">
+          <ShareButton
+            contentHash={ref}
+            funderCount={pool?.funderCount}
+            poolBalance={pool?.balance.toString()}
+            size="md"
+          />
+          <FortifyButton contentHash={ref} />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
