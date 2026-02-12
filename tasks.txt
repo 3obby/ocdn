@@ -65,21 +65,21 @@ OCDN MVP — Task Checklist
     [x] standalone web component: compact leaderboard +       src/widget/embed.ts
         fortify, CDN-ready build
 
---- REMAINING INTEGRATION WORK ---
+--- INTEGRATION WORK (DONE) ---
 
-[ ] WIRING
-    [ ] real NIP-07 (browser extension) identity flow         src/lib/nostr/identity.ts
-    [ ] real Lightning payment integration (invoices)          src/components/fortify/
-    [ ] SSE wiring: connect pages/components to /api/sse      src/components/
-    [ ] header live stats: fetch doc count, total sats         src/components/shared/Header.tsx
-    [ ] OG image generation per content hash                   src/app/v/[ref]/opengraph-image.tsx
-    [ ] file drop support in RefResolver                       src/components/resolve/RefResolver.tsx
-    [ ] discussion: real nostr event subscription              src/components/content/Discussion.tsx
-    [ ] ephemeral key → claim funding flow                     src/lib/nostr/identity.ts
-    [ ] worker startup (settler + relay-sub + clearing)        src/app/api/ or standalone process
+[x] WIRING
+    [x] real NIP-07 (browser extension) identity flow         src/lib/nostr/identity.ts
+    [x] real Lightning payment integration (invoices+WebLN)    src/components/fortify/FortifyButton.tsx
+    [x] SSE wiring: connect pages/components to /api/sse      src/hooks/useSSE.ts
+    [x] header live stats: fetch doc count, total sats         src/components/shared/Header.tsx + /api/stats
+    [x] OG image generation per content hash                   src/app/v/[ref]/opengraph-image.tsx
+    [x] file drop support in RefResolver                       src/components/resolve/RefResolver.tsx
+    [x] discussion: real nostr event subscription              src/components/content/Discussion.tsx
+    [x] ephemeral key → claim funding flow                     src/lib/nostr/identity.ts
+    [x] worker startup (settler + relay-sub + clearing)        src/app/api/workers/route.ts
 
-[ ] INFRA
-    [ ] prisma migrate: create initial migration               prisma/migrations/
+[x] INFRA (partial)
+    [x] prisma migrate: create initial migration               prisma/migrations/0001_init/
     [ ] deploy postgres                                        .env DATABASE_URL
     [ ] configure real nostr relay URLs                         .env NOSTR_RELAYS
     [ ] generate + distribute mint keypairs                     .env MINT_PRIVATE_KEY

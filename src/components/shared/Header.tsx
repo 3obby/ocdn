@@ -2,8 +2,13 @@
 
 import Link from "next/link";
 import { RefResolver } from "@/components/resolve/RefResolver";
+import { useHeaderStats } from "@/hooks/useSSE";
+import { useIdentity } from "@/hooks/useIdentity";
 
 export function Header() {
+  const stats = useHeaderStats();
+  const { identity, login } = useIdentity();
+
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-md">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
@@ -22,11 +27,29 @@ export function Header() {
           <RefResolver compact />
         </div>
 
-        {/* Stats bar */}
+        {/* Stats + identity */}
         <div className="flex items-center gap-4 text-xs text-muted font-mono">
-          <StatPill label="docs" value="—" />
-          <StatPill label="sats" value="—" />
-          <StatPill label="hosts" value="—" />
+          <StatPill label="docs" value={stats.docs} />
+          <StatPill label="sats" value={stats.sats} />
+          <StatPill label="hosts" value={stats.hosts} />
+
+          {/* Identity indicator */}
+          {identity.pubkey ? (
+            <span
+              className="rounded-full bg-accent/20 px-2 py-0.5 text-accent"
+              title={identity.pubkey}
+            >
+              {identity.mode === "nip07" ? "NIP-07" : "ephemeral"}:{" "}
+              {identity.pubkey.slice(0, 8)}
+            </span>
+          ) : (
+            <button
+              onClick={login}
+              className="rounded-full bg-surface-2 px-2 py-0.5 text-muted hover:text-foreground transition-colors"
+            >
+              Connect
+            </button>
+          )}
         </div>
       </div>
     </header>
