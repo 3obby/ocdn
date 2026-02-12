@@ -1,0 +1,86 @@
+OCDN MVP — Task Checklist
+==========================
+
+[x] SCAFFOLD
+    [x] next.js app (app router), tailwind, prisma        package.json, tsconfig, next.config
+    [x] prisma schema: pools, receipts, settlements,       prisma/schema.prisma
+        events, importance scores, citation edges
+    [x] env: database url, nostr relay urls, founder       .env
+        pubkey, mint keys
+    [x] protocol constants                                 src/lib/constants.ts
+
+[x] PROTOCOL TYPES (NIP definitions)
+    [x] event kind numbers, tag shapes, zod schemas        src/lib/nostr/types.ts
+    [x] NIP-POOL: pool credit event build/validate         src/lib/nostr/pool.ts
+    [x] NIP-RECEIPT: receipt event build/validate           src/lib/nostr/receipt.ts
+    [x] NIP-SETTLE: settlement event build/validate        src/lib/nostr/settle.ts
+    [x] NIP-PRESERVE: preservation bid build/validate      src/lib/nostr/preserve.ts
+    [x] NIP-OFFER: host offer build/validate               src/lib/nostr/offer.ts
+    [x] NIP-CLEARING: clearing result build/validate       src/lib/nostr/clearing.ts
+
+[x] CORE LOGIC
+    [x] royalty formula r(v) + split accounting             src/lib/royalty.ts
+    [x] pool mechanics: accumulate, drain, epoch cap        src/lib/pool.ts
+    [x] receipt verification (ed25519 + pow check)          src/lib/receipt.ts
+    [x] importance computation (commitment × demand ×       src/lib/importance/index.ts
+        centrality), divergence labels
+    [x] citation graph: edge extraction, pagerank           src/lib/importance/graph.ts
+    [x] relay subscription client (nostr-tools)             src/lib/nostr/relay.ts
+    [x] blossom client (upload, fetch, L402 flow)           src/lib/blossom/client.ts
+    [x] prisma client singleton                             src/lib/db.ts
+
+[x] SETTLER / BACKGROUND SERVICES
+    [x] relay subscriber: ingest pool+receipt events        src/workers/relay-sub.ts
+    [x] epoch settler: compute rewards, publish settle      src/workers/settler.ts
+    [x] clearinghouse: match preserve↔offer at boundary     src/workers/clearing.ts
+
+[x] API ROUTES
+    [x] GET /api/pool/[hash]: balance, funders, drain       src/app/api/pool/[hash]/route.ts
+    [x] GET /api/importance: ranked list, filters            src/app/api/importance/route.ts
+    [x] GET /api/events: event stream query                  src/app/api/events/route.ts
+    [x] GET /api/sse: server-sent events (live updates)      src/app/api/sse/route.ts
+    [x] POST /api/fortify: accept pool credit + payment      src/app/api/fortify/route.ts
+    [x] POST /api/preserve: accept preserve bid              src/app/api/preserve/route.ts
+    [x] GET /api/resolve/[input]: ref resolver backend       src/app/api/resolve/[input]/route.ts
+
+[x] PAGES
+    [x] layout: header, stats bar, nip-07 auth               src/app/layout.tsx
+    [x] / leaderboard: ranked feed, expandable cards          src/app/page.tsx
+    [x] /v/[ref] content detail: blob embed + instrument      src/app/v/[ref]/page.tsx
+        cluster + discussion + fortify + citations
+    [x] /verify/[ref] integrity proof page                    src/app/verify/[ref]/page.tsx
+
+[x] COMPONENTS
+    [x] LeaderboardFeed + ContentCard (expandable)            src/components/leaderboard/
+    [x] InstrumentCluster (funding, demand, replicas,         src/components/content/
+        sustainability, citations, preserve backers)
+    [x] BlobEmbed (render pdf/image/text from blossom)        src/components/content/BlobEmbed.tsx
+    [x] Discussion (nostr threaded replies)                   src/components/content/Discussion.tsx
+    [x] CitationList (cited-by / cites, flat)                 src/components/content/CitationList.tsx
+    [x] FortifyButton (preserve/fortify/fund modes)           src/components/fortify/FortifyButton.tsx
+    [x] RefResolver (paste url/hash/drop file)                src/components/resolve/RefResolver.tsx
+    [x] Header + live stats                                   src/components/shared/Header.tsx
+
+[x] WIDGET
+    [x] standalone web component: compact leaderboard +       src/widget/embed.ts
+        fortify, CDN-ready build
+
+--- REMAINING INTEGRATION WORK ---
+
+[ ] WIRING
+    [ ] real NIP-07 (browser extension) identity flow         src/lib/nostr/identity.ts
+    [ ] real Lightning payment integration (invoices)          src/components/fortify/
+    [ ] SSE wiring: connect pages/components to /api/sse      src/components/
+    [ ] header live stats: fetch doc count, total sats         src/components/shared/Header.tsx
+    [ ] OG image generation per content hash                   src/app/v/[ref]/opengraph-image.tsx
+    [ ] file drop support in RefResolver                       src/components/resolve/RefResolver.tsx
+    [ ] discussion: real nostr event subscription              src/components/content/Discussion.tsx
+    [ ] ephemeral key → claim funding flow                     src/lib/nostr/identity.ts
+    [ ] worker startup (settler + relay-sub + clearing)        src/app/api/ or standalone process
+
+[ ] INFRA
+    [ ] prisma migrate: create initial migration               prisma/migrations/
+    [ ] deploy postgres                                        .env DATABASE_URL
+    [ ] configure real nostr relay URLs                         .env NOSTR_RELAYS
+    [ ] generate + distribute mint keypairs                     .env MINT_PRIVATE_KEY
+    [ ] set FOUNDER_PUBKEY                                      .env

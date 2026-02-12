@@ -1,0 +1,201 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// --- Raw Nostr events (sacred, append-only) ---
+
+model NostrEvent {
+  id        String   @id // event id (hex)
+  kind      Int
+  pubkey    String
+  createdAt Int      @map("created_at") // unix timestamp from event
+  content   String
+  tags      Json     // full tag array
+  sig       String
+  ingestedAt DateTime @default(now()) @map("ingested_at")
+
+  @@index([kind])
+  @@index([pubkey])
+  @@index([createdAt])
+  @@map("nostr_events")
+}
+
+// --- Pool state (materialized from NIP-POOL events) ---
+
+model Pool {
+  hash          String   @id // sha256 content hash
+  balance       BigInt   @default(0) // current sats
+  totalFunded   BigInt   @default(0) @map("total_funded")
+  funderCount   Int      @default(0) @map("funder_count")
+  drainPerEpoch BigInt   @default(0) @map("drain_per_epoch")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  funders     PoolFunder[]
+  receipts    Receipt[]
+  settlements SettlementLine[]
+  importance  Importance?
+  edges       CitationEdge[]   @relation("source_edges")
+  inEdges     CitationEdge[]   @relation("target_edges")
+
+  @@map("pools")
+}
+
+model PoolFunder {
+  id       String @id @default(cuid())
+  poolHash String @map("pool_hash")
+  pubkey   String
+  sats     BigInt
+  eventId  String @map("event_id") // NIP-POOL event id
+  pool     Pool   @relation(fields: [poolHash], references: [hash])
+
+  @@unique([poolHash, eventId])
+  @@index([pubkey])
+  @@map("pool_funders")
+}
+
+// --- Receipts (materialized from NIP-RECEIPT events) ---
+
+model Receipt {
+  id            String @id @default(cuid())
+  eventId       String @unique @map("event_id")
+  contentHash   String @map("content_hash")
+  hostPubkey    String @map("host_pubkey")
+  clientPubkey  String @map("client_pubkey")
+  priceSats     BigInt @map("price_sats")
+  epoch         Int
+  responseHash  String @map("response_hash")
+  receiptToken  String @map("receipt_token")
+  indexPubkey   String? @map("index_pubkey")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  pool Pool @relation(fields: [contentHash], references: [hash])
+
+  @@index([contentHash, epoch])
+  @@index([hostPubkey, epoch])
+  @@index([clientPubkey])
+  @@map("receipts")
+}
+
+// --- Settlement (materialized from NIP-SETTLE events) ---
+
+model Settlement {
+  id             String   @id @default(cuid())
+  eventId        String   @unique @map("event_id")
+  epoch          Int
+  settlerPubkey  String   @map("settler_pubkey")
+  totalRewarded  BigInt   @map("total_rewarded")
+  totalRoyalty   BigInt   @map("total_royalty")
+  receiptCount   Int      @map("receipt_count")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  lines SettlementLine[]
+
+  @@unique([epoch, settlerPubkey])
+  @@map("settlements")
+}
+
+model SettlementLine {
+  id            String @id @default(cuid())
+  settlementId  String @map("settlement_id")
+  contentHash   String @map("content_hash")
+  hostPubkey    String @map("host_pubkey")
+  rewardSats    BigInt @map("reward_sats")
+
+  settlement Settlement @relation(fields: [settlementId], references: [id])
+  pool       Pool       @relation(fields: [contentHash], references: [hash])
+
+  @@index([contentHash])
+  @@index([hostPubkey])
+  @@map("settlement_lines")
+}
+
+// --- Importance (materialized view, recomputed each epoch) ---
+
+model Importance {
+  hash        String @id // content hash
+  commitment  Float  @default(0) // normalized pool balance
+  demand      Float  @default(0) // receipt velocity
+  centrality  Float  @default(0) // graph importance
+  score       Float  @default(0) // composite
+  label       String? // "underpriced" | "flash" | "endowed" | null
+  epoch       Int    // last computed epoch
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  pool Pool @relation(fields: [hash], references: [hash])
+
+  @@index([score(sort: Desc)])
+  @@index([epoch])
+  @@map("importance")
+}
+
+// --- Citation graph ---
+
+model CitationEdge {
+  id         String @id @default(cuid())
+  sourceHash String @map("source_hash")
+  targetHash String @map("target_hash")
+  edgeType   String @map("edge_type") // "ref" | "body" | "list"
+  weight     Float  @default(1.0)
+  eventId    String? @map("event_id") // originating event
+
+  source Pool @relation("source_edges", fields: [sourceHash], references: [hash])
+  target Pool @relation("target_edges", fields: [targetHash], references: [hash])
+
+  @@unique([sourceHash, targetHash, edgeType])
+  @@index([targetHash])
+  @@map("citation_edges")
+}
+
+// --- Preserve / Offer / Clearing (clearinghouse) ---
+
+model PreserveOrder {
+  id           String   @id @default(cuid())
+  eventId      String   @unique @map("event_id")
+  contentHash  String   @map("content_hash")
+  funderPubkey String   @map("funder_pubkey")
+  tier         String   // "gold" | "silver" | "bronze" | "custom"
+  replicas     Int
+  jurisdictions Int
+  durationEpochs Int   @map("duration_epochs")
+  maxPriceSats BigInt   @map("max_price_sats")
+  escrowProof  String   @map("escrow_proof")
+  status       String   @default("active") // "active" | "matched" | "cancelled" | "expired"
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([contentHash, status])
+  @@map("preserve_orders")
+}
+
+model HostOffer {
+  id           String   @id @default(cuid())
+  eventId      String   @unique @map("event_id")
+  hostPubkey   String   @map("host_pubkey")
+  contentHash  String   @map("content_hash") // or "*" for general
+  replicas     Int
+  regions      String[] // region codes
+  priceSats    BigInt   @map("price_sats")
+  bondSats     BigInt   @map("bond_sats")
+  bondProof    String   @map("bond_proof")
+  durationEpochs Int   @map("duration_epochs")
+  status       String   @default("active")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([contentHash, status])
+  @@index([hostPubkey])
+  @@map("host_offers")
+}
+
+// --- Protocol state ---
+
+model ProtocolState {
+  key   String @id
+  value String
+
+  @@map("protocol_state")
+}
