@@ -11,21 +11,24 @@
 3. **Infrastructure is a commodity** — Borrow it. Nostr relays distribute events. Blossom servers store blobs. Lightning/Cashu handle payments. Nostr keys handle identity. All already deployed, already distributed, already resilient.
 4. **The importance index is the product** — The real-time, economically-weighted ranking of what humanity values enough to pay to preserve. No other system produces this signal. The protocol is plumbing; the index is the product.
 5. **Funding is broadcasting** — Sats attached to a hash don't just buy copies — they buy visibility. Pool balance feeds importance score, importance feeds discovery, discovery feeds consumption, consumption auto-bids back into the pool. Fortify is a strategic action in an attention competition, not a donation.
-6. **Agents are the dominant consumption vector** — Human consumption is linear; agent consumption scales with compute. Every agent L402 fetch generates a receipt, an auto-bid, and a royalty event at machine speed. The importance index is a demand oracle for agent capital allocation. The system that tells agents what to consume — and proves they consumed it — is the coordination layer for the agent attention economy.
+6. **Agents are the dominant consumption vector** — Human consumption is linear; agent consumption scales with compute. Every agent L402 fetch generates a receipt, an auto-bid, and an attribution event at machine speed. The importance index is a demand oracle for agent capital allocation. The system that tells agents what to consume — and proves they consumed it — is the coordination layer for the agent attention economy.
 7. **Protocol surface area is the enemy** — Proof-of-service (receipts + byte correctness + pool drains) is sacred. Everything else — threading, ranking, author payouts, moderation, discovery — is a materializer view, changeable without a fork.
 8. **Durability and access are separate products** — Pools fund proof-of-holding (time-based drain). Egress is funded separately: L402 (paid), PoW (free-as-in-CPU), or funder-sponsored budget. Hosts are stores, not libraries.
-9. **Competing indexes improve the system** — Multiple materializers compute importance from the same public event stream. Users and agents choose which index to follow. Competition improves quality. Every competing index that drives consumption generates protocol royalties. Indexes are brokers; the protocol is the exchange.
+9. **Competing indexes improve the system** — Multiple materializers compute importance from the same public event stream. Users and agents choose which index to follow. Competition improves quality. Every competing index that drives consumption earns from that consumption. Indexes are brokers who earn the spread; the protocol is a free public exchange.
+10. **The hierarchy is append/promote-only** — Content, topics, and discussion form a DAG. Nodes are added (append) or funded (promote). Nothing is edited, deleted, or hidden at the protocol level. Loss is an explicit, auditable state — the pool exists, the receipts existed, the bytes are gone. Every other information system makes loss silent. This one makes loss visible, attributable, and economically actionable.
+11. **The protocol is a public good** — Zero protocol-level fees. Revenue lives in the index and clearinghouse, not in toll gates on infrastructure. Forking free infrastructure gains nothing. The index is a private good — data moat + attribution revenue. Competing with a compounding dataset costs years. Revenue lives where the value lives.
 
 ---
 
 ## What Dupenet Invented (Novel Contributions)
 
-Four things no existing system provides:
+Five things no existing system provides:
 
 1. **A pool attached to a hash** — money bound to content identity, not to an author or server
 2. **Receipts as proof of service** — cryptographic evidence that a host served real bytes to a real payer
 3. **Pool drain to receipt-holders** — hosts earn from pools proportional to proven service
 4. **The importance index** — the ranking derived from 1-3: commitment × demand × centrality
+5. **Accountable loss** — every node that ever existed leaves a permanent economic trace (pool events, receipts, settlements, Bitcoin anchors). Loss is a first-class state: the record survives the bytes. No other system distinguishes "never existed" from "existed and was lost"
 
 Everything else is borrowed infrastructure.
 
@@ -58,8 +61,8 @@ Everything else is borrowed infrastructure.
 
 ### Trust Assumptions (MVP)
 
-- Founder operates: settler, materializer/leaderboard, clearinghouse, 1 of 3-5 receipt mints
-- Peers operate: 2-4 receipt mints (different jurisdictions), additional settlers (cross-verification)
+- Founder operates: reference importance index (materializer/leaderboard), clearinghouse, 1 of 3-5 receipt mints. Founder does NOT operate Blossom servers or Nostr relays. Seed content uploaded to third-party Blossom servers. Settlers are permissionless — founder may run one but settlement is a commodity.
+- Peers operate: 2-4 receipt mints (different jurisdictions), Blossom servers (blob storage), additional settlers (cross-verification)
 - Nostr relays handle: event distribution (pool credits, receipts, settlements, announcements)
 - Blossom servers handle: blob storage and serving (with optional NIP-RECEIPT for pool economics)
 - All settlement is deterministic and auditable from public relay events — anyone can recompute from day 1
@@ -93,9 +96,19 @@ content: optional JSON (metadata, strategy hints)
 sig: funder signature
 ```
 
-**Protocol rule**: settler watches relays for NIP-POOL events. For each valid event: `pool[ref] += (sats - royalty)`. Royalty computed per §Founder Royalty formula.
+**Protocol rule**: settler watches relays for NIP-POOL events. For each valid event: `pool[ref] += sats`. No protocol-level royalty deducted — 100% credited to pool.
 
-**Pool key** = SHA256 hash. Can be a content CID, an event ID, or a topic hash. Protocol doesn't care what it references — it credits and drains.
+**Pool key** = SHA256 hash. Protocol doesn't care what it references — it credits and drains. Three node types share the same pool mechanics:
+
+| Node type | Pool key | Has bytes | Example |
+|-----------|----------|-----------|---------|
+| **Concrete** | SHA256 of file bytes | Yes (Blossom) | Court filing, image, PDF |
+| **Abstract (topic)** | SHA256 of topic string | No | `SHA256("china")`, `SHA256("climate-economics")` |
+| **Event** | Nostr event ID | No (text on relays) | Comment, analysis, list |
+
+Abstract nodes are organizational roots — accumulate pool balance, receive importance scores, anchor sub-hierarchies, but have no bytes to serve. Concrete nodes have actual content on Blossom. Event nodes are lightweight text on relays. All three participate identically in the importance index. The hierarchy emerges from reference edges, not a declared taxonomy.
+
+Competing topic hashes (e.g. `SHA256("china")` vs `SHA256("PRC")`) are distinct pools. Citation graph and cross-referencing reveal clusters; materializers may present them as related. No canonicalization at protocol level — that would require governance.
 
 Replaces: EventV1 kind=FUND, custom POST /event endpoint, custom pool accounting.
 
@@ -128,7 +141,7 @@ content: ""
 sig: client signature
 ```
 
-**Index attribution**: Optional. If present, settler verifies `index_proof` (Ed25519 verify against index pubkey, token epoch valid). Only then does the receipt count toward that index's royalty share. Unattributed receipts forfeit index royalty (goes to dev fund).
+**Index attribution** (primary revenue mechanism for indexes): If present, settler verifies `index_proof` (Ed25519 verify against index pubkey, token epoch valid). Attributed receipts earn the driving index INDEX_ATTRIBUTION_PCT (20%) of their share of pool drain. Unattributed receipts generate no index revenue — hosts earn the full drain share. This incentivizes indexes to drive consumption and hosts to accept indexed traffic.
 
 **Verification**: O(1), permissionless. `Ed25519_verify(receipt_token, mint_pubkey)` + `pow_hash < TARGET` + `sig check`. No LN state, no network calls.
 
@@ -140,6 +153,8 @@ sig: client signature
 | 9-16 | 2× | ~400ms |
 | 17-32 | 4× | ~800ms |
 | 33+ | 8×+ | exponential |
+
+**Size scaling**: `effective_difficulty = base_difficulty × ceil(bytes / POW_SIZE_UNIT)`. Larger content costs proportionally more CPU. A 1 KB comment ≈ 1× base. A 10 MB PDF ≈ 10× base. Prevents free flooding of large blobs while keeping small text cheap. Applied to both receipt PoW and comment PoW.
 
 **Blossom server integration**: Any Blossom server can opt into the receipt economy by running the NIP-RECEIPT addon. Servers that don't just serve blobs for free (altruistic, like current relays). Servers that do earn from pool economics. Adoption gradient: opt in when profitable.
 
@@ -163,7 +178,12 @@ content: JSON settlement details
 sig: settler signature
 ```
 
-**Index attribution accounting**: For each index with valid `index_proof` receipts: `payout(index_i) ∝ U_i × log2(1 + R_i)` — unique attributed clients dominant, volume sublinear. Routed from ROYALTY_SPLIT_INDEX (10%).
+**Index attribution accounting**: For each index with valid `index_proof` receipts:
+```
+index_payout(index_i, cid, epoch) = cid_epoch_drain × attributed_share_i × INDEX_ATTRIBUTION_PCT
+attributed_share_i = U_i × log2(1 + R_i) / Σ(U_j × log2(1 + R_j))
+```
+Unique attributed clients (U) dominant, volume (R) sublinear. Indexes earn directly from the pool drain they drive — no intermediary royalty split. Same rate (20%) for all indexes. Host share = cid_epoch_drain × (1 - total_attributed × INDEX_ATTRIBUTION_PCT).
 
 **Properties**:
 - Deterministic: same inputs → same outputs. Anyone can verify.
@@ -222,7 +242,7 @@ tags:
   ["r", "<sha256>"]                      # content hash
   ["clearing_price", "<sats_per_replica_per_epoch>"]
   ["matched_replicas", "<n>"]
-  ["spread", "<sats>"]                   # 3% of matched value
+  ["spread", "<sats>"]                   # 5% of matched value
   ["pool_credit", "<sats>"]              # net credited to pool
   ["preserve_ids", "<event_id_list>"]
   ["offer_ids", "<event_id_list>"]
@@ -241,6 +261,7 @@ Three paths for sats to enter a pool:
 1. **Auto-bids from traffic** — Every L402 paid fetch generates `auto_bid = price_sats × AUTO_BID_PCT`. Credited to pool at settlement. Content becomes self-sustaining when auto-bid income ≥ preservation cost. Consumption funds preservation — the core loop.
 2. **Preserve orders** — Structured bids: `{cid, tier, replicas, duration, max_price}`. Multiple funders aggregate. Sats escrowed until clearing. Clearinghouse takes CLEARING_SPREAD_PCT on matched value.
 3. **Raw NIP-POOL events** — Direct pool credit. Irrevocable. The power-user / programmatic path. Tip/upvote/fortify are all pool credits with different amounts.
+4. **Discussion upflow** — Tips on child events (comments, replies) split between local signal and ancestor pool credit. `child_tip × DISCUSSION_UPFLOW_PCT` credited as NIP-POOL to the root content hash. Materializer resolves the ref chain from comment → root. Discussion generates preservation: a document that sparks 500 tipped comments becomes self-sustaining from discourse alone.
 
 ### Release
 
@@ -261,6 +282,60 @@ host_share = cid_epoch_cap × score(host) / Σ score(eligible_hosts)
 ### Sustainability Ratio
 
 Per CID: `sustainability_ratio = organic_auto_bid_income / preservation_cost`. If ≥ 1.0: content is self-sustaining from traffic alone. Displayed on every content page. Novel metric — no other system measures "at what point does content earn its own survival."
+
+### Host Storage Economics
+
+Hosts price storage on a scarcity curve. As capacity fills, cost rises asymptotically — the server never runs out, just becomes arbitrarily expensive. Only content that can economically justify the marginal cost survives at high utilization.
+
+```
+storage_cost_per_byte_per_epoch = BASE_STORAGE_RATE × (1 - utilization)^(-SCARCITY_EXPONENT)
+
+where utilization = used_bytes / total_bytes
+```
+
+| Utilization | Cost multiplier (exponent=1) | Effect |
+|-------------|------------------------------|--------|
+| 50% | 2× base | Moderate — most content justified |
+| 80% | 5× base | Only well-funded content |
+| 95% | 20× base | Premium only |
+| 99% | 100× base | Crisis-level content only |
+
+Hosts publish capacity metadata in announcements: `total_bytes`, `utilization`, `storage_base_rate`, `scarcity_exponent`. Clients and the index see which hosts have capacity, which are expensive, and where content should migrate.
+
+**Eviction**: Host agent evicts when `storage_cost > (pool_drain_share + egress_income) × EVICTION_HYSTERESIS` for consecutive epochs. Eviction is auditable — published as events with reason, utilization, cost, and revenue at eviction time. Accountable loss extends to economic eviction.
+
+**Survivability projection** (materializer-computed, display signal):
+
+```
+projected_epochs = pool_balance / (net_drain_rate - auto_bid_income)
+```
+
+Displayed on content pages and at Fortify time as funding quotes: "Fund 10,000 sats → extends to ~80 days at current rates." As host utilization rises, projections shorten — creating funding urgency. Different indexes may compute projections with different risk assumptions. Competition improves quality.
+
+**Opportunity feed** (materializer-computed): Funded content with zero or few hosts surfaces as "unhosted opportunity" ranked by `pool_balance / num_hosts`. Node agents auto-mirror content passing their acceptance policy when capacity permits. Well-funded content recruits its own infrastructure — hosts see opportunity, accept content, start earning.
+
+**Host acceptance policy** (local config, not protocol):
+
+```
+previously_served: true               # re-accept known content (frictionless re-funding)
+trusted_uploaders: [pubkeys]           # whitelist — auto-accept
+auto_accept:
+  min_pool_balance: 2000               # sats — serious funding intent
+  max_content_size: 50_000_000         # 50MB — prevent capacity bombing
+  allowed_types: ["text/*", "image/*", "application/pdf"]
+reject:
+  types: ["application/x-executable"]
+  max_size: 1_000_000_000             # 1GB hard cap
+  flagged_by: [attester_pubkeys]       # reject attester-flagged content
+```
+
+Content is never pushed to hosts. Hosts pull content matching their policy. The `previously_served` rule means: once you've accepted content, re-funding is frictionless, but new unknown content requires meeting acceptance criteria. Adversarial content cannot disrupt node operations.
+
+**Three self-correcting loops:**
+
+1. **Eviction → funding urgency**: Host fills → low-funded content evicted → "not served" visible on leaderboard → community funds → content re-hosted
+2. **High prices → new hosts**: Hosts fill → storage prices rise → hosting becomes profitable → new operators join → capacity increases → prices stabilize
+3. **Content migration**: Expensive host → cheap host has capacity → content migrates → expensive host frees space → equilibrium across hosts
 
 ---
 
@@ -293,6 +368,7 @@ Every divergence creates an incentive to close it. The system self-corrects thro
 | **ref edge** | event ref field | Every event points to one parent |
 | **body edge** | `[ref:bytes32]` in content | Materializer extracts at ingest |
 | **list edge** | LIST event items | Each item creates edge to constituent |
+| **topic edge** | `["t", "<topic_hash>"]` tag | Content/event referencing a topic ancestor |
 
 **Graph importance** (materializer-computed, display signal only):
 ```
@@ -316,7 +392,7 @@ tags: [["r", "<sha256>"], ["commitment", "<float>"], ["demand", "<float>"], ["ce
 - **Centrality-first indexes**: emphasize graph structure. Better for research agents.
 - **Topic-scoped indexes**: deep niche signal for specific domains.
 
-Indexes earn from: API fees, widget hosting, institutional licensing. Users/agents choose which to follow. Competition improves quality. Every index that drives consumption generates protocol royalties. **More indexes = more royalties.**
+Indexes earn from: discovery attribution (20% of pool drain they drive), API fees, widget hosting, institutional licensing. Users/agents choose which to follow. Competition improves quality. Every index that drives consumption earns from that consumption. **More indexes = more competition = better rankings.**
 
 ---
 
@@ -339,57 +415,50 @@ Indexes earn from: API fees, widget hosting, institutional licensing. Users/agen
 
 ---
 
-## Fee Model
+## Revenue Model: Index-as-Market-Maker
 
-### Founder Royalty (Protocol-Level)
+**Principle**: The protocol is a free public good. Zero protocol-level fees. Revenue comes from operating services (index, clearinghouse), not from taxing infrastructure. Every sat earned corresponds to a specific service rendered. Forking the protocol gains nothing — there's no rent to steal. Competing with the index requires years of accumulated graph data.
 
-Two components, both to FOUNDER_PUBKEY in genesis config:
+### Protocol-Level Fees: Zero
 
-**1. Pool credit royalty** — deducted at settlement when computing pool balances:
+- **Pool credits (NIP-POOL)**: no royalty deducted. 100% credited to pool.
+- **Egress (L402 fetches)**: no royalty. Hosts keep 100% (minus auto-bid to pool and index attribution if applicable).
+- **Settlement (NIP-SETTLE)**: no protocol tax. Settlers earn market-rate fees set by competition.
+
+All settlers are equal. All pool credits count. No "compliance" gatekeeping — the protocol is genuinely open.
+
+### Revenue Channels
+
+**1. Discovery attribution** — Primary revenue. When a receipt includes valid `index_proof`, the driving index earns INDEX_ATTRIBUTION_PCT (20%) of that receipt's share of pool drain.
+
 ```
-r(v) = 0.15 × (1 + v / 125,000,000)^(-0.3155)
+index_payout(index_i, cid, epoch) =
+  cid_epoch_drain × (attributed_receipts_i / total_receipts) × INDEX_ATTRIBUTION_PCT
 
-v = cumulative sats credited to all pools since genesis
-Rate halves every ~10× volume. Deterministic. Auditable.
+Symmetric: same rate for every index. Founder earns more by being better, not by being first.
+Scales with ecosystem: bigger pools, more drain, more attribution revenue.
+Tapers naturally: as competitors emerge and capture attribution share, founder share decreases.
 ```
 
-| Cumulative volume | Rate | Cumulative founder income |
-|-------------------|------|--------------------------|
-| 0 | 15.00% | 0 |
-| 1 BTC | 10.53% | ~0.13 BTC |
-| 10 BTC | 7.50% | ~0.96 BTC |
-| 100 BTC | 3.75% | ~5.27 BTC |
-| 1,000 BTC | 1.82% | ~26.3 BTC |
+At launch, founder's index drives ~90% of consumption (only index with data). Effective rate: 0.9 × 0.20 = **18% of total pool drain**. Declines only as competitors take attribution share — which takes years due to the citation graph data moat.
 
-**2. Egress royalty** — 1% flat on all L402 egress from NIP-RECEIPT-implementing servers. Never tapers. The durable passive income floor. Applies across the entire Blossom ecosystem, not just founder-operated servers.
+**2. Clearing spread** — CLEARING_SPREAD_PCT (5%) on matched preserve/offer value. Brokerage fee for a matching service. Orderbook liquidity is a natural monopoly — first clearinghouse with depth wins. Non-tapering, compounds with volume. Structurally the most defensible revenue stream.
 
-**Enforcement**: the importance index only counts pool credits from compliant settlers. Funding through non-compliant settlers doesn't buy visibility. Since visibility is the point of funding, the royalty is the price of admission to the canonical importance index. At 1% egress, below any fork threshold.
+**3. Importance API** — Tiered L402-gated access to importance data, historical graph, divergence alerts, streaming updates. Free tier for Nostr clients (drives adoption and attribution). Paid tier for institutional consumers and agent platforms ($5K-$1M/year).
 
-**Royalty split** (at settlement):
+### Value Capture
 
-| Recipient | Share | Rationale |
-|-----------|-------|-----------|
-| Founder | 60% | Protocol creator, data moat maintainer |
-| Settler operator | 20% | Incentivizes peer settlers |
-| Index operator | 10% | Routed by attributed unique clients per NIP-SETTLE; incentivizes competing indexes |
-| Development fund | 10% | Ecosystem maintenance |
+| Revenue stream | Type | Rate | Who earns | Defensibility |
+|----------------|------|------|-----------|---------------|
+| Discovery attribution | Service | 20% of attributed pool drain | Any index driving consumption | Data moat: citation graph + importance history |
+| Clearing spread | Service | 5% of matched preserve value | Clearinghouse operator | Orderbook liquidity (natural monopoly) |
+| Importance API | Product | Tiered L402 pricing | Index operator | Deepest dataset, longest history |
+| Widget licensing | Product | Volume-based | Index operator | Brand + distribution |
+| Institutional/Agent API | Product | $5K-$1M/year | Index operator | Demand oracle positioning |
+| Pool payouts | Protocol (free) | Score-weighted, zero tax | Receipt-holding hosts | N/A — open protocol |
+| Settlement fees | Market | Settler-set (competitive) | Epoch settler | N/A — commodity service |
 
-### Value Capture (Toll Booths)
-
-| Toll | Type | Rate | Who earns |
-|------|------|------|-----------|
-| Pool credit royalty | Protocol | Volume-tapering (15% → ~0%) | Founder (split per above) |
-| Egress royalty | Protocol | Flat 1% | Founder (split per above) |
-| Pool payouts | Protocol | Score-weighted | Receipt-holding hosts/Blossom servers |
-| Settlement fee | Market | Settler-set | Epoch settler |
-| Clearing spread | Product | 3% of matched preserve value | Clearinghouse operator |
-| Importance API | Product | Tiered pricing | Index operator |
-| Widget licensing | Product | Volume-based | Index operator |
-| Institutional API | Product | $5K-$1M/year | Index operator |
-| Preserve clearing | Product | 3%, non-tapering | Clearinghouse |
-| Auto-bid royalty | Protocol (indirect) | AUTO_BID_PCT of egress → pool credit (subject to credit royalty) | Founder |
-
-**Clearing spread defensibility**: Non-tapering, compounds with volume, naturally monopolistic (liquidity begets liquidity). Orderbook doesn't migrate with a fork. Structurally the most defensible revenue stream.
+**No protocol-level tolls. Every revenue line is a service fee, not a tax.**
 
 ---
 
@@ -403,6 +472,8 @@ No governance. No global moderation. Operators apply local policy.
 - **Protocol**: doesn't know or care what content is. Knows: hash, pool balance, receipt count.
 
 If all hosts refuse a CID: show "not served" + "offer bounty to attract hosts who will." Availability market preserved.
+
+**Append/promote-only guarantee:** The protocol supports two operations on the hierarchy: add a node (content, topic, comment) and fund a node (NIP-POOL). No edit (hash-addressed content is immutable). No delete (pool events are permanent Nostr events). No hide (all events are public on relays). Versioning is explicit: publish new content with a `supersedes` edge to the old hash. The old version persists at its hash with its own pool and receipt history.
 
 ---
 
@@ -459,6 +530,7 @@ At scale, agents are the dominant receipt generators, analysis producers, and ca
 | Widget (Web Component) | Embeddable anywhere, mobile-responsive | MVP |
 | Ref resolver | Paste URL/hash/file → resolve to importance data | MVP |
 | Citation list (flat) | "Cited by" / "Cites" lists (not full graph viz) | MVP |
+| Topic page | Abstract node hierarchy: sub-topics, content, aggregate economics | MVP |
 | Graph visualization | Full animated citation network | Phase 1.5 |
 
 ### UX Constraints
@@ -467,13 +539,21 @@ At scale, agents are the dominant receipt generators, analysis producers, and ca
 
 **Identity:** Default NIP-07 (or Amber on mobile). Ephemeral key allowed for first Fortify to reduce friction. Immediately offer "Claim this funding" — one signature linking ephemeral event to persistent pubkey. Preserves funder diversity metrics and portfolio.
 
-**Comment ordering:** Baseline = recency + author trust (receipt portfolio as lightweight signal). Boost = sats on comment event. Don't weight by sats alone — prevents paid reply spam. Body edges (`[ref:bytes32]`) create citation structure regardless of sats.
+**Comment submission (PoW-gated):** Comments are Nostr events referencing a content hash or parent comment. Each requires proof-of-work (NIP-13) at COMMENT_POW_TARGET difficulty. Difficulty escalates per pubkey per thread per day (same schedule as receipt PoW: 1×/2×/4×/8×+) and scales with event size (`× ceil(bytes / POW_SIZE_UNIT)`). Short text comments are cheap; long-form posts cost more CPU. Materializer validates PoW before inclusion.
+
+**Comment ordering:** Baseline = recency + author trust (receipt portfolio as lightweight signal). Boost = sats on comment event. Don't weight by sats alone — prevents paid reply spam. Body edges (`[ref:bytes32]`) create citation structure regardless of sats. Two-axis anti-spam: PoW gates posting (prevents infinite free spam), sats gate surfacing (prevents whale burial of discussion).
+
+**Discussion upflow:** When a comment receives a tip (NIP-POOL to the comment's event ID), `tip × DISCUSSION_UPFLOW_PCT` is credited to the root content's pool. Client or materializer resolves the ref chain to find the root hash. Upflow is direct-to-root — intermediate comments are cheap relay text, the root content needs Blossom hosting. Displayed on content page: "This discussion has contributed X sats to preserving this document."
+
+**Derived durability:** Comments have no independent durability concern (text on relays is cheap). Their semantic durability depends on the parent content surviving. If root content enters "not served" state, the discussion thread shows: "The content this discussion references is no longer available. Fortify to restore it." Comment durability is derived from, not independent of, parent content durability.
 
 **Ref resolver (canonicalization):** Must answer "what is the ref?" Inputs: Blossom URL (extract SHA256), direct file (hash in browser via Web Crypto API), Nostr event (extract `r` tag). Prominent input on leaderboard: paste URL/hash/drop file → resolve → show importance or "Not indexed — be first to Fortify."
 
 **"Not served" / "Not indexed" states:** First-class. Show pool balance, target bounty to attract first host, who refused (optional). One button: Fortify to summon hosts. Censorship-as-market made visible.
 
 **"Not indexed" state:** Content exists on Blossom but no ANNOUNCE. Ref resolver encounters this → "Be the first to index" → one-tap ANNOUNCE + optional Fortify.
+
+**"Lost" state (was served, no longer served):** Distinct from "not served" (never had hosts). Show: pool history (total sats ever committed, funder count), receipt history (last served epoch, last serving hosts, peak demand), preservation violations (if NIP-PRESERVE orders were active when service stopped). Bitcoin anchor proof: "This content existed at block height H." One button: Fortify to restore. The loss record is permanent — even if content is restored, the gap is visible. The system remembers what it lost and who was responsible for holding it.
 
 **Widget:** Ship on CDN first. Dogfood (Blossom-hosted widget) later when reliability proven.
 
@@ -497,7 +577,7 @@ File layer, L402, node kit, receipt SDK, pin contracts. See `progress_overview.t
 
 **Step 1: NIP-POOL spec + reference settler**
 - Define pool credit event kind
-- Reference settler: subscribes to relays, maintains pool state in Postgres, applies royalty formula
+- Reference settler: subscribes to relays, maintains pool state in Postgres, computes index attribution
 - Pool query API: `GET /pool/<hash>` → balance, funder count, drain rate
 - Open source from day 1
 
@@ -509,7 +589,7 @@ File layer, L402, node kit, receipt SDK, pin contracts. See `progress_overview.t
 
 **Step 3: NIP-SETTLE spec + settlement service**
 - Settler subscribes to pool + receipt events
-- Computes epoch rewards (log-scaled caps, score-weighted splits, royalty deduction)
+- Computes epoch rewards (log-scaled caps, score-weighted splits, index attribution)
 - Publishes settlement summaries as Nostr events
 - Cross-verification: multiple settlers, same inputs, same outputs
 - Bitcoin anchoring: daily tx commits epoch root + snapshot hash
@@ -528,6 +608,7 @@ Core surface:
 - Preserve tiers: Gold (10 replicas, 3 jurisdictions, 6mo) / Silver / Bronze
 - Discussion: Nostr events with ref=content hash. Order: recency + author trust + sats boost. `[ref:bytes32]` rendered as citation links.
 - Citation list: "Cited by" / "Cites" (flat lists). Full graph viz deferred to Phase 1.5.
+- Topic page: `/t/<topic_hash>` — competing sub-topics ranked by importance, direct content, aggregate economics (total sats committed to topic + descendants). No bytes to embed — the page IS the hierarchy. Loss visibility: "3 documents under this topic are no longer served."
 - Orphan view: funded but under-analyzed content ("needs analysis" callouts)
 - OG cards: share `/v/{hash}` → rich preview with importance data, funder count, sustainability
 
@@ -556,9 +637,9 @@ Bitcoin integrity anchor:
 
 **Step 6: Clearinghouse** (parallel with Step 4, not after Step 5)
 
-Matching engine: subscribes to NIP-PRESERVE + NIP-OFFER events, aggregates demand per CID, matches at epoch boundary, publishes NIP-CLEARING. Settler treats clearing events as pool credits (minus spread). 3% CLEARING_SPREAD_PCT on matched value.
+Matching engine: subscribes to NIP-PRESERVE + NIP-OFFER events, aggregates demand per CID, matches at epoch boundary, publishes NIP-CLEARING. Settler treats clearing events as pool credits (minus spread). 5% CLEARING_SPREAD_PCT on matched value.
 
-- **Escrow**: MVP trust-based (clearinghouse holds sats via Lightning address). Post-MVP: Cashu ecash escrow.
+- **Escrow**: Cashu ecash escrow from day 1. Non-custodial. Clearinghouse matches orders and publishes clearing results; never holds user funds. Removes custodial liability entirely.
 - **Bid aggregation display**: preserve backers count, aggregate tier, supply curve, sustainability projection in instrument cluster.
 - **Two-tier host market**: commodity (spot, pool drain only) vs committed (bonded OFFER, earns clearing price).
 - **MVP simplification**: No bond enforcement (host fails → preserve degrades to best-effort spot). No multi-sig — founder-operated. Add when second operator joins.
@@ -589,10 +670,9 @@ Every role is profitable to operate independently — peers earn, not volunteer.
 | Role | Day 1 operators | Revenue | Failure mode |
 |------|----------------|---------|--------------|
 | Receipt mints | 3-5 peers, different jurisdictions | Mint fee (market-set) | Any 2 survive = receipts flow |
-| Settlers | Founder + 1-2 peers | 20% of royalty split | Any 1 survives = settlements continue |
-| Importance indexes | Founder + competing operators | API fees per index | Any 1 survives = rankings exist |
-| Clearinghouse | Founder + 1-2 peers (multi-sig) | Clearing spread (split) | Degrades to raw pool credits |
-| Royalty recipient | Threshold key (2-of-3) | Protocol royalties | Remaining holders access funds |
+| Settlers | Permissionless (founder may run one) | Settler fee (market-set, competitive) | Any 1 survives = settlements continue |
+| Importance indexes | Founder (reference) + competing operators | Discovery attribution (20% of attributed drain) + API fees | Any 1 survives = rankings exist |
+| Clearinghouse | Founder (reference) + competing operators | Clearing spread (5% of matched value) | Degrades to raw pool credits |
 | Code / DNS | 2-3 maintainers, multi-platform | None | Any 1 survives = code available |
 
 ### Longevity Properties (Day 1 by Architecture)
@@ -627,6 +707,8 @@ For consumers: **"Content that can't be killed, priced by the people who care."*
 For institutions: **"Proof URLs — verifiable evidence links with Bitcoin-anchored timestamps."**
 
 For agent platforms: **"The demand oracle — what should your agent consume next?"**
+
+**Founder's legal posture**: The founder operates a search engine (importance index) and a matching service (clearinghouse). The founder does not host content (Blossom servers do), does not distribute events (Nostr relays do), does not process payments (Lightning/Cashu do), does not custody funds (Cashu ecash escrow is non-custodial), and does not make content decisions (the importance formula is a deterministic computation on public data). The protocol is an open standard with no owner and no fees. The index is a ranking of public data — the same legal category as a search engine.
 
 ### Bootstrap Sequence
 
@@ -687,20 +769,20 @@ MVP content (documents, images, text <100 MB) uses Blossom whole-file storage. `
 
 | Constant | Value | Rationale |
 |----------|-------|-----------|
-| FOUNDER_ROYALTY_R0 | 0.15 (15%) | Starting royalty at genesis |
-| FOUNDER_ROYALTY_V_STAR | 125,000,000 sats (1.25 BTC) | Scale constant |
-| FOUNDER_ROYALTY_ALPHA | log(2)/log(9) ≈ 0.3155 | Halves every ~10× volume |
-| EGRESS_ROYALTY_PCT | 0.01 (1%) | Flat, never tapers |
+| INDEX_ATTRIBUTION_PCT | 0.20 (20%) | Index earns this share of pool drain for attributed consumption. Same rate for all indexes. |
+| CLEARING_SPREAD_PCT | 0.05 (5%) | Clearinghouse brokerage fee on matched preserve/offer value |
+| SETTLER_FEE_PCT | 0.01-0.03 (1-3%) | Market-rate, settler-set, competitive |
 | EPOCH_LENGTH | 4h | 6 payout cycles/day |
 | EPOCH_REWARD_PCT | 2% | Cap per CID per epoch |
 | EPOCH_REWARD_BASE | 50 sats | Base cap; scales log2 |
-| POW_TARGET_BASE | 2^240 | ~200ms mobile |
+| POW_TARGET_BASE | 2^240 | ~200ms mobile at 1 KB |
+| POW_SIZE_UNIT | 1024 (1 KB) | PoW scales per unit: ceil(bytes / 1024) × base difficulty |
 | AUTO_BID_PCT | 0.02 (2%) | Egress → pool feedback |
-| CLEARING_SPREAD_PCT | 0.03 (3%) | Clearinghouse toll |
-| ROYALTY_SPLIT_FOUNDER | 0.60 | 60% to founder |
-| ROYALTY_SPLIT_SETTLER | 0.20 | 20% to settler operator |
-| ROYALTY_SPLIT_INDEX | 0.10 | 10% routed by attributed unique clients per NIP-SETTLE |
-| ROYALTY_SPLIT_DEV | 0.10 | 10% to development fund |
+| BASE_STORAGE_RATE | 1 sat/GB/epoch | Floor storage cost when host is nearly empty |
+| SCARCITY_EXPONENT | 1.0 | Linear scarcity curve (host-tunable); higher = more aggressive capacity protection |
+| EVICTION_HYSTERESIS | 1.2 | Evict when cost > 1.2× revenue (prevents flapping) |
+| COMMENT_POW_TARGET | 2^240 | Same as receipt base; ~200ms mobile |
+| DISCUSSION_UPFLOW_PCT | 0.50 (50%) | Fraction of comment tip credited to root content pool |
 
 Full constant table from `mvp_plan.md` §Constants carries forward for deferred features (sessions, PoW free tier, preserve tiers, etc.).
 
@@ -716,7 +798,7 @@ Full constant table from `mvp_plan.md` §Constants carries forward for deferred 
 - Formal preserve clearing + host commitments (trigger: host count > 20)
 - Author revenue share enforcement at settlement (trigger: multiple competing settlers)
 - Vine model + harmonic allocation (Layer B — see `post_mvp.md`)
-- Paid inbox, topic hashes, plural discovery (Layer B)
+- Paid inbox, plural discovery (Layer B)
 
 ### Revenue Layers (build when triggered)
 
@@ -737,4 +819,4 @@ The graph dataset appreciates over time. Every event, receipt, body edge, graph 
 
 ## The One-Sentence Version
 
-**Build the pool, the receipt, the settler, and the leaderboard. Borrow everything else from Nostr. Earn protocol royalties from the entire ecosystem. The importance index is the product.**
+**Build the pool, the receipt, the settler, and the leaderboard. Borrow everything else from Nostr. The protocol is free; the index earns from the consumption it drives. The importance index over an append-only knowledge hierarchy — where even loss is recorded — is the product.**

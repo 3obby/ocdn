@@ -19,7 +19,7 @@ OCDN MVP — Task Checklist
     [x] NIP-CLEARING: clearing result build/validate       src/lib/nostr/clearing.ts
 
 [x] CORE LOGIC
-    [x] royalty formula r(v) + split accounting             src/lib/royalty.ts
+    [x] royalty formula r(v) + split accounting             src/lib/royalty.ts  ← SUPERSEDED: see REVENUE MODEL MIGRATION below
     [x] pool mechanics: accumulate, drain, epoch cap        src/lib/pool.ts
     [x] receipt verification (ed25519 + pow check)          src/lib/receipt.ts
     [x] importance computation (commitment × demand ×       src/lib/importance/index.ts
@@ -128,39 +128,140 @@ STEP 3: PUSH (let users bring content)
 --- Problem: user uploads a file, sees "Not served by any host" ---
 --- with zero evidence the file is there. No preview, no type, nothing. ---
 
-[ ] CONTENT METADATA (persist what we know about uploaded files)
-    [ ] add ContentMeta model: hash, fileName, fileType,           prisma/schema.prisma
+[x] CONTENT METADATA (persist what we know about uploaded files)
+    [x] add ContentMeta model: hash, fileName, fileType,           prisma/schema.prisma
         fileSize, uploadedBy, status (pending|live|rejected),
         uploadedAt. Relation to Pool.
-    [ ] /api/push: persist ContentMeta on upload, status=pending    src/app/api/push/route.ts
-    [ ] /v/[ref] page: load ContentMeta, pass to BlobEmbed          src/app/v/[ref]/page.tsx
-    [ ] leaderboard Card: show fileName/fileType instead of         src/components/leaderboard/Card.tsx
+    [x] /api/push: persist ContentMeta on upload, status=pending    src/app/api/push/route.ts
+    [x] /v/[ref] page: load ContentMeta, pass to BlobEmbed          src/app/v/[ref]/page.tsx
+    [x] leaderboard Card: show fileName/fileType instead of         src/components/leaderboard/Card.tsx
         raw hash when metadata exists
 
-[ ] UPLOAD PREVIEW (show the file the user just pushed)
-    [ ] RefResolver: after hashing+uploading, stash file bytes      src/components/resolve/RefResolver.tsx
+[x] UPLOAD PREVIEW (show the file the user just pushed)
+    [x] RefResolver: after hashing+uploading, stash file bytes      src/components/resolve/RefResolver.tsx
         in sessionStorage as base64 data URL (capped ~10MB)
-    [ ] BlobEmbed: check sessionStorage for local preview           src/components/content/BlobEmbed.tsx
+    [x] BlobEmbed: check sessionStorage for local preview           src/components/content/BlobEmbed.tsx
         before hitting Blossom servers — instant render
-    [ ] clear sessionStorage preview after page reload or           src/components/content/BlobEmbed.tsx
+    [x] clear sessionStorage preview after page reload or           src/components/content/BlobEmbed.tsx
         after Blossom fetch succeeds
 
-[ ] SMART "NOT SERVED" STATE (type-aware placeholder)
-    [ ] BlobEmbed: when not_served but ContentMeta exists,          src/components/content/BlobEmbed.tsx
+[x] SMART "NOT SERVED" STATE (type-aware placeholder)
+    [x] BlobEmbed: when not_served but ContentMeta exists,          src/components/content/BlobEmbed.tsx
         show type-appropriate placeholder:
         — image: camera icon + "Image · 2.4 MB · vacation.jpg"
         — pdf: doc icon + "PDF · 1.1 MB · filing.pdf"
         — text: text icon + file name + size
         — other: generic file icon + type + size
-    [ ] show upload status badge: "Pending review" / "Live"         src/components/content/BlobEmbed.tsx
+    [x] show upload status badge: "Pending review" / "Live"         src/components/content/BlobEmbed.tsx
         so user knows the operator hasn't rejected it
-    [ ] "Not served" message only when no metadata AND              src/components/content/BlobEmbed.tsx
+    [x] "Not served" message only when no metadata AND              src/components/content/BlobEmbed.tsx
         Blossom HEAD fails — true orphan, not fresh upload
 
-[ ] OPERATOR REVIEW (simple moderation queue)
-    [ ] GET /api/admin/queue: list ContentMeta status=pending       src/app/api/admin/queue/route.ts
-    [ ] POST /api/admin/review: approve/reject content hash         src/app/api/admin/review/route.ts
+[x] OPERATOR REVIEW (simple moderation queue)
+    [x] GET /api/admin/queue: list ContentMeta status=pending       src/app/api/admin/queue/route.ts
+    [x] POST /api/admin/review: approve/reject content hash         src/app/api/admin/review/route.ts
         (sets status to live or rejected)
-    [ ] /v/[ref]: if status=rejected, show "Content removed         src/app/v/[ref]/page.tsx
+    [x] /v/[ref]: if status=rejected, show "Content removed         src/app/v/[ref]/page.tsx
         by operator" instead of blob embed
-    [ ] basic auth guard for /api/admin/* routes                    src/app/api/admin/
+    [x] basic auth guard for /api/admin/* routes                    src/lib/admin-auth.ts
+
+--- PROTOCOL UPDATE: Index-as-Market-Maker ---
+--- Zero protocol fees. Revenue from index attribution + clearing spread. ---
+--- Host storage scarcity curve. Cashu ecash escrow. ---
+
+[ ] REVENUE MODEL MIGRATION
+    [ ] replace royalty formula with index attribution logic          src/lib/attribution.ts
+        (was src/lib/royalty.ts — old r(v) + split accounting is obsolete)
+    [ ] index_payout = drain × attributed_share × 0.20               src/lib/attribution.ts
+        attributed_share = U_i × log2(1+R_i) / Σ(U_j × log2(1+R_j))
+    [ ] update settler: remove royalty deduction from pool credits,   src/workers/settler.ts
+        add index attribution accounting to settlement output
+    [ ] update pool accumulation: pool[ref] += sats (no royalty       src/lib/pool.ts
+        deducted — 100% credited)
+    [ ] update NIP-SETTLE event builder: index_payout tag uses        src/lib/nostr/settle.ts
+        new attribution formula, not ROYALTY_SPLIT_INDEX
+
+[ ] CONSTANTS UPDATE
+    [ ] remove: FOUNDER_ROYALTY_R0, FOUNDER_ROYALTY_V_STAR,           src/lib/constants.ts
+        FOUNDER_ROYALTY_ALPHA, EGRESS_ROYALTY_PCT,
+        ROYALTY_SPLIT_FOUNDER, ROYALTY_SPLIT_SETTLER,
+        ROYALTY_SPLIT_INDEX, ROYALTY_SPLIT_DEV
+    [ ] add: INDEX_ATTRIBUTION_PCT = 0.20                             src/lib/constants.ts
+    [ ] add: CLEARING_SPREAD_PCT = 0.05 (was 0.03)                   src/lib/constants.ts
+    [ ] add: SETTLER_FEE_PCT = 0.01-0.03                             src/lib/constants.ts
+    [ ] add: BASE_STORAGE_RATE = 1 sat/GB/epoch                      src/lib/constants.ts
+    [ ] add: SCARCITY_EXPONENT = 1.0                                  src/lib/constants.ts
+    [ ] add: EVICTION_HYSTERESIS = 1.2                                src/lib/constants.ts
+
+[ ] CLEARINGHOUSE UPDATE
+    [ ] update spread from 3% to 5%                                   src/workers/clearing.ts
+    [ ] replace trust-based Lightning escrow with Cashu ecash          src/workers/clearing.ts
+        escrow (non-custodial from day 1)
+    [ ] update NIP-CLEARING event: spread tag = 5%                    src/lib/nostr/clearing.ts
+
+[ ] HOST STORAGE ECONOMICS
+    [ ] scarcity curve: storage_cost = BASE_STORAGE_RATE ×             src/lib/storage/scarcity.ts
+        (1 - utilization)^(-SCARCITY_EXPONENT)
+    [ ] host capacity announcement event kind: total_bytes,            src/lib/nostr/types.ts
+        utilization, storage_base_rate, scarcity_exponent              src/lib/nostr/host.ts
+    [ ] eviction logic: evict when cost > revenue ×                    src/lib/storage/eviction.ts
+        EVICTION_HYSTERESIS for consecutive epochs
+    [ ] eviction event kind (auditable: reason, utilization,           src/lib/nostr/types.ts
+        cost, revenue at eviction)                                     src/lib/nostr/host.ts
+    [ ] host acceptance policy config: previously_served,              src/lib/storage/policy.ts
+        trusted_uploaders, auto_accept (min_pool, max_size,
+        allowed_types), reject rules
+    [ ] opportunity scanner: watch for high-pool/low-host CIDs,        src/workers/opportunity.ts
+        auto-mirror if passes acceptance policy + capacity
+
+[ ] SURVIVABILITY PROJECTIONS
+    [ ] compute projected_epochs = pool_balance /                      src/lib/importance/survivability.ts
+        (net_drain_rate - auto_bid_income) per CID
+    [ ] add survivability to InstrumentCluster display                 src/components/content/InstrumentCluster.tsx
+    [ ] add funding quote to FortifyButton: "Fund X sats →             src/components/fortify/FortifyButton.tsx
+        extends to ~Y days at current rates"
+    [ ] GET /api/pool/[hash]: add survivability_epochs,                src/app/api/pool/[hash]/route.ts
+        net_drain_rate, auto_bid_income to response
+
+[ ] SCHEMA UPDATE
+    [ ] add HostCapacity model: pubkey, totalBytes, usedBytes,         prisma/schema.prisma
+        storageBaseRate, scarcityExponent, updatedAt
+    [ ] add EvictionEvent model: hash, hostPubkey, reason,             prisma/schema.prisma
+        utilization, costAtEviction, revenueAtEviction, epoch
+    [ ] add indexAttribution fields to Settlement model:               prisma/schema.prisma
+        indexPubkey, attributedShare, attributionPayout
+
+--- HIERARCHY + DISCUSSION ECONOMICS ---
+--- Topic hashes, PoW-gated comments, discussion upflow, loss accountability ---
+
+[ ] TOPIC PAGES
+    [ ] /t/[topicHash] page: list children ranked by importance      src/app/t/[topicHash]/page.tsx
+    [ ] aggregate economics: total sats across topic + descendants   src/app/t/[topicHash]/page.tsx
+    [ ] loss visibility: count lost docs under topic                 src/app/t/[topicHash]/page.tsx
+    [ ] topic edge extraction: materializer resolves ["t"] tags      src/lib/importance/graph.ts
+
+[ ] COMMENT POW
+    [ ] NIP-13 PoW validation for comment events                    src/lib/nostr/comment.ts
+    [ ] escalating difficulty per pubkey/thread/day                  src/lib/nostr/comment.ts
+    [ ] Discussion component: reject comments below PoW target      src/components/content/Discussion.tsx
+
+[ ] DISCUSSION UPFLOW
+    [ ] on comment tip: split DISCUSSION_UPFLOW_PCT to root pool    src/app/api/fortify/route.ts
+    [ ] ref chain resolver: comment → parent → … → root hash        src/lib/nostr/refchain.ts
+    [ ] display "discussion contributed X sats" on content page      src/components/content/InstrumentCluster.tsx
+
+[ ] LOSS ACCOUNTABILITY
+    [ ] "lost" state detection: pool exists + historical receipts    src/lib/pool.ts
+        + zero current receipts
+    [ ] /v/[ref] lost state UI: pool history, last hosts, last      src/app/v/[ref]/page.tsx
+        epoch served, Bitcoin anchor proof, Fortify-to-restore
+    [ ] discussion derived durability: warn when root not served     src/components/content/Discussion.tsx
+
+[ ] CONSTANTS (hierarchy/discussion)
+    [ ] add COMMENT_POW_TARGET, DISCUSSION_UPFLOW_PCT,              src/lib/constants.ts
+        POW_SIZE_UNIT (revenue model constants handled above)
+    [ ] add topic edge kind to nostr types                          src/lib/nostr/types.ts
+
+[ ] SCHEMA
+    [ ] add TopicNode model or extend Pool for abstract nodes       prisma/schema.prisma
+    [ ] add loss tracking fields: lastServedEpoch, lastHosts        prisma/schema.prisma

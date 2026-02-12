@@ -44,12 +44,8 @@ export default async function Home() {
       {/* Hero / resolver */}
       <section className="px-4 py-12 text-center">
         <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-          The Importance Index
+          Open CDN
         </h1>
-        <p className="mt-2 text-muted">
-          Content ranked by economic commitment, demand, and structural
-          centrality.
-        </p>
         <div className="mt-6">
           <RefResolver />
         </div>
@@ -58,7 +54,6 @@ export default async function Home() {
       {/* Leaderboard */}
       <section className="border-t border-border">
         <div className="flex items-center justify-between px-4 py-3 text-sm text-muted">
-          <span>Ranked by importance score</span>
           <span>{feed.length} documents</span>
         </div>
         <LeaderboardFeed items={feed} />
