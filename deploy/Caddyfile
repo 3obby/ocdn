@@ -1,0 +1,26 @@
+ocdn.is {
+	reverse_proxy app:3000
+
+	# Compression
+	encode gzip zstd
+
+	# Security headers
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+	}
+
+	# Health check endpoint (no proxy needed, caddy responds)
+	handle /health {
+		respond "ok" 200
+	}
+
+	# SSE: disable buffering for event stream
+	handle /api/sse* {
+		reverse_proxy app:3000 {
+			flush_interval -1
+		}
+	}
+}

@@ -33,6 +33,10 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# infrastructure credentials — NEVER commit
+infra_creds.txt
+vps-creds*.txt
+
 # vercel
 .vercel
 
