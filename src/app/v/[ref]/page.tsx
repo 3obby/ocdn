@@ -52,6 +52,11 @@ export default async function ContentPage({ params }: PageProps) {
     where: { hash: ref },
   });
 
+  // Content metadata (file name, type, size, moderation status)
+  const contentMeta = await prisma.contentMeta.findUnique({
+    where: { hash: ref },
+  });
+
   // Citations
   const citedBy = await prisma.citationEdge.findMany({
     where: { targetHash: ref },
@@ -94,9 +99,12 @@ export default async function ContentPage({ params }: PageProps) {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
-      {/* Hash header + actions */}
+      {/* Header: file name (if known) + hash + actions */}
+      {contentMeta?.fileName && (
+        <h1 className="mb-1 text-lg font-semibold truncate">{contentMeta.fileName}</h1>
+      )}
       <div className="mb-6 flex items-center justify-between gap-3">
-        <h1 className="font-mono text-sm text-muted break-all min-w-0">{ref}</h1>
+        <span className="font-mono text-sm text-muted break-all min-w-0">{ref}</span>
         <div className="flex items-center gap-2 shrink-0">
           <ShareButton
             contentHash={ref}
@@ -111,7 +119,15 @@ export default async function ContentPage({ params }: PageProps) {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Left: content embed */}
         <div className="lg:col-span-2 space-y-6">
-          <BlobEmbed hash={ref} />
+          <BlobEmbed
+            hash={ref}
+            meta={contentMeta ? {
+              fileName: contentMeta.fileName,
+              fileType: contentMeta.fileType,
+              fileSize: contentMeta.fileSize,
+              status: contentMeta.status,
+            } : undefined}
+          />
           <Discussion contentHash={ref} />
         </div>
 

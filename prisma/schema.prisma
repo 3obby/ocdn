@@ -40,6 +40,7 @@ model Pool {
   receipts    Receipt[]
   settlements SettlementLine[]
   importance  Importance?
+  contentMeta ContentMeta?
   edges       CitationEdge[]   @relation("source_edges")
   inEdges     CitationEdge[]   @relation("target_edges")
 
@@ -189,6 +190,24 @@ model HostOffer {
   @@index([contentHash, status])
   @@index([hostPubkey])
   @@map("host_offers")
+}
+
+// --- Content metadata (uploaded file info, moderation status) ---
+
+model ContentMeta {
+  hash        String   @id // sha256 content hash
+  fileName    String?  @map("file_name")
+  fileType    String?  @map("file_type")   // MIME type
+  fileSize    Int?     @map("file_size")   // bytes
+  uploadedBy  String?  @map("uploaded_by") // pubkey of uploader
+  status      String   @default("pending") // "pending" | "live" | "rejected"
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  pool Pool? @relation(fields: [hash], references: [hash])
+
+  @@index([status])
+  @@map("content_meta")
 }
 
 // --- Protocol state ---

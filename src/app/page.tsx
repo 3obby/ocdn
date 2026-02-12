@@ -14,6 +14,12 @@ export default async function Home() {
         select: {
           balance: true,
           funderCount: true,
+          contentMeta: {
+            select: {
+              fileName: true,
+              fileType: true,
+            },
+          },
         },
       },
     },
@@ -28,6 +34,8 @@ export default async function Home() {
     label: item.label,
     poolBalance: item.pool.balance.toString(),
     funderCount: item.pool.funderCount,
+    fileName: item.pool.contentMeta?.fileName ?? null,
+    fileType: item.pool.contentMeta?.fileType ?? null,
     rank: 0, // set by Feed
   }));
 

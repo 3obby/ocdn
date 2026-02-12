@@ -3,14 +3,14 @@ import { prisma } from "@/lib/db";
 
 /**
  * POST /api/push — Register new content in the index.
- * Body: { hash, fileName?, fileType?, fileSize? }
+ * Body: { hash, fileName?, fileType?, fileSize?, uploadedBy? }
  *
- * Creates a pool entry with zero balance so the content is "indexed"
- * and visible on /v/{hash}. Caller can immediately Fortify after.
+ * Creates a pool entry with zero balance, an importance row for leaderboard
+ * visibility, and a ContentMeta row with file metadata + pending status.
  */
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { hash, fileName, fileType, fileSize } = body;
+  const { hash, fileName, fileType, fileSize, uploadedBy } = body;
 
   if (!hash || !/^[0-9a-f]{64}$/.test(hash)) {
     return NextResponse.json(
@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Also upsert a minimal importance row so it shows on the leaderboard
+    // Upsert importance row so it shows on the leaderboard
     await prisma.importance.upsert({
       where: { hash },
       update: {},
@@ -47,12 +47,31 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    // Upsert content metadata — preserve existing if already there
+    await prisma.contentMeta.upsert({
+      where: { hash },
+      update: {
+        // Only fill in missing fields, don't overwrite existing
+        ...(fileName ? { fileName } : {}),
+        ...(fileType ? { fileType } : {}),
+        ...(fileSize ? { fileSize } : {}),
+        ...(uploadedBy ? { uploadedBy } : {}),
+      },
+      create: {
+        hash,
+        fileName: fileName ?? null,
+        fileType: fileType ?? null,
+        fileSize: fileSize ?? null,
+        uploadedBy: uploadedBy ?? null,
+        status: "pending",
+      },
+    });
+
     return NextResponse.json({
       success: true,
       hash,
       balance: pool.balance.toString(),
       funderCount: pool.funderCount,
-      meta: { fileName, fileType, fileSize },
     });
   } catch (err) {
     return NextResponse.json(

@@ -15,6 +15,8 @@ export interface ContentCardProps {
   label: string | null;
   poolBalance: string;
   funderCount: number;
+  fileName?: string | null;
+  fileType?: string | null;
 }
 
 export function ContentCard({
@@ -27,6 +29,8 @@ export function ContentCard({
   label,
   poolBalance,
   funderCount,
+  fileName,
+  fileType,
 }: ContentCardProps) {
   const [expanded, setExpanded] = useState(false);
 
@@ -42,13 +46,20 @@ export function ContentCard({
           {rank}
         </span>
 
-        {/* Hash (truncated) */}
+        {/* Content label: fileName if known, else truncated hash */}
         <Link
           href={`/v/${hash}`}
           onClick={(e) => e.stopPropagation()}
-          className="font-mono text-sm text-accent hover:underline"
+          className="text-sm text-accent hover:underline truncate max-w-[200px]"
         >
-          {hash.slice(0, 8)}...{hash.slice(-8)}
+          {fileName ? (
+            <span className="flex items-center gap-1.5">
+              <span className="text-muted text-xs">{getTypeIcon(fileType)}</span>
+              <span className="truncate">{fileName}</span>
+            </span>
+          ) : (
+            <span className="font-mono">{hash.slice(0, 8)}...{hash.slice(-8)}</span>
+          )}
         </Link>
 
         {/* Divergence label */}
@@ -144,4 +155,14 @@ function formatSats(sats: string): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return sats;
+}
+
+function getTypeIcon(fileType?: string | null): string {
+  if (!fileType) return "📄";
+  if (fileType.startsWith("image/")) return "🖼";
+  if (fileType === "application/pdf") return "📑";
+  if (fileType.startsWith("text/")) return "📝";
+  if (fileType.startsWith("video/")) return "🎬";
+  if (fileType.startsWith("audio/")) return "🎵";
+  return "📄";
 }

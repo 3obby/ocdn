@@ -123,3 +123,44 @@ STEP 3: PUSH (let users bring content)
 [x] POLISH
     [x] embed code generator ("Embed this" snippet)                src/components/content/EmbedGenerator.tsx
     [x] live activity feed (funding events, new content)           src/components/shared/ActivityFeed.tsx
+
+--- CONTENT VISIBILITY: Upload → Preview → Review ---
+--- Problem: user uploads a file, sees "Not served by any host" ---
+--- with zero evidence the file is there. No preview, no type, nothing. ---
+
+[ ] CONTENT METADATA (persist what we know about uploaded files)
+    [ ] add ContentMeta model: hash, fileName, fileType,           prisma/schema.prisma
+        fileSize, uploadedBy, status (pending|live|rejected),
+        uploadedAt. Relation to Pool.
+    [ ] /api/push: persist ContentMeta on upload, status=pending    src/app/api/push/route.ts
+    [ ] /v/[ref] page: load ContentMeta, pass to BlobEmbed          src/app/v/[ref]/page.tsx
+    [ ] leaderboard Card: show fileName/fileType instead of         src/components/leaderboard/Card.tsx
+        raw hash when metadata exists
+
+[ ] UPLOAD PREVIEW (show the file the user just pushed)
+    [ ] RefResolver: after hashing+uploading, stash file bytes      src/components/resolve/RefResolver.tsx
+        in sessionStorage as base64 data URL (capped ~10MB)
+    [ ] BlobEmbed: check sessionStorage for local preview           src/components/content/BlobEmbed.tsx
+        before hitting Blossom servers — instant render
+    [ ] clear sessionStorage preview after page reload or           src/components/content/BlobEmbed.tsx
+        after Blossom fetch succeeds
+
+[ ] SMART "NOT SERVED" STATE (type-aware placeholder)
+    [ ] BlobEmbed: when not_served but ContentMeta exists,          src/components/content/BlobEmbed.tsx
+        show type-appropriate placeholder:
+        — image: camera icon + "Image · 2.4 MB · vacation.jpg"
+        — pdf: doc icon + "PDF · 1.1 MB · filing.pdf"
+        — text: text icon + file name + size
+        — other: generic file icon + type + size
+    [ ] show upload status badge: "Pending review" / "Live"         src/components/content/BlobEmbed.tsx
+        so user knows the operator hasn't rejected it
+    [ ] "Not served" message only when no metadata AND              src/components/content/BlobEmbed.tsx
+        Blossom HEAD fails — true orphan, not fresh upload
+
+[ ] OPERATOR REVIEW (simple moderation queue)
+    [ ] GET /api/admin/queue: list ContentMeta status=pending       src/app/api/admin/queue/route.ts
+    [ ] POST /api/admin/review: approve/reject content hash         src/app/api/admin/review/route.ts
+        (sets status to live or rejected)
+    [ ] /v/[ref]: if status=rejected, show "Content removed         src/app/v/[ref]/page.tsx
+        by operator" instead of blob embed
+    [ ] basic auth guard for /api/admin/* routes                    src/app/api/admin/

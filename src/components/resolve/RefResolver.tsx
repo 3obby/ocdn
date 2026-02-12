@@ -98,6 +98,19 @@ export function RefResolver({ compact }: RefResolverProps) {
         });
 
         if (pushRes.ok) {
+          // Stash preview in sessionStorage so /v/{hash} can render instantly
+          try {
+            const buffer = await file.arrayBuffer();
+            if (buffer.byteLength < 10 * 1024 * 1024) { // cap at 10MB
+              const base64 = btoa(
+                new Uint8Array(buffer).reduce((s, b) => s + String.fromCharCode(b), "")
+              );
+              const dataUrl = `data:${file.type || "application/octet-stream"};base64,${base64}`;
+              sessionStorage.setItem(`ocdn_preview_${hash}`, dataUrl);
+            }
+          } catch {
+            // sessionStorage full or too large — skip preview, not critical
+          }
           router.push(`/v/${hash}`);
         } else {
           setStatus("Failed to register content");
