@@ -19,7 +19,7 @@ OCDN MVP — Task Checklist
     [x] NIP-CLEARING: clearing result build/validate       src/lib/nostr/clearing.ts
 
 [x] CORE LOGIC
-    [x] royalty formula r(v) + split accounting             src/lib/royalty.ts  ← SUPERSEDED: see REVENUE MODEL MIGRATION below
+    [x] royalty formula r(v) + split accounting             src/lib/royalty.ts  ← SUPERSEDED: replace with venue fee (launch task 2)
     [x] pool mechanics: accumulate, drain, epoch cap        src/lib/pool.ts
     [x] receipt verification (ed25519 + pow check)          src/lib/receipt.ts
     [x] importance computation (commitment × demand ×       src/lib/importance/index.ts
@@ -43,27 +43,106 @@ OCDN MVP — Task Checklist
     [x] POST /api/preserve: accept preserve bid              src/app/api/preserve/route.ts
     [x] GET /api/resolve/[input]: ref resolver backend       src/app/api/resolve/[input]/route.ts
 
-[x] PAGES
+[x] PAGES (legacy — being simplified to one-surface design)
     [x] layout: header, stats bar, nip-07 auth               src/app/layout.tsx
     [x] / leaderboard: ranked feed, expandable cards          src/app/page.tsx
-    [x] /v/[ref] content detail: blob embed + instrument      src/app/v/[ref]/page.tsx
-        cluster + discussion + fortify + citations
+    [x] /v/[ref] content detail (→ merge into feed card)      src/app/v/[ref]/page.tsx
     [x] /verify/[ref] integrity proof page                    src/app/verify/[ref]/page.tsx
 
-[x] COMPONENTS
+[x] COMPONENTS (legacy — being simplified)
     [x] LeaderboardFeed + ContentCard (expandable)            src/components/leaderboard/
-    [x] InstrumentCluster (funding, demand, replicas,         src/components/content/
-        sustainability, citations, preserve backers)
-    [x] BlobEmbed (render pdf/image/text from blossom)        src/components/content/BlobEmbed.tsx
+    [x] InstrumentCluster (→ simplify to ⚡N + funders)        src/components/content/
+    [x] BlobEmbed (→ REMOVE: replace with source links)       src/components/content/BlobEmbed.tsx
     [x] Discussion (nostr threaded replies)                   src/components/content/Discussion.tsx
     [x] CitationList (cited-by / cites, flat)                 src/components/content/CitationList.tsx
-    [x] FortifyButton (preserve/fortify/fund modes)           src/components/fortify/FortifyButton.tsx
+    [x] FortifyButton (→ [+] only, real Lightning via LNbits) src/components/fortify/FortifyButton.tsx
     [x] RefResolver (paste url/hash/drop file)                src/components/resolve/RefResolver.tsx
     [x] Header + live stats                                   src/components/shared/Header.tsx
 
 [x] WIDGET
     [x] standalone web component: compact leaderboard +       src/widget/embed.ts
         fortify, CDN-ready build
+
+--- LAUNCH MVP ---
+--- Conviction scoreboard + [+] fund + real Lightning + venue fee + deploy ---
+--- Test: will people spend sats to rank propositions? ---
+--- Build order: 1→2→3→4→5→6→7→8→9→10→11→12 (1 is gating) ---
+
+[ ] 1. LIGHTNING PAYMENT BACKEND (gating item — nothing works without this)
+    [ ] deploy LNbits (self-hosted on VPS alongside app)             infra
+    [ ] src/lib/lightning.ts: create invoice, check payment           src/lib/lightning.ts
+        status via LNbits REST API
+    [ ] /api/fortify: generate invoice → return bolt11 →              src/app/api/fortify/route.ts
+        credit pool ONLY after payment confirmed (webhook/poll)
+    [ ] FortifyButton: pay via WebLN (desktop) or show               src/components/fortify/FortifyButton.tsx
+        QR / "Open Wallet" deep-link (mobile), poll for confirm
+
+[ ] 2. VENUE FEE (replaces old royalty system)
+    [ ] add VENUE_FEE_PCT = 0.03 to constants                        src/lib/constants.ts
+    [ ] remove FOUNDER_ROYALTY_* / EGRESS_ROYALTY_PCT /                src/lib/constants.ts
+        ROYALTY_SPLIT_* constants
+    [ ] replace royalty.ts: venueFee() + netAfterVenueFee()           src/lib/royalty.ts
+        (8 lines replaces 48)
+    [ ] fortify: 97% → pool, 3% stays in LN wallet                   src/app/api/fortify/route.ts
+    [ ] relay-sub: credit 100% on protocol events (no fee)            src/workers/relay-sub.ts
+    [ ] settler: remove royalty computation from settlement            src/workers/settler.ts
+
+[ ] 3. FIX NIP EVENT KINDS
+    [ ] move NIP_POOL_KIND etc from 30000+ range (replaceable         src/lib/constants.ts
+        per NIP-33) to 1000-9999 (non-replaceable). Pool credits
+        MUST be additive. Current kinds silently break on relays.
+
+[ ] 4. REAL-TIME SSE ON FUNDING
+    [ ] fortify route emits SSE event after confirmed credit          src/app/api/fortify/route.ts
+    [ ] Card subscribes to SSE for own hash, updates balance          src/components/leaderboard/Card.tsx
+
+[ ] 5. REMOVE REVIEW GATE
+    [ ] /api/push: default ContentMeta status to "live"               src/app/api/push/route.ts
+        (operator moderates post-hoc, not pre-publication)
+
+[ ] 6. PROPOSITION / TEXT / LINK POSTING (volume expander — propositions are first-class)
+    [ ] RefResolver: text proposition + URL mode (not just file upload) src/components/resolve/RefResolver.tsx
+    [ ] POST /api/push: accept text claim as proposition, hash the     src/app/api/push/route.ts
+        claim text → pool key. Optional link URL attachment.
+    [ ] proposition display: claim text shown on card, fundable         src/components/leaderboard/Card.tsx
+
+[ ] 7. VISUAL OG CARD
+    [ ] Satori-rendered image: name, pool balance, funder count,      src/app/v/[ref]/opengraph-image.tsx
+        reply count — visually compelling enough to click on social
+
+[ ] 8. DEPLOY
+    [ ] deploy postgres + LNbits on VPS                               infra
+    [ ] configure nostr relay URLs                                    .env NOSTR_RELAYS
+    [ ] generate mint keypair                                         .env MINT_PRIVATE_KEY
+    [ ] set FOUNDER_PUBKEY                                            .env
+    [ ] deploy Next.js app                                            (Vercel / VPS)
+
+[ ] 9. SEED
+    [ ] post 20-30 timely propositions / contested documents —
+        pick LIVE arguments (this week's Twitter/Nostr fights)
+    [ ] seed initial pools (100-500 sats each, ~15K sats total)
+    [ ] seed at least 3 head-to-head pairs (claim vs counter-claim)
+    [ ] share on Nostr: "put your money where your mouth is"
+
+[ ] 10. CASHU PRE-FUNDED WALLET (volume multiplier — eliminate payment friction)
+    [ ] browser-side Cashu ecash wallet (cashu-ts)                    src/lib/cashu-wallet.ts
+    [ ] deposit flow: Lightning invoice → mint ecash → store in        src/components/wallet/
+        browser (localStorage or IndexedDB)
+    [ ] FortifyButton: if wallet has balance, one-tap instant debit    src/components/fortify/FortifyButton.tsx
+        (no invoice, no WebLN popup). Fall back to invoice if empty.
+    [ ] wallet balance indicator in header                             src/components/shared/Header.tsx
+
+[ ] 11. ZAP-TO-POOL BRIDGE (capture existing Nostr economic flow)
+    [ ] relay-sub: detect inbound Zap receipts (kind 9735) to         src/workers/relay-sub.ts
+        indexed content hashes, credit pool (minus 3% venue fee)
+    [ ] display zap-sourced funding on cards ("⚡ via Nostr zap")       src/components/leaderboard/Card.tsx
+
+[ ] 12. HEAD-TO-HEAD DISPLAY (competitive volume driver)
+    [ ] detect funded contradictions: reply with pool > threshold       src/lib/importance/index.ts
+        that contradicts parent → surface as head-to-head pair
+    [ ] tug-of-war card: both sides, both pools, live-updating,        src/components/leaderboard/HeadToHead.tsx
+        competitive framing ("your side is losing")
+    [ ] head-to-head section on feed (above or interleaved)            src/app/page.tsx
 
 --- INTEGRATION WORK (DONE) ---
 
@@ -78,12 +157,8 @@ OCDN MVP — Task Checklist
     [x] ephemeral key → claim funding flow                     src/lib/nostr/identity.ts
     [x] worker startup (settler + relay-sub + clearing)        src/app/api/workers/route.ts
 
-[x] INFRA (partial)
+[x] INFRA (partial — remaining deploy items moved to LAUNCH above)
     [x] prisma migrate: create initial migration               prisma/migrations/0001_init/
-    [ ] deploy postgres                                        .env DATABASE_URL
-    [ ] configure real nostr relay URLs                         .env NOSTR_RELAYS
-    [ ] generate + distribute mint keypairs                     .env MINT_PRIVATE_KEY
-    [ ] set FOUNDER_PUBKEY                                      .env
 
 --- CORE LOOP: Fortify → Share → Push ---
 --- Build as one pipeline. Each step unblocks the next. ---
@@ -165,103 +240,82 @@ STEP 3: PUSH (let users bring content)
         by operator" instead of blob embed
     [x] basic auth guard for /api/admin/* routes                    src/lib/admin-auth.ts
 
---- PROTOCOL UPDATE: Index-as-Market-Maker ---
---- Zero protocol fees. Revenue from index attribution + clearing spread. ---
---- Host storage scarcity curve. Cashu ecash escrow. ---
+--- POST-MVP (build when triggered by usage) ---
+--- Each feature triggered by real usage signal, not roadmap. ---
 
-[ ] REVENUE MODEL MIGRATION
-    [ ] replace royalty formula with index attribution logic          src/lib/attribution.ts
-        (was src/lib/royalty.ts — old r(v) + split accounting is obsolete)
-    [ ] index_payout = drain × attributed_share × 0.20               src/lib/attribution.ts
-        attributed_share = U_i × log2(1+R_i) / Σ(U_j × log2(1+R_j))
-    [ ] update settler: remove royalty deduction from pool credits,   src/workers/settler.ts
-        add index attribution accounting to settlement output
-    [ ] update pool accumulation: pool[ref] += sats (no royalty       src/lib/pool.ts
-        deducted — 100% credited)
-    [ ] update NIP-SETTLE event builder: index_payout tag uses        src/lib/nostr/settle.ts
-        new attribution formula, not ROYALTY_SPLIT_INDEX
+[ ] INTERFACE POLISH (trigger: organic usage observed)
+    [ ] merge /v/[ref] into feed: card expand inline                 src/app/page.tsx
+    [ ] remove BlobEmbed: external source links only                 src/components/content/
+    [ ] topic cards: nested expand, aggregate economics              src/components/leaderboard/Card.tsx
+    [ ] widget update: same card component, two modes                src/widget/embed.ts
+    [ ] resolver inline at top of feed                               src/app/page.tsx
 
-[ ] CONSTANTS UPDATE
-    [ ] remove: FOUNDER_ROYALTY_R0, FOUNDER_ROYALTY_V_STAR,           src/lib/constants.ts
-        FOUNDER_ROYALTY_ALPHA, EGRESS_ROYALTY_PCT,
-        ROYALTY_SPLIT_FOUNDER, ROYALTY_SPLIT_SETTLER,
-        ROYALTY_SPLIT_INDEX, ROYALTY_SPLIT_DEV
-    [ ] add: INDEX_ATTRIBUTION_PCT = 0.20                             src/lib/constants.ts
-    [ ] add: CLEARING_SPREAD_PCT = 0.05 (was 0.03)                   src/lib/constants.ts
-    [ ] add: SETTLER_FEE_PCT = 0.01-0.03                             src/lib/constants.ts
-    [ ] add: BASE_STORAGE_RATE = 1 sat/GB/epoch                      src/lib/constants.ts
-    [ ] add: SCARCITY_EXPONENT = 1.0                                  src/lib/constants.ts
-    [ ] add: EVICTION_HYSTERESIS = 1.2                                src/lib/constants.ts
+[ ] ATTRIBUTION + SETTLEMENT (trigger: L402 consumption is real)
+    [ ] index attribution logic                                      src/lib/attribution.ts
+        index_payout = drain × attributed_share × 0.20
+    [ ] update settler: attribution accounting                       src/workers/settler.ts
+    [ ] update NIP-SETTLE: index_payout tag                          src/lib/nostr/settle.ts
 
-[ ] CLEARINGHOUSE UPDATE
-    [ ] update spread from 3% to 5%                                   src/workers/clearing.ts
-    [ ] replace trust-based Lightning escrow with Cashu ecash          src/workers/clearing.ts
-        escrow (non-custodial from day 1)
-    [ ] update NIP-CLEARING event: spread tag = 5%                    src/lib/nostr/clearing.ts
+[ ] RECEIPT ECONOMICS (trigger: hosts want pool revenue)
+    [ ] NIP-RECEIPT spec + Blossom server addon                      src/lib/nostr/receipt.ts
+    [ ] distribute 3-5 mint keypairs across jurisdictions
+    [ ] L402 gating on Blossom fetches
 
-[ ] HOST STORAGE ECONOMICS
-    [ ] scarcity curve: storage_cost = BASE_STORAGE_RATE ×             src/lib/storage/scarcity.ts
-        (1 - utilization)^(-SCARCITY_EXPONENT)
-    [ ] host capacity announcement event kind: total_bytes,            src/lib/nostr/types.ts
-        utilization, storage_base_rate, scarcity_exponent              src/lib/nostr/host.ts
-    [ ] eviction logic: evict when cost > revenue ×                    src/lib/storage/eviction.ts
-        EVICTION_HYSTERESIS for consecutive epochs
-    [ ] eviction event kind (auditable: reason, utilization,           src/lib/nostr/types.ts
-        cost, revenue at eviction)                                     src/lib/nostr/host.ts
-    [ ] host acceptance policy config: previously_served,              src/lib/storage/policy.ts
-        trusted_uploaders, auto_accept (min_pool, max_size,
-        allowed_types), reject rules
-    [ ] opportunity scanner: watch for high-pool/low-host CIDs,        src/workers/opportunity.ts
-        auto-mirror if passes acceptance policy + capacity
+[ ] CLEARINGHOUSE (trigger: preservation demand from users)
+    [ ] update spread to 5%                                          src/workers/clearing.ts
+    [ ] Cashu ecash escrow (non-custodial)                           src/workers/clearing.ts
 
-[ ] SURVIVABILITY PROJECTIONS
-    [ ] compute projected_epochs = pool_balance /                      src/lib/importance/survivability.ts
-        (net_drain_rate - auto_bid_income) per CID
-    [ ] add survivability to InstrumentCluster display                 src/components/content/InstrumentCluster.tsx
-    [ ] add funding quote to FortifyButton: "Fund X sats →             src/components/fortify/FortifyButton.tsx
-        extends to ~Y days at current rates"
-    [ ] GET /api/pool/[hash]: add survivability_epochs,                src/app/api/pool/[hash]/route.ts
-        net_drain_rate, auto_bid_income to response
+[ ] HOST STORAGE ECONOMICS (trigger: host count > 5)
+    [ ] scarcity curve                                               src/lib/storage/scarcity.ts
+    [ ] host capacity announcements                                  src/lib/nostr/host.ts
+    [ ] eviction logic + events                                      src/lib/storage/eviction.ts
+    [ ] acceptance policy + opportunity scanner                      src/lib/storage/policy.ts
 
-[ ] SCHEMA UPDATE
-    [ ] add HostCapacity model: pubkey, totalBytes, usedBytes,         prisma/schema.prisma
-        storageBaseRate, scarcityExponent, updatedAt
-    [ ] add EvictionEvent model: hash, hostPubkey, reason,             prisma/schema.prisma
-        utilization, costAtEviction, revenueAtEviction, epoch
-    [ ] add indexAttribution fields to Settlement model:               prisma/schema.prisma
-        indexPubkey, attributedShare, attributionPayout
+[ ] SURVIVABILITY PROJECTIONS (trigger: pools draining visibly)
+    [ ] projected_epochs per CID                                     src/lib/importance/survivability.ts
+    [ ] funding quote on FortifyButton                               src/components/fortify/FortifyButton.tsx
 
---- HIERARCHY + DISCUSSION ECONOMICS ---
---- Topic hashes, PoW-gated comments, discussion upflow, loss accountability ---
+[ ] INDEX DELEGATION + INCOME PROTECTION (trigger: income justifies ceremony)
+    [ ] NIP-INDEX-DELEGATION events                                  src/lib/nostr/index-delegation.ts
+    [ ] 2-of-3 FROST threshold key generation                       (operational — key ceremony)
+    [ ] NIP-INDEX-BENEFICIARY + heartbeat                            src/lib/nostr/index-beneficiary.ts
+    [ ] anchor tx: epoch_root + attribution payouts                  src/lib/bitcoin/anchor.ts
 
-[ ] TOPIC PAGES
-    [ ] /t/[topicHash] page: list children ranked by importance      src/app/t/[topicHash]/page.tsx
-    [ ] aggregate economics: total sats across topic + descendants   src/app/t/[topicHash]/page.tsx
-    [ ] loss visibility: count lost docs under topic                 src/app/t/[topicHash]/page.tsx
-    [ ] topic edge extraction: materializer resolves ["t"] tags      src/lib/importance/graph.ts
+[ ] ANONYMOUS FUNDING (trigger: demand for privacy)
+    [ ] Cashu proof + ephemeral key NIP-POOL                         src/app/api/fortify/route.ts
+    [ ] "Fund anonymously" option on FortifyButton                   src/components/fortify/FortifyButton.tsx
 
-[ ] COMMENT POW
-    [ ] NIP-13 PoW validation for comment events                    src/lib/nostr/comment.ts
-    [ ] escalating difficulty per pubkey/thread/day                  src/lib/nostr/comment.ts
-    [ ] Discussion component: reject comments below PoW target      src/components/content/Discussion.tsx
+[ ] BITCOIN INSCRIPTIONS (trigger: demand for permanence)
+    [ ] NIP-INSCRIBE envelope format + batching                      src/lib/bitcoin/inscribe.ts
+    [ ] materializer: ingest inscriptions into graph                 src/workers/relay-sub.ts
+    [ ] inscription service API                                      src/app/api/inscribe/route.ts
 
-[ ] DISCUSSION UPFLOW
-    [ ] on comment tip: split DISCUSSION_UPFLOW_PCT to root pool    src/app/api/fortify/route.ts
-    [ ] ref chain resolver: comment → parent → … → root hash        src/lib/nostr/refchain.ts
-    [ ] display "discussion contributed X sats" on content page      src/components/content/InstrumentCluster.tsx
+[ ] EDGE ARCHIVE (trigger: graph large enough)
+    [ ] NIP-EDGE-ARCHIVE event + periodic snapshot                   src/lib/nostr/edge-archive.ts
+    [ ] materializer cold-start from archive blob                    src/workers/settler.ts
 
-[ ] LOSS ACCOUNTABILITY
-    [ ] "lost" state detection: pool exists + historical receipts    src/lib/pool.ts
-        + zero current receipts
-    [ ] /v/[ref] lost state UI: pool history, last hosts, last      src/app/v/[ref]/page.tsx
-        epoch served, Bitcoin anchor proof, Fortify-to-restore
-    [ ] discussion derived durability: warn when root not served     src/components/content/Discussion.tsx
+[ ] TOPIC HIERARCHY (trigger: enough content to organize)
+    [ ] /t/[topicHash] page + aggregate economics                    src/app/t/[topicHash]/page.tsx
+    [ ] topic edge extraction in graph                               src/lib/importance/graph.ts
 
-[ ] CONSTANTS (hierarchy/discussion)
-    [ ] add COMMENT_POW_TARGET, DISCUSSION_UPFLOW_PCT,              src/lib/constants.ts
-        POW_SIZE_UNIT (revenue model constants handled above)
-    [ ] add topic edge kind to nostr types                          src/lib/nostr/types.ts
+[ ] THREADED FUNDED DISCUSSION (trigger: active discussion observed)
+    [ ] threaded display: comments nest by parent event ID            src/components/content/Discussion.tsx
+    [ ] [+] button on each reply (event ID as pool key)              src/components/content/Discussion.tsx
+    [ ] reply pool balance displayed inline [N⚡]                     src/components/content/Discussion.tsx
+    [ ] comment PoW: NIP-13, escalating difficulty per pubkey/day    src/lib/pow.ts (new)
+    [ ] excess PoW as conviction signal (8×PoW badge)                src/components/content/Discussion.tsx
+    [ ] reply edges in graph: type="reply", weight from pool balance src/lib/importance/graph.ts
+    [ ] discussion upflow: reply tip → root pool credit              src/app/api/fortify/route.ts
+    [ ] "Contested" divergence label: high funded-reply density      src/lib/importance/index.ts
 
-[ ] SCHEMA
-    [ ] add TopicNode model or extend Pool for abstract nodes       prisma/schema.prisma
-    [ ] add loss tracking fields: lastServedEpoch, lastHosts        prisma/schema.prisma
+[ ] LOSS ACCOUNTABILITY (trigger: content actually lost)
+    [ ] "lost" state detection                                       src/lib/pool.ts
+    [ ] lost state UI + Fortify-to-restore                           src/app/v/[ref]/page.tsx
+
+[ ] SCHEMA UPDATES (trigger: with each feature above)
+    [ ] CitationEdge: add type="reply", poolSats field               prisma/schema.prisma
+    [ ] HostCapacity, EvictionEvent models                           prisma/schema.prisma
+    [ ] indexAttribution fields on Settlement                        prisma/schema.prisma
+    [ ] IndexDelegation, IndexBeneficiary models                     prisma/schema.prisma
+    [ ] EdgeArchive, Inscription models                              prisma/schema.prisma
+    [ ] TopicNode model, loss tracking fields                        prisma/schema.prisma
