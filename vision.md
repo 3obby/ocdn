@@ -11,7 +11,7 @@
 3. **Infrastructure is a commodity** — Borrow it. Nostr relays distribute events. Blossom servers store blobs. Lightning/Cashu handle payments. Nostr keys handle identity. All already deployed, already distributed, already resilient.
 4. **The protocol is a storage market; the index is the product** — The protocol clears payments between funders and hosts. The importance index — the real-time, economically-weighted ranking of what humanity values enough to pay to persist — is a product built on the market's public data. The protocol is plumbing; the index is the shopfront. Reading is free (PoW-gated). Funding costs sats. The two axes — conviction (funding) and attention (PoW receipts) — are independent measurements. Their divergence IS the signal. No other system produces both.
 5. **The hierarchy is append/promote-only** — Content, topics, and discussion form a graph. Nodes are added (append) or funded (promote). Nothing is edited, deleted, or hidden at the protocol level. Loss is an explicit, auditable state — the pool exists, the receipts existed, the bytes are gone. Every other information system makes loss silent. This one makes loss visible, attributable, and economically actionable.
-6. **Host-blind storage** — Fragment hosts store encrypted, erasure-coded shards. They cannot determine what content their fragments represent. No content inspection, no acceptance policy, no legal judgment. Hosting is a commodity: bytes in, sats out. Censorship requires taking down more than N-K hosts across jurisdictions simultaneously, while economic incentives actively recruit replacements. The system channels self-interest (hosts want sats, funders want permanence, readers want signal) into collective censorship resistance.
+6. **Host-blind storage** — Fragment hosts store encrypted, erasure-coded shards under random blob IDs. They cannot determine what content their fragments represent AND cannot be externally identified as hosting a specific content item. Convergent encryption makes shards deterministic for client-side verification; blind addressing (random blob IDs, mapping stored on relays) breaks the public content_hash → host link that would otherwise let an adversary scan for known hashes. No content inspection, no acceptance policy, no legal judgment, no content-addressed scanning surface. Hosting is a commodity: bytes in, sats out. Censorship requires taking down more than N-K hosts across jurisdictions simultaneously, while economic incentives actively recruit replacements. Individual hosts comply with local law (blob-hash removal on valid legal order); the system heals through replacement. The system channels self-interest (hosts want sats, funders want permanence, readers want signal) into collective censorship resistance.
 7. **Resilience is a property of greed, not architecture** — The protocol doesn't specify redundancy. It makes every infrastructure role profitable and anonymously operable. Rogue operators watch for funded content with few hosts (the opportunity signal), mirror fragments, earn sats. Censoring content increases the per-host payout, attracting replacements. The adversary fights economic gravity. The protocol specifies incentive gradients; profit-seeking actors carve the architecture.
 8. **The genesis key is the mint trust root** — The genesis key delegates receipt signing authority to mint operators. Receipts signed by genesis-delegated mints are the only valid demand signal. Settlement residual flows to the genesis key. Forking the income requires forking the demand history. The moat deepens with every receipt and requires zero ongoing effort.
 9. **The founder's income is proportional to settlement dimensionality** — Settlement divides pool drain across three independent dimensions: mints (trust distribution), shards (host-blind storage), and hosts (availability). Each dimension produces independent integer remainders. The remainder count scales with the product of dimensions (M × N × H), not their sum. Every architectural improvement — more mints, more shards, more hosts — that makes the system more robust also multiplies the number of integer divisions. The genesis income has convex scaling: it grows faster than any single system metric. No fee. No rate. The income is the irreducible coordination cost of multi-party integer settlement. A fork copies the same physics but starts with zero dimensions.
@@ -73,7 +73,8 @@ Everything else is borrowed infrastructure.
 
 | Component | Layer | Purpose |
 |-----------|-------|---------|
-| **Convergent encryption + deterministic RS** | Protocol | Content key = SHA256(domain \|\| content_hash). RS(K,N) with canonical shard ordering. Shard hashes are computable from content hash + index — no manifest trust surface. |
+| **Convergent encryption + deterministic RS** | Protocol | Content key = SHA256(domain \|\| content_hash). RS(K,N) with canonical shard ordering. Shard hashes are deterministic for client-side verification — no manifest trust surface. |
+| **Blind addressing** | Protocol | Hosts store shards under random blob IDs, not shard hashes. Mapping (shard_hash → host, blob_id) stored on relays. Breaks the public content_hash → host link. Hosts cannot be scanned for known content. |
 | **Fund confirmation event** | Protocol | Bind sats to content hash (mint-signed) |
 | **Receipt summary event** | Protocol | Aggregate proof of shard service per epoch (mint-signed) |
 | **Settlement event** | Protocol | Deterministic payout across mints × shards × hosts (settler-signed) |
@@ -88,6 +89,7 @@ Everything else is borrowed infrastructure.
 - Peers operate: 2-4 mint operators (different jurisdictions), Blossom servers, additional settlers
 - All settlement is deterministic and auditable from the canonical event set — anyone can recompute from day 1
 - **Competing settlers and competing importance indexes are permitted and encouraged from day 1**
+- **Host liability isolation**: Hosts store encrypted blobs under random IDs with no manifest, no content index, no content-addressed scanning surface. Legal posture: generic encrypted blob store, not a content platform. Individual hosts honor blob-hash removal on valid legal order (safe harbor). The system heals through replacement — removed shards are re-uploaded to new hosts by the self-healing mechanism. Host compliance and system censorship-resistance are independent properties.
 
 ### Symbiosis
 
@@ -184,7 +186,7 @@ receipt_token = Sign_mint_sk(
 
 Reading is free — no payment fields. The receipt proves shard service + consumption, not payment. `shard_hash` and `shard_index` bind the receipt to a specific fragment of a specific content item. The mint verifies `shard_hash == RS_shard(content_hash, shard_index)` — deterministic, no manifest lookup. `pow_nonce` proves a real client consumed the content. `reserved(8)` bytes for future extensibility without a format break.
 
-**Mint verification flow**: (1) Host serves shard to client for free. (2) Client computes PoW over (shard_hash || response_hash || nonce). (3) Client presents PoW + content_hash + shard_index to mint. (4) Mint derives expected shard_hash from content_hash + shard_index (deterministic RS — no manifest needed). (5) Mint verifies shard_hash matches, PoW meets target, response_hash is well-formed. (6) Mint signs receipt_token. (7) Client publishes receipt event. The mint aggregates into epoch summary.
+**Mint verification flow**: (1) Client resolves shard mapping from relay (shard_hash → host, blob_id). (2) Client requests blob_id from host — host serves opaque blob, never learns shard identity. (3) Client verifies blob decrypts to expected shard (deterministic: shard_hash = RS_shard(content_hash, shard_index)). (4) Client computes PoW over (shard_hash || response_hash || nonce). (5) Client presents PoW + content_hash + shard_index to mint. (6) Mint derives expected shard_hash from content_hash + shard_index (deterministic RS — no manifest needed). (7) Mint verifies shard_hash matches, PoW meets target, response_hash is well-formed. (8) Mint signs receipt_token. (9) Client publishes receipt event. The mint aggregates into epoch summary. The host is never in the verification chain for content identity.
 
 **Verification**: O(1), permissionless. `Ed25519_verify(receipt_token, mint_pubkey)` + `pow_hash < TARGET` + `sig check`.
 
@@ -439,7 +441,7 @@ Three-layer durability. Fragment hosting is the default for funded content — h
 | Layer | Where | Cost | Durability | Host knowledge |
 |-------|-------|------|------------|----------------|
 | Relay | Nostr relays (metadata, events, manifests) | PoW (~200ms) | Relay-dependent | Full |
-| Fragment | Convergent-encrypted, erasure-coded shards on Blossom servers | Sats (pool, ~2× overhead) | Pool-funded, self-healing | **None — host is blind** |
+| Fragment | Convergent-encrypted, erasure-coded shards on Blossom servers under random blob IDs | Sats (pool, ~2× overhead) | Pool-funded, self-healing | **None — host is blind, addressing is non-content-based** |
 | Inscribed | Bitcoin blockchain | On-chain fee | Permanent | N/A |
 
 Content below MIN_FRAGMENT_SIZE (10 KB) stores as a single shard on Blossom (still encrypted for host-blindness, but no erasure coding — N=1). Content above the threshold is always fragmented. Self-healing: any participant can download K surviving shards, reconstruct, re-encode a missing shard (deterministic — same hash), and upload to a new host to earn from the pool.
@@ -558,6 +560,8 @@ No governance. No global moderation. Operators apply local policy.
 - **Protocol**: doesn't know or care what content is. Knows: hash, pool balance, receipt count.
 
 **Append/promote-only**: No edit (hash-addressed = immutable). No delete (events are permanent). No hide (all events are public). Versioning: publish new content with a `supersedes` edge.
+
+**Host compliance vs. system resilience**: Each operator applies local law. Hosts remove specific blob hashes on valid legal order — safe harbor preserved. The system re-uploads removed shards to new hosts via self-healing. Individual compliance and collective persistence are independent properties. No operator needs to break local law for the system to resist censorship.
 
 ---
 
