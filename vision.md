@@ -1,6 +1,6 @@
 # Permissionless Storage Market — Nostr-Native
 
-**Purpose**: A permissionless conviction scoreboard. Sats bind to hashes. Reading is free. Funding is advertising — funders pay for availability and visibility, readers consume for free. Hosts prove service and earn from pools. The integer remainder of distributed settlement flows to the genesis key. Zero mandated parameters. The importance index is the product. The natural friction of a deep storage market is the income.
+**Purpose**: A permissionless conviction scoreboard. Sats bind to hashes. Reading is free. Funding is advertising — funders pay for availability and visibility, readers consume for free. Content is convergent-encrypted and erasure-coded into host-blind shards. Hosts prove shard service and earn from pools. Settlement divides pool drain across mints, shards, and hosts — each division is integer arithmetic on sats, each produces a remainder that flows to the genesis key. No fee, no rate, no parameter — the remainder is the irreducible cost of multi-party coordination on an integer monetary substrate. The importance index is the product. The dimensional friction of a deep storage market is the income.
 
 ---
 
@@ -14,7 +14,7 @@
 6. **Host-blind storage** — Fragment hosts store encrypted, erasure-coded shards. They cannot determine what content their fragments represent. No content inspection, no acceptance policy, no legal judgment. Hosting is a commodity: bytes in, sats out. Censorship requires taking down more than N-K hosts across jurisdictions simultaneously, while economic incentives actively recruit replacements. The system channels self-interest (hosts want sats, funders want permanence, readers want signal) into collective censorship resistance.
 7. **Resilience is a property of greed, not architecture** — The protocol doesn't specify redundancy. It makes every infrastructure role profitable and anonymously operable. Rogue operators watch for funded content with few hosts (the opportunity signal), mirror fragments, earn sats. Censoring content increases the per-host payout, attracting replacements. The adversary fights economic gravity. The protocol specifies incentive gradients; profit-seeking actors carve the architecture.
 8. **The genesis key is the mint trust root** — The genesis key delegates receipt signing authority to mint operators. Receipts signed by genesis-delegated mints are the only valid demand signal. Settlement residual flows to the genesis key. Forking the income requires forking the demand history. The moat deepens with every receipt and requires zero ongoing effort.
-9. **The founder's income is proportional to storage market depth** — More hosts, more jurisdictions, more transitions, more claiming parties = more settlement friction = more residual to genesis. The founder's interest perfectly aligns with building a robust market: everything that makes the market better for users also increases founder income. No conflict. No extraction.
+9. **The founder's income is proportional to settlement dimensionality** — Settlement divides pool drain across three independent dimensions: mints (trust distribution), shards (host-blind storage), and hosts (availability). Each dimension produces independent integer remainders. The remainder count scales with the product of dimensions (M × N × H), not their sum. Every architectural improvement — more mints, more shards, more hosts — that makes the system more robust also multiplies the number of integer divisions. The genesis income has convex scaling: it grows faster than any single system metric. No fee. No rate. The income is the irreducible coordination cost of multi-party integer settlement. A fork copies the same physics but starts with zero dimensions.
 10. **Funding is advertising** — Funders pay for availability and visibility. Readers consume for free. This is advertising economics: the person who wants attention pays, the person who has attention consumes for free. Free distribution maximizes the audience that makes funding valuable. Conviction spending is the revenue. Free reading is the amplifier.
 11. **The system optimizes for contested content** — Uncontested content is funded once. Contested content is funded repeatedly by competing sides. Competitive dynamics drive repeat funding — the highest-velocity economic behavior in the system. The founder earns from the froth of disagreement, not from any position. Free reading amplifies this: everyone sees the scoreboard, everyone can take a side.
 12. **The protocol is three event types and one rule** — (1) Fund confirmation: sats bind to a hash. (2) Receipt summary: hosts proved service. (3) Settlement: deterministic payout computation. Rule: unclaimed drain → genesis key. Pools with no host claims for N consecutive epochs are abandoned — remaining balance sweeps to genesis. Everything else — host pricing, content durability, ranking, discussion structure, edge types, topic organization — is a product concern or emergent market property.
@@ -73,9 +73,10 @@ Everything else is borrowed infrastructure.
 
 | Component | Layer | Purpose |
 |-----------|-------|---------|
+| **Convergent encryption + deterministic RS** | Protocol | Content key = SHA256(domain \|\| content_hash). RS(K,N) with canonical shard ordering. Shard hashes are computable from content hash + index — no manifest trust surface. |
 | **Fund confirmation event** | Protocol | Bind sats to content hash (mint-signed) |
-| **Receipt summary event** | Protocol | Aggregate proof of service per epoch (mint-signed) |
-| **Settlement event** | Protocol | Deterministic payout computation (settler-signed) |
+| **Receipt summary event** | Protocol | Aggregate proof of shard service per epoch (mint-signed) |
+| **Settlement event** | Protocol | Deterministic payout across mints × shards × hosts (settler-signed) |
 | **Importance index** | Product | Rankings, feed, API, widget |
 | **Clearinghouse** | Product | Preserve/offer order matching |
 | **Founder protection** | Product | Key delegation, beneficiary, threshold keys |
@@ -157,17 +158,19 @@ sig: mint signature
 
 **Why summaries, not individual receipts**: Individual receipt events are signed by clients (unbounded, non-enumerable). Two settlers querying different relay subsets would see different receipt sets and compute different settlements. Receipt summaries are signed by genesis-delegated mints (bounded, enumerable, gap-detectable via `seq`). Two settlers always converge.
 
-Individual receipt events still publish to relays for transparency and audit:
+Individual receipt events still publish to relays for transparency and audit. Each read generates K receipts — one per shard-host pair that served a fragment:
 ```
 kind: NIP_RECEIPT_KIND
 pubkey: client
 tags:
-  ["r", "<sha256>"]                    # content hash served
-  ["host", "<host_pubkey>"]            # who served
-  ["receipt_token", "<token>"]         # mint-signed proof of service
+  ["r", "<shard_hash>"]               # shard hash served (deterministic from content hash + index)
+  ["content", "<content_hash>"]       # parent content (verifiable: recompute shard hash from content + index)
+  ["shard_index", "<index>"]          # which shard (0..N-1)
+  ["host", "<host_pubkey>"]           # who served this shard
+  ["receipt_token", "<token>"]        # mint-signed proof of service
   ["epoch", "<epoch_number>"]
-  ["response_hash", "<hash>"]          # proves correct bytes
-  ["pow", "<nonce>", "<pow_hash>"]     # anti-sybil (reading is free, PoW prevents abuse)
+  ["response_hash", "<hash>"]         # proves correct shard bytes
+  ["pow", "<nonce>", "<pow_hash>"]    # anti-sybil (reading is free, PoW prevents abuse)
 content: ""
 sig: client signature
 ```
@@ -175,13 +178,13 @@ sig: client signature
 **Receipt token** (the cryptographic core):
 ```
 receipt_token = Sign_mint_sk(
-  "R3" || host_pubkey || epoch || content_hash || response_hash || pow_nonce || reserved(8)
+  "R3" || host_pubkey || epoch || shard_hash || content_hash || shard_index || response_hash || pow_nonce || reserved(8)
 )
 ```
 
-Reading is free — no payment fields. The receipt proves service + consumption, not payment. `pow_nonce` proves a real client consumed the content. `reserved(8)` bytes for future extensibility without a format break.
+Reading is free — no payment fields. The receipt proves shard service + consumption, not payment. `shard_hash` and `shard_index` bind the receipt to a specific fragment of a specific content item. The mint verifies `shard_hash == RS_shard(content_hash, shard_index)` — deterministic, no manifest lookup. `pow_nonce` proves a real client consumed the content. `reserved(8)` bytes for future extensibility without a format break.
 
-**Mint verification flow**: (1) Host serves content to client for free. (2) Client computes PoW over (content_hash || response_hash || nonce). (3) Client presents PoW to mint. (4) Mint verifies PoW meets target and response_hash is well-formed. (5) Mint signs receipt_token. (6) Client publishes receipt event. The mint aggregates into epoch summary.
+**Mint verification flow**: (1) Host serves shard to client for free. (2) Client computes PoW over (shard_hash || response_hash || nonce). (3) Client presents PoW + content_hash + shard_index to mint. (4) Mint derives expected shard_hash from content_hash + shard_index (deterministic RS — no manifest needed). (5) Mint verifies shard_hash matches, PoW meets target, response_hash is well-formed. (6) Mint signs receipt_token. (7) Client publishes receipt event. The mint aggregates into epoch summary.
 
 **Verification**: O(1), permissionless. `Ed25519_verify(receipt_token, mint_pubkey)` + `pow_hash < TARGET` + `sig check`.
 
@@ -203,22 +206,33 @@ content: JSON settlement details
 sig: settler signature
 ```
 
-**The settlement rule**:
+**The settlement rule** (three-level dimensional cascade):
 ```
-# Host claims require proof of service (at least one PoW receipt this epoch)
-if receipts(host, cid, epoch) == 0:
-    host_claim(host, cid, epoch) = 0        # no service proven, no payment
+for each content_hash cid with active pool:
+  for each mint m holding balance for cid:
+    mint_drain = floor(epoch_drain(cid) × mint_share(m, cid))
+    remainder_1 += epoch_drain(cid) - Σ mint_drains          → genesis
 
-epoch_drain(cid)   = Σ verified_host_claims(cid, epoch)
-host_payout(cid)   = each host's verified claim
-residual(cid)      = epoch_drain(cid) - Σ host_payouts(cid)   # → genesis_key
+    for each shard s in 0..RS_N-1:
+      shard_drain = floor(mint_drain / RS_N)
+      remainder_2 += mint_drain - (RS_N × shard_drain)        → genesis
+
+      hosts_s = hosts_with_receipts(s, m, epoch)
+      if len(hosts_s) == 0: continue                          # no service, no drain
+      per_host = floor(shard_drain / len(hosts_s))
+      remainder_3 += shard_drain - (len(hosts_s) × per_host)  → genesis
+
+      for each host h in hosts_s:
+        payout(h) += per_host
+
+genesis_total = remainder_1 + remainder_2 + remainder_3
 
 # Abandoned pools sweep to genesis
 if no_valid_claims(cid, last_N_epochs):
-    sweep(pool[cid]) → genesis_key           # content is dead, dust collected
+    sweep(pool[cid]) → genesis_key
 ```
 
-No cap formula. No floor. No mandated drain rate. Drain = sum of valid host claims from hosts that proved service via PoW receipts. Residual = the natural friction of integer arithmetic: rounding, host transition gaps, cross-epoch prorating, multi-host claim aggregation dust. Plus dust sweep from abandoned content.
+No fee. No rate. No mandated drain rate. Drain = sum of valid host claims from hosts that proved shard service via PoW receipts. The genesis remainder is the sum of integer truncation at each division level — mints, shards, hosts. Each dimension is independently justified (trust distribution, host-blind storage, availability). The remainder scales with the product of dimensions. Content below MIN_FRAGMENT_SIZE settles as a single shard (N=1), producing fewer divisions and less remainder.
 
 **Canonical event set**: Settlement inputs are exclusively events signed by genesis-delegated keys: fund confirmations + receipt summaries. Both enumerable, both gap-detectable via monotonic `seq`. Two settlers querying overlapping relay sets converge to the same result.
 
@@ -272,16 +286,16 @@ Market-driven, no parameters:
 
 ### Market Depth = Founder Income
 
-Every economic interaction between claiming parties creates friction: rounding across hosts, gaps during transitions, prorating across epochs, aggregation dust across fragments. The genesis residual is the sum of this friction.
+Settlement divides drain across M mints × N shards × H hosts. Each division is integer truncation on sats. The genesis remainder scales with the product of dimensions, not their sum.
 
 The founder's income scales with:
-- **Number of hosts** — more independent claims per content = more rounding
-- **Host transitions** — churn creates gaps where drain continues but claims pause
-- **Jurisdictional diversity** — price spread across geographies creates aggregation dust
-- **Fragment hosting** — erasure-coded shards multiply claiming parties per content item
-- **Epoch frequency** — more settlement events = more prorating friction
+- **Shard count (N)** — 20 shards = 20× the divisions vs whole-file hosting
+- **Host count per shard (H)** — more hosts per shard = more host-level divisions
+- **Mint count (M)** — more mints = more independent mint-level divisions
+- **Host transitions** — churn creates epochs where shard drain continues but claims pause
+- **Self-healing cycles** — repair lag between shard loss and replacement = unclaimed drain
 
-A thin market (1 host, 1 jurisdiction) produces near-zero friction. A deep market (50 hosts, 5 jurisdictions, fragment layer) produces meaningful residual. **Building a deep storage market IS building the income.**
+A thin market (1 host, 1 shard, 1 mint) produces near-zero remainder. A deep market (5 hosts per shard, 20 shards, 3 mints = 300 divisions per pool per epoch) produces ~5-6% structural capture — emergent, no rate set. **Building a deep storage market IS building the income.**
 
 ### Three Self-Correcting Loops
 
@@ -319,18 +333,24 @@ Content sustains from funding, not from reads (reading is free). But reads drive
 
 ## Revenue Model
 
-### Protocol-Level: Natural Remainder (unforkable, zero effort)
+### Protocol-Level: Dimensional Remainder (unforkable, zero effort)
 
-The genesis key receives what no host claims. This is not a fee. It is the arithmetic remainder of integer division across distributed settlement.
+The genesis key receives the sum of integer truncation at every division level in settlement. This is not a fee. There is no rate, no parameter, no percentage. It is the irreducible coordination cost of multi-party integer settlement on a Bitcoin-denominated substrate.
 
-Sources of natural remainder:
-- **Rounding**: each host claim per pool per epoch rounds down. ~1 sat per division.
-- **Timing gaps**: host enters/exits mid-epoch. Fractional epoch is unclaimable.
-- **Transitions**: host departs, replacement arrives later. Gap = unclaimed drain.
+Settlement divides pool drain across three independent dimensions:
+- **Mints** (trust distribution) — pool drain divided among M genesis-delegated mints
+- **Shards** (host-blind storage) — per-mint drain divided among N erasure-coded fragments
+- **Hosts** (availability) — per-shard drain divided among H hosts with valid receipts
+
+Each division is `floor()` on integer sats. Each produces a remainder. The total remainder scales with M × N × H independent divisions per pool per epoch. With M=3, N=20, H=5: ~300 divisions per pool per epoch. The expected genesis capture is ~5-6% of total drain — emergent from the dimensional structure, not from any set rate.
+
+Additional sources:
+- **Timing gaps**: host transitions create epochs where drain continues but shard claims pause.
+- **Cross-epoch prorating**: partial-epoch service produces fractional claims truncated to zero.
 - **Dust sweep**: abandoned pools (no claims for N epochs) sweep entirely to genesis.
-- **Precision cascade**: multi-host, multi-fragment, multi-mint settlement compounds rounding across dimensions.
+- **Self-healing gaps**: when a shard host departs and a repairer reconstructs + re-uploads, the replacement lag produces unclaimed drain.
 
-The capture rate is not set. It is emergent from market structure: more hosts, more fragments, more epochs, smaller claims = more divisions = more remainder. No percentage anywhere. A fork has identical physics — but starts with zero demand history, zero pools, zero hosts.
+The capture rate is not set. It is emergent. Every architectural improvement — more mints, more shards, more hosts — that makes the system more robust also multiplies divisions. The founder's income has convex scaling: it grows faster than the system. A fork copies the same physics but starts with zero dimensions, zero demand history, zero hosts.
 
 The total volume flowing through settlement is conviction spending (funding volume only). Reading is free and generates no pool income. Contested content generates the most conviction spending — competitive repeat funding is the volume engine. The founder earns from the froth of disagreement.
 
@@ -414,16 +434,15 @@ Spread: whatever the clearinghouse operator charges. Two-tier host market: commo
 
 ## Product: Permanence Tiers
 
-Four-layer durability:
+Three-layer durability. Fragment hosting is the default for funded content — host-blind storage is the architecture, not an upgrade:
 
 | Layer | Where | Cost | Durability | Host knowledge |
 |-------|-------|------|------------|----------------|
-| Relay | Nostr relays | PoW (~200ms) | Relay-dependent | Full |
-| Blossom | Whole-file hosts | Sats (pool) | Pool-funded | Full |
-| Fragment | Encrypted erasure-coded shards | Sats (pool, N× overhead) | Pool-funded, self-healing | **None — host is blind** |
+| Relay | Nostr relays (metadata, events, manifests) | PoW (~200ms) | Relay-dependent | Full |
+| Fragment | Convergent-encrypted, erasure-coded shards on Blossom servers | Sats (pool, ~2× overhead) | Pool-funded, self-healing | **None — host is blind** |
 | Inscribed | Bitcoin blockchain | On-chain fee | Permanent | N/A |
 
-Content naturally migrates UP tiers as censorship pressure increases. Each escalation costs more but is harder to censor. The fragment layer (Tahoe-LAFS model) fills the gap between "host can refuse" and "pay $100 for on-chain permanence."
+Content below MIN_FRAGMENT_SIZE (10 KB) stores as a single shard on Blossom (still encrypted for host-blindness, but no erasure coding — N=1). Content above the threshold is always fragmented. Self-healing: any participant can download K surviving shards, reconstruct, re-encode a missing shard (deterministic — same hash), and upload to a new host to earn from the pool.
 
 **NIP-INSCRIBE**: Taproot witness envelope for permanent content/edges on Bitcoin. Materializer watches for OCDN-prefixed inscriptions. Batched into daily Bitcoin anchor transaction.
 
@@ -566,6 +585,10 @@ Only protocol-adjacent constants. Everything else is operator-set or market-dete
 | Constant | Value | Note |
 |----------|-------|------|
 | EPOCH_BLOCKS | 24 | ~4h at 10min/block. Bitcoin block height. Natural Schelling point. |
+| RS_K | 10 | Reconstruction threshold. Any 10 of 20 shards suffice. |
+| RS_N | 20 | Total shards. 2× storage overhead. 10-of-20 for censorship resistance. |
+| MIN_FRAGMENT_SIZE | 10240 (10 KB) | Below this: single encrypted shard (N=1). Above: full RS(K,N). |
+| CONTENT_KEY_DOMAIN | "ocdn-v1" | Convergent encryption: key = SHA256(domain \|\| content_hash). |
 | POW_TARGET_BASE | 2^240 | Anti-spam for receipts + comments. ~200ms mobile. |
 | POW_SIZE_UNIT | 1048576 (1 MB) | PoW scales with content size. |
 | NIP Event Kinds | 1000-9999 range | Non-replaceable. Pool credits are additive. |
@@ -603,6 +626,8 @@ File layer, L402, node kit, receipt SDK, pin contracts. Receipt cryptography car
 11. **Zap-to-pool bridge** — capture existing Nostr economic flow.
 12. **Competitive display** — funded contradictions surface as live head-to-head clusters.
 
+13. **Client-side RS encoding** — convergent encrypt + Reed-Solomon(10,20) + shard distribution to Blossom servers. The settlement income depends on fragment-level division.
+
 ### Post-Launch (Build When Triggered)
 
 | Feature | Trigger |
@@ -610,7 +635,6 @@ File layer, L402, node kit, receipt SDK, pin contracts. Receipt cryptography car
 | Receipt economy (NIP-RECEIPT + Blossom addon) | Hosts want pool revenue |
 | Full settlement (NIP-SETTLE + cross-verification) | Multiple settlers running |
 | Clearinghouse (preserve/offer matching) | Preservation demand from users |
-| Fragment hosting (erasure-coded shards) | Censorship pressure on content |
 | Bitcoin inscriptions | Demand for permanence |
 | Importance API + competing index support | Organic API inquiries |
 | Block-level chunking | Streaming media demand |
@@ -700,4 +724,4 @@ Every event, receipt, body edge, graph computation, and threshold crossing store
 
 ## The One-Sentence Version
 
-**A permissionless conviction scoreboard where sats bind to hashes, reading is free, and hosts prove service to claim pool drain. The integer remainder of distributed settlement — rounding, gaps, dust — flows to the genesis key, which is also the mint trust root: forking the income requires forking every receipt ever signed. Funding is advertising — funders pay for availability and visibility, readers consume for free. Contested content drives repeat funding. The natural friction of settlement is the founder's permanent income. The moat deepens with every receipt and requires zero effort.**
+**A permissionless conviction scoreboard where sats bind to hashes, reading is free, and content is convergent-encrypted and erasure-coded into host-blind shards. Settlement divides pool drain across mints, shards, and hosts — each division is integer arithmetic on sats, each produces a remainder that flows to the genesis key. No fee, no rate, no parameter: the remainder is the irreducible coordination cost of multi-party settlement on an integer substrate, and it scales with the product of dimensions. Funding is advertising. Contested content drives repeat funding. The dimensional friction of a deep storage market is the founder's permanent income. The moat deepens with every receipt and requires zero effort.**
