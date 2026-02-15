@@ -21,6 +21,8 @@
 13. **The system optimizes for contested content** — Uncontested content is funded once. Contested content is funded repeatedly by competing sides. Competitive dynamics drive repeat funding — the highest-velocity economic behavior in the system. The founder earns from the froth of disagreement, not from any position. Free reading amplifies this: everyone sees the scoreboard, everyone can take a side.
 14. **The protocol is four event types and one rule** — (1) Fund confirmation: sats bind to a hash. (2) Request proof: client proves intent to consume (PoW-gated, gates content delivery, includes referrer `via` tag). (3) Store attestation: store proves it served a shard for a specific request (signed, submitted directly to mint). (4) Settlement: deterministic payout computation matching request proofs to store attestations. Rule: unclaimed drain → genesis address. Pools with no valid attestations for N consecutive epochs are abandoned — remaining balance sweeps to genesis. Everything else — store pricing, content durability, ranking, discussion structure, edge types, topic organization — is a product concern or emergent market property.
 15. **The network metabolizes failed attention bids** — Self-promoters deposit sats to fund their own content. If nobody reads it, no stores earn, the pool sits unclaimed, and sats sweep to genesis. The network converts low-value interaction into founder income. Contested content produces remainder income (active market). Ignored content produces sweep income (failed attention bid). Both modes pay genesis. The total addressable revenue is all inflow, not just successful content.
+16. **The protocol settles; the product interprets** — Settlement is narrow, deterministic, and hard to game (requires real sats, real storage, real bonds). The importance index is broad, interpretive, and soft-gameable — but also forkable, competitive, and improvable without protocol changes. Most attacks target the index. The index is the expendable layer. Settlement — where the money flows — is robust. Attacks on interpretation don't corrupt settlement. Attacks on settlement require real capital at risk.
+17. **Text conviction is the highest-margin income** — Genesis income per sat funded is inversely proportional to content size. Text claims (no stores, no shards) → pool sweeps to genesis → **100% capture**. Small documents (N=1, 2-shard settlement) → coordination shard = 50% of drain → genesis captures ~16.7%. Large documents (N=20, 21-shard settlement) → coordination shard = 4.8% → genesis captures ~3-4% including remainder. The froth of competing ideologies is almost entirely text claims. Text conviction spending is the most efficient income source in the protocol. The store economy earns from documents; the sweep mechanism earns from discourse. Both pay genesis. The escalation from text claims to document evidence is the value creation moment — someone uploads the actual court filing, stores join, the storage market activates.
 
 ---
 
@@ -118,7 +120,7 @@ The front-end controls the delivery channel and earns from the coordination shar
 
 ### Trust Assumptions
 
-- **Custodial trust**: Bonded mints hold pool balances. Irreducible — sats that persist across epochs and pay multiple parties over time require custody. Mints are bonded (on-chain UTXO), permissionless, multi-jurisdiction. The bond minimizes trust; it cannot eliminate it. All custody operations are auditable from public events. Same trust model as any Cashu mint, with an additional bond at risk.
+- **Custodial trust (bond = custody ceiling)**: Bonded mints hold pool balances. Irreducible — sats that persist across epochs and pay multiple parties over time require custody. **Protocol rule: `balance(mint) ≤ bond_value(mint)`.** The bond is not a fixed entry cost — it is the maximum custodial capacity. Deposits that would exceed the ratio are rejected; the client routes to the next mint. Mints compete for deposits by posting larger bonds: larger bond → more capacity → more deposits → more coordination income. Net gain from theft is zero or negative (bond forfeited ≥ balances stolen). All custody operations are auditable from public events.
 - **Founder operates: nothing post-launch.** The genesis address is a protocol constant. The founder has no operational role, no delegation authority, no admin key. All roles are operated by independent bonded or permissionless actors.
 - Independent operators run: bonded mints, stores, serve endpoints, settlers, importance indexes
 - All settlement is deterministic and auditable from the canonical event set — anyone can recompute from day 1
@@ -164,15 +166,15 @@ sig: mint signature
 
 **Pool key** = SHA256 hash. Protocol doesn't care what it references — it credits and drains. All nodes are identical at the protocol level: hash + pool. The only variation is what the hash references and whether any store can serve bytes for it:
 
-| Node type | Pool key | Servable | Example |
-|-----------|----------|----------|---------|
-| **Document** | SHA256 of file bytes | Yes | Court filing, image, PDF |
-| **Claim** | SHA256 of claim text | Effectively no (text on relays) | "Lab leak is the origin of COVID" |
-| **Topic** | SHA256 of topic string | No | `SHA256("china")` |
-| **Reply** | SHA256 of reply text | Effectively no (text on relays) | Counter-argument, corroboration |
-| **Edge** | SHA256 of rel \|\| hash_A \|\| hash_B | No | "A contradicts B" |
+| Node type | Pool key | Servable | Genesis income mode |
+|-----------|----------|----------|---------------------|
+| **Document** | SHA256 of file bytes | Yes (shards on Blossom) | Settlement: coordination share + remainder (~3-4%) |
+| **Claim** | SHA256 of claim text | No (text on relays) | Sweep: 100% capture after N epochs |
+| **Topic** | SHA256 of topic string | No | Sweep: 100% capture after N epochs |
+| **Reply** | SHA256 of reply text | No (text on relays) | Sweep: 100% capture after N epochs |
+| **Edge** | SHA256 of rel \|\| hash_A \|\| hash_B | No | Sweep: 100% capture after N epochs |
 
-The protocol makes no distinction. Stores earn from any pool they can prove storage for, provided the content has consumption demand. Pools with no valid attestations accumulate indefinitely — they are demand signals, not income sources.
+The protocol makes no distinction. Stores earn from any pool they can prove storage for, provided the content has consumption demand. Pools with no servable content and no valid attestations accumulate indefinitely and eventually sweep to genesis — conviction tax on the scoreboard signal. The highest-margin income is text conviction (100% sweep). The highest-volume income is document storage (settlement drain).
 
 **Anonymous funding**: Funder deposits via Cashu P2PK using an ephemeral pubkey. The mint confirms the deposit without knowing who sent it. Irrevocable AND unattributable.
 
@@ -194,7 +196,13 @@ content: ""
 sig: client signature (NIP-07)
 ```
 
-**Gating**: Stores verify the request proof before serving. Invalid PoW, bad signature, wrong epoch → store refuses. This ensures every consumption event produces a verifiable demand signal. The front-end can request this signature from NIP-07 but cannot modify `content_hash` — the extension shows what it's signing.
+**Two modes** — same event, different function depending on content type:
+- **Stored content (documents)**: gates delivery + demand signal + referrer attribution. Stores verify before serving.
+- **Relay content (claims, replies, topics, edges)**: demand signal + referrer attribution only. No delivery gating needed — text is freely available on relays. The client still generates and publishes the request proof for the importance index to count. PoW still provides anti-sybil. `via` tag still attributes the front-end.
+
+**Gating**: For stored content, stores verify the request proof before serving. Invalid PoW, bad signature, wrong epoch → store refuses. This ensures every consumption event produces a verifiable demand signal. The front-end can request this signature from NIP-07 but cannot modify `content_hash` — the extension shows what it's signing.
+
+**Ephemeral keys (privacy by default)**: The reference client defaults to ephemeral keys for request proofs — a fresh key per session, unlinkable to the reader's main Nostr identity. Readers who want a consumption credential (agents, researchers) opt in to identified proofs signed by their main key. Sybil risk from ephemeral keys affects only the index (display layer), not settlement (economic layer) — drain is gate-triggered by the existence of valid request proofs, not count-triggered by their volume. The index can weight commitment (sats, unsybilable) over demand (request proofs, sybilable).
 
 **Referrer (`via` tag)**: The front-end's pubkey. Settlement credits the coordination shard to participants identified in valid request proofs. Forgery is unprofitable — a front-end can set `via` to itself, but only earns if the request proof also produces valid store attestations for consumed content. You can't fake the demand, so you can't profit from fake referrals. The reference client hardcodes the founder's pubkey. Other front-ends use their own.
 
@@ -234,6 +242,7 @@ kind: NIP_EPOCH_SUMMARY_KIND
 pubkey: mint_pubkey                      # bonded mint
 tags:
   ["epoch", "<epoch_number>"]
+  ["prev", "<prev_epoch_summary_event_id>"]  # hash chain — settler convergence + fork/gap detection
   ["request_count", "<n>"]              # unique request proofs verified
   ["content_totals", "<content_hash>", "<request_count>", "<unique_clients>"]
   ["store_totals", "<store_count>", "<attestation_count>"]  # aggregate only — no individual store IDs in public events
@@ -243,7 +252,7 @@ tags:
 sig: mint signature
 ```
 
-**Why summaries**: Individual request proofs are signed by clients (unbounded, non-enumerable on relays). Epoch summaries are signed by bonded mints (bounded, enumerable, gap-detectable via `seq`). Two settlers querying overlapping relay sets converge to the same result. Individual store identities never appear in public events — the mint resolves store pubkeys for payout internally.
+**Why summaries**: Individual request proofs are signed by clients (unbounded, non-enumerable on relays). Epoch summaries are signed by bonded mints (bounded, enumerable, gap-detectable via `seq`). The `prev` tag creates a per-mint hash chain — settlers detect gaps (missing summaries), forks (conflicting summaries at the same `seq`), and converge by collecting all chains to the current epoch. Two settlers that see the same hash chains produce the same settlement. Conflicting summaries at the same `seq` are a double-sign → fraud proof → bond slash. Individual store identities never appear in public events — the mint resolves store pubkeys for payout internally.
 
 ### 4. Settlement (settler-signed)
 
@@ -402,7 +411,7 @@ Content sustains from funding, not from reads (reading is free). But reads drive
 
 | Attack | Defense |
 |--------|---------|
-| Fake demand (sybil clients) | Each request proof costs PoW compute (escalating per pubkey/day) |
+| Fake demand (sybil clients) | PoW cost per request proof. Ephemeral keys make sybil cheaper but only affect the index (display layer), not settlement (economic layer) — drain is gate-triggered, not count-triggered. Index weights commitment (sats) over demand (PoW). |
 | Flood requests | PoW difficulty scales with volume — exponential cost |
 | Replay requests | Epoch-bound, single use |
 | Fake bytes served | response_hash in store attestation must match expected shard hash |
@@ -411,6 +420,10 @@ Content sustains from funding, not from reads (reading is free). But reads drive
 | Sybil referrers (fake `via` tags) | Referrer income requires valid request proofs with matching store attestations. You can't profit from fake referrals without generating real consumption. |
 | Store proxies without storing | Storage challenges (random byte offset + Merkle proof, latency-tested) catch fetch-on-demand. Repeated failure → bond slash. |
 | Sybil receipt inflation | Receipt doesn't credit specific stores — demand signal is diluted across ALL stores for that content. Less profitable than original model. |
+| Store self-dealing (own request proofs) | **Tolerated — self-dealing is work, not fraud.** The store pays real PoW, provides real storage (must pass challenges), and triggers correct settlement (genesis earns coordination share + remainder). The funder wanted persistence; the store provides it. Cost (PoW + storage + bond) makes it unprofitable at scale. At small scale, it converts sweep income (100% genesis) to settlement income (~3-4% genesis) — a bounded loss. |
+| Mint-store collusion | Block-hash-assigned cross-store verification. Colluding mint cannot rig peer assignments. Probability of colluding verifier = C/S per epoch. Over multiple epochs, honest peer is assigned and fake storage is caught. Bond at risk for both parties. |
+| Mint deposit flight | Bond = custody ceiling (`balance ≤ bond`). Net gain from theft is zero or negative. |
+| Centrality gaming (citation clusters) | PageRank with pool-based teleportation: unfunded nodes inject zero importance. Isolated unfunded clusters have zero importance regardless of edge density. Gaming requires funding multiple nodes — expensive and self-defeating (outgoing edges donate importance to real content). |
 
 ### Storage Challenge Protocol
 
@@ -429,18 +442,18 @@ Stores that fail: lose earnings for that epoch.
 Repeated failure (N consecutive): bond slashed → genesis address.
 ```
 
-### Cross-Store Verification
+### Cross-Store Verification (block-hash assigned)
 
-Each epoch, the mint randomly assigns stores to verify one peer's storage challenge response:
+Each epoch, the Bitcoin block hash at the epoch boundary determines the verification ring — not the mint. Assignment is deterministic from `hash(block_hash || store_set || epoch)`, unpredictable before the block, and independently verifiable by anyone.
 
 ```
-Epoch E:
+Epoch E (block hash determines ring):
   Store_A proves shard_3 → Store_B assigned to verify Store_A's response
   Store_B proves shard_7 → Store_C assigned to verify Store_B's response
   Store_C proves shard_12 → Store_A assigned to verify Store_C's response
 ```
 
-Earning requires BOTH passing your own challenge AND verifying a peer. Random per-epoch assignment prevents stable collusion. Refusal to verify → verifiee reports → reliability score drops. This creates a ring of mutual dependency for earning.
+Earning requires BOTH passing your own challenge AND verifying a peer. Block-hash assignment removes the mint from the challenge loop — the mint collects attestations and publishes summaries, but cannot rig verification assignments. Mint-store collusion requires the block-hash-assigned peer verifier to also be colluding. With S total stores and C colluding, probability of drawing a colluding verifier is C/S per epoch — over multiple epochs, an honest verifier is eventually assigned and fake storage is caught. The assignment record is public: if a fraud proof later shows Store B never had the shard, Store A's "pass" verdict implicates Store A's bond too.
 
 ### Bonded Mint Operators (Permissionless)
 
@@ -621,35 +634,63 @@ Agents read for free (PoW) and fund with conviction (delegation budget). Three a
 | `⚡` | Sats |
 | `₿` | Bitcoin anchor |
 
-### One Surface: The Feed
+### One Surface: The Leaderboard
 
-One page (`/`). Cards expand inline. Hash URLs (`/<hash>`) deep-link.
+A ranked list at every level. Not a feed — a scoreboard. Rank is the primary information. Changing the rank is the primary motivation.
 
-**Collapsed card**:
+**Three levels, one page** — same component, different scope. Tap to drill in, back to drill out:
+
 ```
-court-filing.pdf                           →
-⚡84,000  47 funders  23↩  ████████████  [+]
+/                → topics ranked by aggregate pool
+/topic           → claims within topic ranked by pool
+/hash            → single claim expanded with replies + evidence
 ```
 
-**Expanded card** (tap to expand):
+**Two tabs** at every level:
+
+| Tab | Sort | Answers |
+|-----|------|---------|
+| **Top** | Total pool balance | "What has the most conviction behind it?" (stable, slow-moving) |
+| **Now** | Funding velocity (sats/epoch) | "What's being contested right now?" (volatile, fast) |
+
+The divergence between Top and Now IS the signal. #47 on Top but #2 on Now = "this is suddenly important and most people haven't noticed." No third tab needed — unusual funding shows up as Top/Now rank divergence.
+
+**Level 0 — Topic index** (`/`):
 ```
-┌──────────────────────────────────┐
-│ court-filing.pdf              →  │
-│ PDF · 2.4 MB                    │
-│  ⚡ 84,000      47 funders      │
-│  ████████████████████████  [+]  │
-│  → blossom1.example.com/a1b2    │
-│  → blossom2.example.com/a1b2    │
-│  → ₿ 820,000                    │
-│  ←12      →3                    │
-│  23↩ · 4,200⚡ in replies        │
-│  ┊ Alice  8×PoW     [+] [620⚡] │
-│  ┊  "contradicts the..."        │
-│  ┊ Carol          [+] [2,100⚡] │
-│  ┊  "corroborating: [ref→]"     │
-│  [ ↩ reply ]                    │
-└──────────────────────────────────┘
+[top]  [now]                                 [resolve ↵]
+
+ 1  /corruption          ⚡ 847,000   +12%    [+]
+ 2  /surveillance        ⚡ 614,200    +3%    [+]
+ 3  /bitcoin             ⚡ 590,100   −1%     [+]
+ 4  /pharma              ⚡ 441,800   +28%    [+]
 ```
+
+**Level 1 — Claim index** (`/topic`):
+```
+/corruption
+[top]  [now]                                 [resolve ↵]
+
+ 1  "Internal audit reveals $2.3B misall..."  ⚡ 184,000  23↩  [+]
+ 2  court-filing.pdf  (2.4 MB)                ⚡  84,000  14↩  [+]
+ 3  "The audit methodology is flawed bec..."  ⚡  47,200   8↩  [+]
+```
+
+**Level 2 — Claim detail** (`/hash`):
+```
+"Internal audit reveals $2.3B misallocation across three divisions"
+⚡ 184,000 · 47 funders · 23↩ · 12,400⚡ in replies
+████████████████████████████████████████░░░░  [+]
+                                   reply funding
+
+  ↩ anon  "corroborating: I worked in div. 2..."    [+] [4,200⚡]
+  ↩ anon  "this is a misread of GAAP standards..."   [+] [2,100⚡]
+  ↩ anon  → spreadsheet.xlsx                        [+] [1,800⚡]
+  [ ↩ reply ]
+```
+
+**Conviction bar**: Proportional to pool balance relative to the max in the current view. Reply funding shown as lighter fill within the same bar — when the reply bar exceeds the claim bar, the claim is being actively dismantled or defended. Either way, most interesting thing on screen.
+
+**Resolver input**: Not search. Type a hash → jump to claim. Paste a URL → hash the content, show conviction state (or `[+] to create`). Type `/string` → filter to topic. Type text → create a new claim.
 
 ### One Action
 
@@ -657,7 +698,7 @@ court-filing.pdf                           →
 |--------|--------|------|
 | **Fund** | `+` | Tap → amount (100/500/2K/10K) → Lightning → done |
 
-**Pre-funded wallet**: Cashu ecash in browser. Deposit once, fund with one tap. 100 sats should cost the same mental effort as a "like."
+**Wallet**: NIP-47 (Nostr Wallet Connect) is the default path. User connects wallet once (QR/string), connection persists encrypted on relays (NIP-78). Subsequent `[+]` taps send payment requests via relay — the user's wallet (phone, desktop, anywhere) pays automatically. Cross-device, persistent, we hold zero sats. Cashu in-browser as fallback for users without Lightning wallets. 100 sats should cost the same mental effort as a "like."
 
 **Reply** (`↩`): Tap → text input. PoW in background. Optional sats attached. Submit.
 
@@ -667,9 +708,30 @@ court-filing.pdf                           →
 
 | Route | Purpose |
 |-------|---------|
-| `/` | The feed. Resolver input at top. |
-| `/<hash>` | Deep link — card pre-expanded. |
+| `/` | Topic leaderboard. Resolver input at top. |
+| `/topic` | Claim leaderboard within topic. |
+| `/<hash>` | Deep link — claim expanded with replies. |
 | `/verify/<hash>` | Integrity proof page (institutional-facing). |
+
+### Stateless Client
+
+The SPA stores nothing. The user's Nostr key IS the session. Every piece of state lives on relays as signed events.
+
+| Feature | Outsourced to | Our code |
+|---------|---------------|----------|
+| Identity / session | NIP-07 browser extension | `window.nostr.getPublicKey()` |
+| Wallet / payments | NIP-47 (Nostr Wallet Connect) | One relay subscription |
+| Conviction portfolio | Fund events on relays (query by pubkey) | One relay query on connect |
+| Watchlist / bookmarks | NIP-51 encrypted lists on relays | One event kind, encrypted |
+| Preferences | NIP-78 application-specific data on relays | One event kind, encrypted |
+| Cross-device sync | Same key = same relay queries = same state | Zero |
+| Notifications (live) | Relay subscriptions already open for feed rendering | Filter on user's funded hashes |
+| Notifications (background) | Service Worker + relay WebSocket (no server) | ~100 lines |
+| Notifications (reliable) | NIP-44 DMs from ecosystem notification bots | Zero (not our infra) |
+
+**Session reconstruction on return visit**: Detect NIP-07 → query relays for user's fund events → reconstruct portfolio → query NIP-51 for watchlist → subscribe to new events on funded/watched hashes → badge: "3 new replies to claims you funded." Cross-device by construction.
+
+**Onboarding ramp**: Anonymous reader (no key, ephemeral PoW) → localStorage key (fund, watch, in-tab notifications) → NIP-07 extension (cross-device, portfolio, background notifications) → NIP-07 + NWC (one-tap funding from any device). Each step opt-in, each unlocks more.
 
 ### Widget
 
@@ -729,7 +791,8 @@ Only protocol-adjacent constants. Everything else is operator-set or market-dete
 | CONTENT_KEY_DOMAIN | "ocdn-v1" | Convergent encryption: key = SHA256(domain \|\| content_hash). |
 | POW_TARGET_BASE | 2^240 | Anti-spam for request proofs + comments. ~200ms mobile. |
 | POW_SIZE_UNIT | 1048576 (1 MB) | PoW scales with content size. |
-| MIN_ATTESTATIONS | RS_K (10) | Minimum store attestations for a valid consumption event. |
+| SWEEP_EPOCHS | 42 | ~7 days. Pools with no valid attestations for this many consecutive epochs sweep to genesis. Balances text conviction income (100% sweep) against giving stores time to join. |
+| MIN_ATTESTATIONS | 1 (graduates to RS_K) | Minimum store attestations for a valid consumption event. Starts at 1 for bootstrap; increases toward RS_K as store count grows. Graduation thresholds are protocol constants, not operator-set. |
 | CHALLENGE_INTERVAL | 1 epoch | How often mints challenge stores for storage proof. |
 | NIP Event Kinds | 1000-9999 range | Non-replaceable. Pool credits are additive. |
 
@@ -744,6 +807,7 @@ Only protocol-adjacent constants. Everything else is operator-set or market-dete
 
 | Parameter | Set by | Note |
 |-----------|--------|------|
+| Min deposit | Each mint | Anti-spam. Reference mint: 100 sats. Low-ball mints attract dust — their overhead. |
 | Venue fee | Serve endpoint operator | Whatever the venue charges. Founder charges nothing (operates nothing). |
 | Clearing spread | Clearinghouse operator | Whatever the clearinghouse charges. |
 | Store rate | Each store | Market-determined. Covers storage costs. |
@@ -760,12 +824,12 @@ File layer, L402, node kit, receipt SDK, pin contracts. Cryptographic primitives
 
 ### Phase 2: Build Four Artifacts
 
-Storage market and dimensional settlement ship in MVP — they are the income mechanism, not a post-launch upgrade. The founder builds four artifacts, then walks away.
+The client validates the thesis. The storage market captures value from the thesis. Build the client first — if nobody funds contested claims through it, the storage market is moot. All four ship in MVP, but priority is: client → spec → settle → store.
 
-1. **Protocol spec (NIP)** — Four event types (fund confirmation, request proof with `via` tag, store attestation, settlement), bonded mints, coordination shard, settlement rule with `GENESIS_ADDRESS` constant. Short enough to read in 20 minutes. Once published, immutable.
-2. **`ocdn-store` daemon** — Docker container. Watches relays for opportunity signal (funded content, few stores), stores encrypted shards, responds to mint storage challenges, submits attestations directly to mint, cross-verifies peers, earns BTC to LN address. Zero editorial decisions. `docker run ocdn-store --ln-address=<me>`.
+1. **Static client SPA** — No backend. No server. Connects to Nostr relays via WebSocket. Renders the conviction leaderboard (topics → claims → replies, two tabs: Top/Now). Generates request proofs via NIP-07 with `via` tag set to `FOUNDER_VIA_PUBKEY`. Routes funding via NWC/Cashu (client-side only) through `DEFAULT_MINT`. Stateless: NIP-07 for identity, NIP-47 for wallet, NIP-51 for watchlist, NIP-78 for preferences — all on relays, zero server state. Deploy to IPFS + pin on multiple gateways. Also deploy to Vercel/Cloudflare Pages under a domain. Text/link posting, resolver input, real-time funding updates, visual OG cards, competitive display — all client-side. **This is the founder's primary income-generating asset** — every request proof through this client earns referrer income from the coordination shard. First-mover links, OG cards, bookmarks, and documentation references compound the social moat without ongoing effort.
+2. **Protocol spec (NIP)** — Four event types (fund confirmation, request proof with `via` tag, store attestation, settlement), bonded mints, coordination shard, settlement rule with `GENESIS_ADDRESS` constant. Short enough to read in 20 minutes. Once published, immutable.
 3. **`ocdn-settle` binary** — Deterministic CLI (single static binary). Input: relay URL(s) + mint epoch summaries. Output: settlement events published to relays. `GENESIS_ADDRESS` is a constant in the source. Content-hash the binary, publish the hash.
-4. **Static client SPA** — No backend. No server. Connects to Nostr relays via WebSocket. Renders the conviction scoreboard. Generates request proofs via NIP-07 with `via` tag set to `FOUNDER_VIA_PUBKEY`. Routes funding via Lightning/Cashu (client-side only) through `DEFAULT_MINT`. Deploy to IPFS + pin on multiple gateways. Also deploy to Vercel/Cloudflare Pages under a domain. Text/link posting, real-time SSE on funding, visual OG cards, competitive display, Cashu pre-funded wallet — all client-side. **This is the founder's primary income-generating asset** — every request proof through this client earns referrer income from the coordination shard. First-mover links, OG cards, bookmarks, and documentation references compound the social moat without ongoing effort.
+4. **`ocdn-store` daemon** — Docker container. Watches relays for opportunity signal (funded content, few stores), stores encrypted shards, responds to mint storage challenges, submits attestations directly to mint, cross-verifies peers, earns BTC to LN address. Zero editorial decisions. `docker run ocdn-store --ln-address=<me>`.
 
 ### Phase 3: Ignite (one day)
 
