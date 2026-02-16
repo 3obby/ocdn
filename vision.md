@@ -11,7 +11,7 @@
 3. **Infrastructure is a commodity** — Borrow it. Nostr relays distribute events. Blossom servers store blobs. Lightning/Cashu handle payments. Nostr keys handle identity. All already deployed, already distributed, already resilient.
 4. **The protocol is a storage market; the index is the product** — The protocol clears payments between funders and stores. The importance index — the real-time, economically-weighted ranking of what humanity values enough to pay to persist — is a product built on the market's public data. The protocol is plumbing; the index is the shopfront. Reading is free (PoW-gated). Funding costs sats. The two axes — conviction (funding) and attention (PoW request proofs) — are independent measurements. Their divergence IS the signal. No other system produces both.
 5. **The hierarchy is append/promote-only** — Content, topics, and discussion form a graph. Nodes are added (append) or funded (promote). Nothing is edited, deleted, or hidden at the protocol level. Loss is an explicit, auditable state — the pool exists, the request proofs existed, the bytes are gone. Every other information system makes loss silent. This one makes loss visible, attributable, and economically actionable.
-6. **Store-blind storage** — Stores hold encrypted, erasure-coded shards under random blob IDs. They cannot determine what content their fragments represent. Convergent encryption makes shards deterministic for verification; blind addressing (random blob IDs, mapping registered with bonded mints — never published on relays) breaks the public content_hash → store link. Content-to-store mappings are gated behind valid request proofs: a client must present PoW + Nostr signature to any bonded mint before receiving store locations. Mints gossip mappings to all bonded peers — any mint can serve discovery for any content. Mints publish per-content shard store counts (coverage signals) on relays each epoch — stores see the opportunity without learning store identities. Passive observers — including legal adversaries scanning for known hashes — cannot build a content → store map without generating visible, PoW-costly demand signal for every item. Store attestations are submitted directly to the mint (not published on relays) — stores never appear in public events by real pubkey. The store operator makes zero editorial decisions: software selects shards by economic signal (payout per byte), not by content. No content inspection, no acceptance policy, no legal judgment, no content-addressed scanning surface. Storage is a commodity: bytes in, sats out. Serving is a separate, untrusted role — any front-end, CDN, or proxy can deliver bytes to readers. The store's legal posture: generic encrypted blob cache — cannot decrypt, cannot identify content, no public record links them to specific content, complies with blob-ID removal on valid legal order. Censorship requires taking down more than N-K stores across jurisdictions simultaneously, while economic incentives actively recruit replacements. The adversary's takedown action increases per-store payout, advertising the opportunity to replacement stores. The system channels self-interest (stores want sats, funders want permanence, readers want signal) into collective censorship resistance.
+6. **Store-blind storage** — Stores hold encrypted, erasure-coded shards under random blob IDs. They cannot determine what content their fragments represent. Convergent encryption makes shards deterministic for verification; blind addressing (random blob IDs, mapping registered with bonded mints — never published on relays) breaks the public content_hash → store link. Content-to-store mappings are gated behind valid request proofs: a client must present PoW + Nostr signature to any bonded mint before receiving store locations. Mints gossip mappings to all bonded peers — any mint can serve discovery for any content. Mints publish per-content shard store counts (coverage signals) on relays each epoch — stores see the opportunity without learning store identities. **Precise privacy boundary**: store-blindness protects against **bulk scanning** — PoW cost scales linearly with scan breadth, making untargeted fishing expeditions expensive. It does NOT protect against **targeted identification** of known content — an adversary who possesses the plaintext can derive the content hash, generate one request proof (~200ms), and discover stores. Censorship resistance against targeted action comes from redundancy + jurisdiction diversity + economic replacement incentive, not from encryption alone. Store attestations are submitted directly to the mint (not published on relays) — stores never appear in public events by real pubkey. The store operator makes zero editorial decisions: software selects shards by economic signal (payout per byte), not by content. No content inspection, no acceptance policy, no legal judgment, no content-addressed scanning surface. Storage is a commodity: bytes in, sats out. Serving is a separate, untrusted role — any front-end, CDN, or proxy can deliver bytes to readers. The store's legal posture: generic encrypted blob cache — cannot decrypt, cannot identify content, no public record links them to specific content, complies with blob-ID removal on valid legal order. Censorship requires taking down more than N-K stores across jurisdictions simultaneously, while economic incentives actively recruit replacements. The adversary's takedown action increases per-store payout, advertising the opportunity to replacement stores. The system channels self-interest (stores want sats, funders want permanence, readers want signal) into collective censorship resistance.
 7. **Resilience is a property of greed, not architecture** — The protocol doesn't specify redundancy. It makes storage profitable and anonymously operable; serving is a separate, permissionless role that requires no bond and earns referrer income from the coordination shard. Mints publish per-content shard coverage counts on relays each epoch (anonymous — no store identities). Rogue store operators watch coverage signals for funded content with few stores, mirror fragments, earn sats. Censoring content increases the per-store payout, attracting replacements. The adversary fights economic gravity. The protocol specifies incentive gradients; profit-seeking actors carve the architecture.
 8. **The genesis address is a protocol constant** — The genesis address is embedded in the protocol specification — like EPOCH_BLOCKS or RS_K. It is not an authority, not a delegation root, not a key that controls anything. It receives settlement remainder by the math, not by any operational role. Mints are bonded (on-chain UTXO), not genesis-delegated — anyone can become a mint by posting a verifiable bond. The founder operates nothing post-launch. Forking the income requires changing one constant in settler code — but accessing the content-to-store mappings requires posting a bond and operating an original-protocol mint to receive gossip, which is expensive and economically self-defeating (that mint earns from the original protocol). The mapping is accumulated since genesis, replicated via gossip across bonded mints, gated behind request proofs. The moat deepens with every upload and requires zero ongoing effort.
 9. **The founder's income is proportional to settlement dimensionality** — Each mint settles independently. Settlement divides each mint's pool drain across independent dimensions: coordination (market facilitation), shards (store-blind storage), and stores (availability). Each dimension produces independent integer remainders. The remainder count scales with the product of dimensions, not their sum. Every architectural improvement — more referrers, more shards, more stores — that makes the system more robust also multiplies the number of integer divisions. The genesis income has convex scaling: it grows faster than any single system metric. No fee. No rate. The income is the irreducible coordination cost of multi-party integer settlement. The founder operates nothing — the income is passive, structural, embedded in the settlement math that independent settlers run. A fork must post a bond and operate an original-protocol mint to receive mapping gossip — expensive and economically irrational since that mint earns from the original protocol.
@@ -24,6 +24,7 @@
 16. **The protocol settles; the product interprets** — Settlement is narrow, deterministic, and hard to game (requires real sats, real storage, real bonds). The importance index is broad, interpretive, and soft-gameable — but also forkable, competitive, and improvable without protocol changes. Most attacks target the index. The index is the expendable layer. Settlement — where the money flows — is robust. Attacks on interpretation don't corrupt settlement. Attacks on settlement require real capital at risk.
 17. **All funded content is stored; text conviction is the highest-margin income** — All funded content — text claims, replies, topics, edges, documents — is stored as encrypted shards in the storage market. Unfunded ephemeral messages live on relays only (see thesis 18). Text is bytes; bytes are shards. Text claims store as single encrypted shards (N=1). Documents store as erasure-coded shards (N=RS_N). The coordination shard fraction is 1/(N+1): **50% for text (N=1), 4.8% for documents (N=20)**. Genesis captures a structural share of coordination regardless of which client facilitates traffic — this is the **inverse size premium**. Text claims (N=1, 2-shard settlement) → coordination shard = 50% of drain → genesis captures ~16-25% depending on referrer count (25% adversarial floor with zero founder referrer traffic). Large documents (N=20, 21-shard settlement) → genesis captures ~1-2%. The froth of competing ideologies is almost entirely text. Text conviction spending is the most efficient income source in the protocol — not because of sweep, but because the inverse size premium gives genesis the largest coordination fraction on the highest-velocity content type. Sweep still catches truly abandoned pools (no stores join, no reads occur), but the structural income is settlement, not sweep. The escalation from text claims to document evidence is the value creation moment — someone uploads the actual court filing, stores join, the full storage market activates.
 18. **Two metabolisms: free discourse, funded signal** — Ephemeral messages are regular Nostr events — free to post, relay-dependent, zero protocol awareness. They appear as collapsed `+ n` counts beneath funded content, never occupying screen real estate by default. Anyone can upgrade an ephemeral message to the funded layer with a single `[+]` tap: the client hashes, encrypts, uploads the initial shard to Blossom, and deposits sats to the mint. The free layer is the discourse substrate — volume, whistleblowers, hot takes, the 4chan energy. The funded layer is the conviction signal — what people pay to persist. The divergence between what people say freely and what people fund is itself a signal axis no other system produces. Ephemeral messages don't influence the importance index; only funded signals affect rank. The upgrade path means a whistleblower posts for free with an ephemeral key, someone else funds it, and the poster never touched sats. The free layer solves cold start (people will post for free); the funded layer solves quality (sats surface the signal).
+19. **Honest-minority resilience** — Three-layer discovery degradation: mints (primary, privacy-preserving, request-proof-gated) → serve endpoint caches (secondary, popularity-proportional, organic from prior reads) → relay-published encrypted mappings (tertiary, content-hash-gated, `encrypt(store_endpoint || blob_id, key=HKDF(content_hash || shard_index, "discovery-v1"))`). One honest relay = content discoverable. One honest store per shard = content available. One honest mint = new deposits accepted + real-time privacy-preserving discovery. Any single honest participant of any role type = system partially functions. Total failure requires ALL relays AND ALL stores AND ALL mints AND ALL settlers to fail simultaneously. Stores broadcast attestations to ALL bonded mints (O(M) per attestation, M small) — omission by one mint is detectable via cross-mint epoch summary comparison. Storage challenges are permissionless — anyone can issue them, not just mints. The protocol's durability depends on honest minorities, not honest majorities.
 
 ---
 
@@ -79,6 +80,21 @@ Everything else is borrowed infrastructure.
 | **MINT** | On-chain bond | Yes — coordination shard share + bond slash income | Bonded, auditable |
 | **SETTLER** | None | None (public service) | Deterministic, auditable by anyone |
 
+### Unbundled Mint Functions
+
+The bonded mint bundles six logically separable functions. Unbundling clarifies trust requirements and enables honest-minority resilience:
+
+| Function | What it does | Trust model | Honest-minority property |
+|----------|-------------|-------------|-------------------------|
+| **Custody** | Holds pool sats across epochs | Custodial (bond = ceiling) | Per-mint: one honest mint = its deposits safe. Deposit splitting across 2+ mints makes loss proportional, not binary. |
+| **Privacy bridge** | Maps content_hash → (store, blob_id) | Trusted not to leak | Three-layer fallback: mints → serve caches → relay-encrypted mappings. One honest relay = discoverable. |
+| **Discovery gate** | Serves mappings to clients with valid request proofs | Trusted to respond | Any mint, any serve cache, or relay-encrypted mapping can serve discovery. |
+| **Challenge authority** | Issues storage challenges to stores | Permissionless — anyone can challenge | One honest challenger = storage fraud detected. Mints challenge by default; independent challengers supplement. |
+| **Attestation collector** | Receives store attestations (private channel) | Trusted not to omit (receipts + fraud proofs) | Stores broadcast to ALL bonded mints. Omission detectable via cross-mint comparison. |
+| **Epoch summarizer** | Aggregates attestations into settlement input | Bonded, auditable | One honest mint = correct summary for its deposits. Cross-settler verification catches discrepancies. |
+
+A single operator runs all six in practice. The decomposition ensures that no single function's failure is catastrophic — each has an independent fallback path.
+
 ### Communication Channels
 
 ```
@@ -91,7 +107,7 @@ MINT   ←───────────────→ MINT          mapping
 MINT   ─────────────────→ RELAYS        coverage signals (per-content shard store counts — no store IDs)
 ```
 
-**Three mapping layers**: (1) Coverage signals on relays — per-content shard store counts, published by mints each epoch, no store identities. Stores and the `/earn` page use these for opportunity assessment. (2) Full mapping in mints — actual store locations, gated behind request proofs, replicated across all bonded mints via gossip. Any mint can serve discovery for any content. (3) Serve-layer cache — serve endpoints cache store locations from prior reads, providing organic fallback if mints are temporarily unreachable.
+**Four mapping layers** (degrading privacy, increasing availability): (1) Full mapping in mints — actual store locations, gated behind request proofs, replicated across all bonded mints via gossip. Any mint can serve discovery for any content. Privacy-preserving: demand signal required. (2) Serve-layer cache — serve endpoints cache store locations from prior reads, providing organic fallback proportional to content popularity. No privacy guarantee, but no mint dependency. (3) Relay-published encrypted mappings — mints (or stores) publish encrypted mapping events to relays: `encrypt(store_endpoint || blob_id, key=HKDF(content_hash || shard_index, "discovery-v1"))`. Anyone who knows the content_hash (visible in fund events) can derive the key and discover stores. No mint needed. Privacy loss: adversary with content_hash discovers stores without generating demand signal (no PoW gate), but this is marginal given targeted identification is already trivial via Layer 1. Availability gain: discovery degrades from "requires a mint" to "requires a relay." (4) Coverage signals on relays — per-content shard store counts, published by mints each epoch, no store identities. Stores and the `/earn` page use these for opportunity assessment. Not a discovery layer (no store endpoints), but enables supply response.
 
 The client discovers store locations by presenting a valid request proof to any bonded mint — the full mapping never touches relays; only anonymous coverage counts do. The front-end controls the delivery channel and earns from the coordination shard via the `via` tag in request proofs. Serve endpoints naturally cache store locations they discover, providing resilience proportional to content popularity. Economic signaling — request proofs, store attestations, storage challenges — flows through independent channels the front-end cannot intercept. A malicious front-end can route traffic and earn its referrer share, but cannot forge any participant's signature or redirect store income. The front-end's economic role is bounded: it earns from coordination, not from storage.
 
@@ -109,22 +125,22 @@ The client discovers store locations by presenting a valid request proof to any 
 
 | Component | Layer | Purpose |
 |-----------|-------|---------|
-| **Convergent encryption + deterministic RS** | Protocol | Content key = SHA256(domain \|\| content_hash). RS(K,N) with canonical shard ordering. Shard hashes are deterministic for verification — no manifest trust surface. |
+| **Convergent encryption + deterministic RS** | Protocol | Content key = SHA256(domain \|\| content_hash). RS(K,N) over GF(2^8) with pinned generator polynomial and canonical shard ordering. Shard hashes are deterministic for verification — no manifest trust surface. **Canonical RS spec**: protocol includes 10 test vectors (content_hash, shard_index, expected_shard_hash). Any implementation that passes test vectors is compatible. Interop without a canonical RS spec is fragile — different GF(2^8) generators produce incompatible shards. |
 | **Blind addressing + request-gated mapping** | Protocol | Stores hold shards under random blob IDs, not shard hashes. Mapping (shard_hash → store, blob_id) registered with bonded mints, replicated via gossip — never published on relays. Clients present a valid request proof to any bonded mint to discover store locations. Passive observers cannot build a content → store map. |
 | **Coverage signal event** | Protocol | Mints publish per-content shard store counts on relays each epoch — anonymous (no store identities). Stores and the `/earn` page compute opportunity from coverage + pool balance. The gap between "how many" and "which ones" is the privacy boundary. |
 | **Fund confirmation event** | Protocol | Bind sats to content hash (bonded mint-signed) |
 | **Request proof event** | Protocol | Client PoW + Nostr signature + referrer `via` tag, gates content delivery, published to relays as demand signal |
 | **Store attestation** | Protocol | Store signs "I served shard i for request R", submitted directly to mint (not published on relays) |
 | **Settlement event** | Protocol | Per-mint deterministic payout across (N+1) shards (coordination + storage) × stores (settler-signed) |
-| **Storage challenge protocol** | Protocol | Mint challenges stores with random byte offsets + Merkle proofs. Latency-tested. Stores that fail lose epoch earnings. Repeated failure → bond slash → genesis. |
+| **Storage challenge protocol** | Protocol | Mints challenge stores by default; challenges are **permissionless** — anyone can issue them (read-only verification, no bond needed). Random byte offsets + Merkle proofs. Latency-tested. Stores that fail lose epoch earnings. Repeated failure → bond slash → genesis. Independent challengers supplement mint challenges — one honest challenger = storage fraud detected. |
 | **Cross-store verification** | Protocol | Each epoch, stores are randomly assigned to verify a peer's storage challenge response. Earning requires both proving your own storage AND verifying a peer. |
+| **Attestation broadcast** | Protocol | Stores submit attestations to ALL bonded mints simultaneously (O(M) per attestation, M small). Omission by one mint is detectable via cross-mint epoch summary comparison. Receipts from each mint enable fraud proofs for selective omission. |
 | **Bonded mint registration** | Protocol | On-chain UTXO as bond. Permissionless entry. Fraud proof (double-sign, fabricated attestations) → bond slashed to genesis address. |
 | **Fraud proof event** | Protocol | Anyone can publish provable evidence of mint/store misbehavior → triggers bond slash |
 | **`ocdn-store` daemon** | Product | Commodity storage: watches coverage signals on relays for undercovered shards, stores encrypted shards, registers mapping with mint (gossip replicates), responds to mint challenges, attests to mint, cross-verifies peers, earns BTC. Zero editorial decisions. `docker run` entry point. |
 | **Importance index** | Product | Rankings, feed, API, widget. Anyone operates. |
 | **OG image endpoint** | Product | Cloudflare Worker renders live scoreboard snapshots for social sharing. Stateless, serve-layer. The viral loop. |
 | **Clearinghouse** | Product | Preserve/offer order matching |
-| **Founder protection** | Product | Threshold keys for genesis address, beneficiary dead-man switch |
 
 ### Trust Assumptions
 
@@ -151,15 +167,18 @@ The client discovers store locations by presenting a valid request proof to any 
 
 ### 1. Fund Confirmation (bonded mint-signed)
 
-A two-step process: (1) funder deposits sats to a bonded mint, (2) mint publishes a signed confirmation event to relays.
+A three-step process: (1) funder deposits sats to a bonded mint, (2) mint verifies shard integrity, (3) mint publishes a signed confirmation event to relays.
 
-**Step 1 — Deposit** (private, off-relay): Funder sends sats to a mint via Lightning invoice or Cashu P2PK transfer locked to the mint's pubkey. The mint credits the pool on its internal ledger. No bearer tokens are published on relays.
+**Step 1 — Deposit** (private, off-relay): Funder sends sats to a mint via Lightning invoice or Cashu P2PK transfer locked to the mint's pubkey. The reference client defaults to splitting deposits across 2+ bonded mints (round-robin via `DEPOSIT_SPLIT_MIN`). Per-mint custody risk becomes proportional, not binary — one honest mint = its fraction of deposits safe. The mint credits the pool on its internal ledger. No bearer tokens are published on relays.
+
+**Step 1b — Upload verification** (private, off-relay): Mint verifies shard integrity before confirming. Uploader submits K shards + content_hash. Mint decrypts, reconstructs, checks `SHA256(plaintext) == content_hash`. If invalid, deposit is rejected. Prevents free griefing — without this, an adversary can fund garbage shards that stores blindly mirror, making content unrecoverable despite a funded pool. Cost: ~100ms compute per upload (decrypt + hash check). For large documents, the mint verifies a random subset of shard Merkle roots against the deterministic expected values.
 
 **Step 2 — Confirmation** (public, on-relay):
 ```
 kind: NIP_POOL_KIND (non-replaceable, 1000-9999 range)
 pubkey: mint_pubkey                      # bonded mint signs
 tags:
+  ["v", "1"]                             # protocol version — explicit from day one
   ["r", "<sha256>"]                      # content hash (the pool key)
   ["amount", "<sats>"]                   # sats confirmed
   ["funder", "<funder_pubkey>"]          # who deposited (ephemeral key OK)
@@ -200,6 +219,7 @@ A PoW-gated request that gates store discovery and content delivery. Clients pre
 kind: NIP_REQUEST_KIND (non-replaceable, 1000-9999 range)
 pubkey: client_pubkey                   # client Nostr key (NIP-07)
 tags:
+  ["v", "1"]                            # protocol version
   ["r", "<content_hash>"]              # what the client wants to consume
   ["pow", "<nonce>", "<pow_hash>"]     # anti-sybil (reading is free, PoW prevents abuse)
   ["epoch", "<epoch_number>"]
@@ -253,6 +273,7 @@ Mints publish epoch-aggregated summaries — the canonical settlement input.
 kind: NIP_EPOCH_SUMMARY_KIND
 pubkey: mint_pubkey                      # bonded mint
 tags:
+  ["v", "1"]                             # protocol version
   ["epoch", "<epoch_number>"]
   ["prev", "<prev_epoch_summary_event_id>"]  # hash chain — settler convergence + fork/gap detection
   ["request_count", "<n>"]              # unique request proofs verified
@@ -274,6 +295,7 @@ A service that subscribes to fund confirmation + epoch summary events, computes 
 kind: NIP_SETTLE_KIND
 pubkey: settler
 tags:
+  ["v", "1"]                             # protocol version
   ["epoch", "<epoch_number>"]
   ["store", "<store_pubkey>"]
   ["r", "<sha256>"]
@@ -337,6 +359,8 @@ No mandated drain rate. Drain = sum of valid store claims from stores that prove
 
 **Settlers query mints directly**: Settlers fetch epoch summaries from bonded mints' endpoints, not from relays. Mints are a bounded, enumerable set (bond registration includes endpoint). Relays carry epoch summaries for public auditability but are not on the settlement critical path. Each per-mint settlement event is independently final. Missing mints are filled in when their summaries become available. The `prev` hash chain on epoch summaries makes each mint's history self-proving — a new settler reconstructs any mint's complete history by following the chain backward from the latest summary.
 
+**Payout accumulation**: Settlement events record owed amounts per recipient. Actual Lightning payouts batch when per-recipient accumulated balance crosses `PAYOUT_THRESHOLD` (e.g., 1,000 sats). Sub-threshold amounts accumulate across epochs in the mint's internal ledger. Standard in mining pools. Reduces sub-50-sat Lightning payment attempts. The mint's bond covers all accumulated balances (`balance(mint) ≤ bond_value(mint)` includes accumulations).
+
 **Properties**:
 - Deterministic: same mint epoch summary → same per-mint settlement. Anyone can verify.
 - Per-mint decomposition: no cross-mint join, no relay consensus dependency.
@@ -344,6 +368,7 @@ No mandated drain rate. Drain = sum of valid store claims from stores that prove
 - Settlement merkle root anchored via OpenTimestamps.
 - Multiple settlers can run simultaneously and cross-verify.
 - `GENESIS_ADDRESS` is a protocol constant — embedded in every settler's code, not a parameter.
+- All events carry `["v", "1"]` protocol version tag. Version bumps are coordinated flag days, not silent upgrades.
 
 ---
 
@@ -375,6 +400,8 @@ epoch_drain(cid) = Σ store_claims(cid, epoch)
 
 More stores = faster drain = shorter durability = more funding urgency = more deposits. Fast drain means an active, healthy market. Stores compete on price; competition compresses rates over time, making content more durable — an emergent anti-decay force.
 
+**Drain rate floor**: `MIN_DRAIN_RATE` (protocol constant, e.g., 1 sat/shard/epoch) prevents market equilibrium from converging to near-zero throughput. Without a floor, store competition compresses rates indefinitely → drain slows → pool duration increases → re-funding urgency drops → genesis income starves. The floor ensures genesis income has a minimum proportional to stored content count, independent of how efficiently stores compete. Content below the floor effectively decays at a fixed calendar rate — the irreducible cost of persistence.
+
 ### Degradation
 
 Market-driven, no parameters:
@@ -384,6 +411,10 @@ Market-driven, no parameters:
 3. **Last store**: Single point of failure. Index shows warning.
 4. **Dead**: No stores. Bytes gone. Ghost persists on relays — full metadata (`meta:*` tags), economic history (funding events), citation graph (edges), discussion (replies). `[+] to restore`. For content upgraded from ephemeral, the original Nostr event may still exist on relays — an independent recovery source that doesn't depend on the storage market. The client re-hashes the relay plaintext, verifies the content hash matches, re-encrypts, and re-uploads the shard.
 5. **Restored**: Someone re-funds. A store sees the opportunity, mirrors shards, starts earning. The gap in the record is permanent and visible.
+
+### Coverage Signal Frequency
+
+Coverage signals (per-content shard store counts) are decoupled from settlement frequency. Settlement: every `EPOCH_BLOCKS` (24 blocks, ~4h). Coverage signals: every `COVERAGE_BLOCKS` (6 blocks, ~1h). Faster opportunity signals for stores (join sooner), faster feedback for funders (see store response sooner), no increase in settlement complexity. The 4h epoch is appropriate for settlement math; 1h is appropriate for the demand signal layer where emotional urgency drives competitive funding.
 
 ### Market Depth = Founder Income
 
@@ -473,7 +504,7 @@ Earning requires BOTH passing your own challenge AND verifying a peer. Block-has
 
 Permissionless entry via on-chain bond (BTC in time-locked UTXO). Any operator in any jurisdiction. Each operator: holds pool balance fraction (custody), verifies request proofs, collects store attestations, issues storage challenges, publishes epoch summaries, publishes coverage signals, executes settlement payouts.
 
-**Mapping gossip**: Mints replicate content-to-store mappings to all bonded peers. When a store registers a mapping with mint M, M gossips to all other bonded mints. O(M²) messages per new registration where M is small. Any mint can serve discovery queries for any content — not just the depositing mint. Coverage signals (per-content shard store counts, no store identities) are published on relays each epoch for store opportunity assessment.
+**Mapping gossip**: Mints replicate content-to-store mappings to all bonded peers. When a store registers a mapping with mint M, M gossips to all other bonded mints. O(M²) messages per new registration where M is small. Any mint can serve discovery queries for any content — not just the depositing mint. Coverage signals (per-content shard store counts, no store identities) are published on relays each `COVERAGE_BLOCKS` (6 blocks, ~1h) for store opportunity assessment. **Gossip authentication**: mints only accept gossip from peers whose bonds they've independently verified on-chain. **Gossip delay**: new mints receive mappings only for content funded AFTER their bond was posted — prevents sybil-and-exit attacks (post bond, join gossip, exfiltrate full mapping set, exit). The cost of sybiling the mapping data = bond + time (mapping accumulates only going forward). Mints also publish encrypted mapping backups to relays (Layer 3 discovery fallback — see thesis 19).
 
 **Bootstrap exception**: The founder operates a bonded mint at launch (Phase 2-3). This is the irreducible bootstrap cost — deposits require a mint. The founder's mint is the `DEFAULT_MINT` in the reference client. The "founder operates nothing" property is achieved at the Phase 4 "forget" threshold when independent mints bond. Minimize the bootstrap window: recruit one partner mint before launch so redundancy exists from day 1.
 
@@ -626,9 +657,17 @@ All content is stored. Content below MIN_FRAGMENT_SIZE (10 KB) — including tex
 
 The founder operates nothing — there is no index to delegate, no mint to manage, no admin role to exercise. Protection applies only to the genesis address and its accumulated income.
 
-**Threshold genesis key**: 2-of-3 FROST. Share 1: founder. Shares 2-3: trusted parties in different jurisdictions. Protects against seizure and coercion. The genesis address receives income automatically — the threshold key is only needed to SPEND it.
+**Three key contexts**:
 
-**NIP-GENESIS-BENEFICIARY**: Dead man's switch. Designates beneficiary key that inherits genesis income if the threshold key misses a heartbeat. Protects against incapacitation.
+| Key | Hot/Cold | Purpose | Risk if lost | Bootstrap → Steady state |
+|-----|----------|---------|-------------|--------------------------|
+| **Genesis key** | Cold (threshold) | Spends accumulated income | Income locked forever | Single-sig cold key initially → FROST 2-of-3 ceremony when balance warrants |
+| **Nostr identity key** | Warm (phone/extension) | Seeds content, posts announcements, earns referrer income | Reputational — founder voice lost. Replaceable socially. | Same key = FOUNDER_VIA_PUBKEY (collapse to one context) |
+| **Mint key** | Hot (on VPS) | Signs fund confirmations, epoch summaries, coverage signals (bootstrap only) | Mint stops. Replaceable by bonding a new mint. | Founder-operated → shut down at "forget" threshold
+
+**Threshold genesis key**: Single-sig cold key initially. Upgrade to 2-of-3 FROST when income justifies ceremony. Share 1: founder. Shares 2-3: trusted parties in different jurisdictions. Protects against seizure and coercion. The genesis address receives income automatically — the threshold key is only needed to SPEND it.
+
+**Genesis UTXO management**: The genesis address is a protocol constant — public, tracked by chain analysis automatically. Genesis should receive income via Lightning or Cashu, not raw on-chain UTXOs. If on-chain receipt is required by settlement, automatic sweep to Lightning/coinjoin immediately. Prevents a public real-time wealth ledger at a known address. The genesis address's on-chain footprint should be minimal — income flows through private channels to the threshold key holder.
 
 ---
 
@@ -912,14 +951,19 @@ Only protocol-adjacent constants. Everything else is operator-set or market-dete
 | SWEEP_EPOCHS | 42 | ~7 days. Pools with no valid attestations for this many consecutive epochs sweep to genesis. Balances text conviction income (100% sweep) against giving stores time to join. |
 | MIN_ATTESTATIONS | 1 (graduates to RS_K) | Minimum store attestations for a valid consumption event. Starts at 1 for bootstrap; increases toward RS_K as store count grows. Graduation thresholds are protocol constants, not operator-set. |
 | CHALLENGE_INTERVAL | 1 epoch | How often mints challenge stores for storage proof. |
+| MIN_DRAIN_RATE | 1 sat/shard/epoch | Floor on drain rate per shard per epoch. Prevents market equilibrium from starving genesis income as store competition compresses rates. |
+| COVERAGE_BLOCKS | 6 | ~1h at 10min/block. Coverage signal publication frequency. Decoupled from settlement (EPOCH_BLOCKS). Faster opportunity signals for stores, faster feedback for funders. |
+| PROTOCOL_VERSION | 1 | All events carry `["v", "1"]` tag. Version bumps are coordinated flag days. |
+| PAYOUT_THRESHOLD | 1000 sats | Minimum accumulated balance before Lightning payout executes. Sub-threshold amounts accumulate across epochs. |
 | NIP Event Kinds | 1000-9999 range | Non-replaceable. Pool credits are additive. |
 
 **Reference client constants** (not protocol — embedded in the reference SPA):
 
 | Constant | Value | Note |
 |----------|-------|------|
-| FOUNDER_VIA_PUBKEY | `<pubkey>` | Default `via` tag in request proofs generated through the reference client. Earns referrer share of coordination shard. Other front-ends use their own pubkey. |
+| FOUNDER_VIA_PUBKEY | `<pubkey>` | Default `via` tag in request proofs generated through the reference client. Earns referrer share of coordination shard. Other front-ends use their own pubkey. **= founder's Nostr identity key** (collapse to one key context). |
 | DEFAULT_MINT | `<mint_pubkey>` | Default deposit mint in reference client. First-mover deposit stickiness. |
+| DEPOSIT_SPLIT_MIN | 2 | Reference client splits deposits across at least this many bonded mints (round-robin). Per-mint custody risk proportional, not binary. |
 
 **Operator-set** (not protocol):
 
@@ -944,17 +988,37 @@ File layer, L402, node kit, receipt SDK, pin contracts. Cryptographic primitives
 
 The client validates the thesis. The storage market captures value from the thesis. Build the client first — if nobody funds contested claims through it, the storage market is moot. All four ship in MVP, but priority is: client → spec → settle → store.
 
-1. **Static client SPA + OG endpoint** — No backend. No server. Connects to Nostr relays via WebSocket. Renders the conviction leaderboard (topics → claims → replies, two tabs: Top/Now, four sort modes). Generates request proofs via NIP-07 with `via` tag set to `FOUNDER_VIA_PUBKEY`. Routes funding via NWC/Cashu (client-side only) through `DEFAULT_MINT`. Stateless: NIP-07 for identity, NIP-47 for wallet, NIP-51 for watchlist, NIP-78 for preferences — all on relays, zero server state. Deploy to IPFS + pin on multiple gateways. Also deploy to Vercel/Cloudflare Pages under a domain. OG image endpoint as Cloudflare Worker (stateless, serve-layer — renders live scoreboard snapshots for social sharing). Includes `/earn` route for operator recruitment. Alert system computed client-side from relay subscriptions. Text/link posting, resolver input, real-time funding updates, competitive display — all client-side. **This is the founder's primary income-generating asset** — every request proof through this client earns referrer income from the coordination shard. First-mover links, OG cards, bookmarks, and documentation references compound the social moat without ongoing effort.
-2. **Protocol spec (NIP)** — Four event types (fund confirmation, request proof with `via` tag, store attestation, settlement), bonded mints, coordination shard, settlement rule with `GENESIS_ADDRESS` constant. Short enough to read in 20 minutes. Once published, immutable.
+1. **Static client SPA + OG endpoint** — No backend. No server. Connects to Nostr relays via WebSocket. Renders the conviction leaderboard (topics → claims → replies, two tabs: Top/Now, four sort modes). Generates request proofs via NIP-07 with `via` tag set to `FOUNDER_VIA_PUBKEY`. Routes funding via NWC/Cashu (client-side only) through `DEFAULT_MINT`, splitting across `DEPOSIT_SPLIT_MIN` mints. Stateless: NIP-07 for identity, NIP-47 for wallet, NIP-51 for watchlist, NIP-78 for preferences — all on relays, zero server state. Deploy to IPFS + pin on multiple gateways. Also deploy to Vercel/Cloudflare Pages under a domain. OG image endpoint as Cloudflare Worker (stateless, serve-layer — renders live scoreboard snapshots for social sharing). Includes `/earn` route for operator recruitment (live store economics: estimated per-store earnings given current store count and pool balances). Alert system computed client-side from relay subscriptions. Text/link posting, resolver input, real-time funding updates, competitive display — all client-side. **This is the founder's primary income-generating asset** — every request proof through this client earns referrer income from the coordination shard. First-mover links, OG cards, bookmarks, and documentation references compound the social moat without ongoing effort. **Shelf life**: the static IPFS SPA will break within 6-18 months (stale relay URLs, NIP evolution, browser API changes). The domain-deployed version is updatable. Plan for the reference client to be superseded by competing clients — coordination shard income (genesis) survives client competition; referrer income doesn't. The reference client is a bootstrap artifact, not a permanent product.
+2. **Protocol spec (NIP)** — Four event types (fund confirmation, request proof with `via` tag, store attestation, settlement), bonded mints, coordination shard, settlement rule with `GENESIS_ADDRESS` constant, `["v", "1"]` version tag on all events, canonical RS spec with GF(2^8) pinned generator polynomial + 10 test vectors. Short enough to read in 20 minutes. Once published, immutable (version bumps via coordinated flag days, not silent upgrades).
 3. **`ocdn-settle` binary** — Deterministic CLI (single static binary). Input: relay URL(s) + mint epoch summaries. Output: settlement events published to relays. `GENESIS_ADDRESS` is a constant in the source. Content-hash the binary, publish the hash.
 4. **`ocdn-store` daemon** — Docker container. Watches coverage signals on relays for undercovered shards, stores encrypted shards, registers mapping with mint (gossip replicates), responds to mint storage challenges, submits attestations directly to mint, cross-verifies peers, earns BTC to LN address. Zero editorial decisions. `docker run ocdn-store --ln-address=<me>`.
 
-### Phase 3: Ignite (one day)
+### Phase 2b: Bootstrap Mint (founder-operated, temporary)
+
+The founder operates a bonded mint on a VPS for the bootstrap window. **This is the irreducible bootstrap cost if no partner mint is recruited before launch.** The VPS runs `ocdn-mint` and requires:
+- Lightning node (CLN/LND) or Cashu backend connection for deposits/payouts
+- Reachable endpoint (domain or static IP) for store attestation submission
+- On-chain bond UTXO (~500K sats, recoverable when shut down)
+- Relay WebSocket connections (outbound) for fund confirmations, epoch summaries, coverage signals, encrypted mapping backups
+
+Budget 2-3 days integration beyond core protocol logic. The mint is a Lightning-connected service, not a standalone binary. **Exit criterion**: one independent mint bonds and accepts deposits. The founder's mint shuts down; the founder's seed funding already routed through the partner mint gives it immediate coordination shard income.
+
+**Alternative**: recruit a partner mint operator (existing Cashu operator or Nostr ecosystem builder) before launch. Pitch: "Run this Docker image, post a 500K sat bond, I'll route 200K sats of deposits through you on day 1." The founder's seed budget IS the recruitment budget. If successful: zero founder VPS, zero ongoing machines.
+
+### Phase 3: Ignite (two weeks)
+
+**Week 1 — Deploy + Seed + Announce:**
 
 5. **Publish** — NIP spec to Nostr protocol repos. Open-source all four artifacts on GitHub. Docker image to Docker Hub. Static client to IPFS + domain.
-6. **Seed** — Fund 20-30 timely propositions from multiple ephemeral keys. 100-500 sats each. Total budget: 100-200K sats. **The seed content IS the marketing.** Selection criteria: items people will screenshot and share on X/Reddit/Signal with "look at this." Prioritize: (a) suppressed documents with active news cycles, (b) contested claims where both sides are vocal online, (c) whistleblower-adjacent content that people already share in DMs. The seed leaderboard must look interesting to a stranger in 3 seconds. Bad seeds = dead product regardless of protocol quality. Curate the seeds as carefully as the protocol.
+6. **Seed** — Fund 20-30 timely propositions from multiple ephemeral keys. 100-500 sats each. Total budget: 100-200K sats. **The seed content IS the marketing — budget 3-5 days of editorial curation, not hours.** Selection criteria: items people will screenshot and share on X/Reddit/Signal with "look at this." Prioritize: (a) suppressed documents with active news cycles, (b) contested claims where both sides are vocal online, (c) whistleblower-adjacent content that people already share in DMs. **Seed BOTH sides of 5 contested topics** (not one side of 15) — plausible deniability, and both sides drive counter-funding. Content must be fresh on launch day — tie to current events. The seed leaderboard must look interesting to a stranger in 3 seconds. Bad seeds = dead product regardless of protocol quality.
 7. **Announce** — Post on Nostr: "The OCDN protocol is live. Here's what people are funding. Here's the spec. Here's the store daemon — run it and earn sats." OG cards are the viral loop.
 8. **Zap-to-pool bridge** — capture existing Nostr economic flow.
+
+**Week 2 — Monitor + Recruit + Iterate:**
+
+9. **Monitor** — Watch for: funders-per-item, independent stores joining, store coverage per seeded item, first non-founder deposits. Adjust seed content if leaderboard looks dead.
+10. **Recruit** — Active outreach to potential store operators and mint operators. The `/earn` page with live economics is the pitch. Target: at least 2 independent stores and 1 independent mint within 14 days.
+11. **Iterate** — Fix client bugs, adjust relay lists, respond to community feedback. The domain-deployed client is updatable; the IPFS version is a snapshot.
 
 ### Phase 4: The "Forget" Threshold
 
@@ -1025,23 +1089,31 @@ For agent platforms: **"The demand oracle — what should your agent consume nex
 ### Bootstrap Sequence
 
 ```
+Pre-launch: Recruit partner mint operator OR prepare founder VPS.
+            3-5 days seed content curation (editorial work, not engineering).
+
 Day 0:     Publish spec + code + deploy static client (IPFS + domain).
-           OG endpoint live. /earn page live.
+           OG endpoint live. /earn page live (with live store economics).
            Seed 20-30 items from ephemeral keys. 100-200K sats total.
+           Both sides of contested topics. Fresh, tied to current events.
            Feed live. [+] works. OG cards shareable.
 
 Day 1:     Announce on Nostr. "The OCDN protocol is live. Here's what
            people are funding. Run a store and earn sats."
 
-Week 1-2:  Share on Nostr and Bitcoin Twitter. "Put your money where
+Week 1:    Share on Nostr and Bitcoin Twitter. "Put your money where
            your mouth is." OG cards are the viral loop.
 
-Week 2-4:  Observe: funders-per-item, independent stores joining,
+Week 2:    Monitor + recruit. Active outreach to store/mint operators.
+           Iterate on client bugs, relay lists, seed content.
+           Target: 2+ independent stores, 1 independent mint.
+
+Week 3-4:  Observe: funders-per-item, independent stores joining,
            independent mints bonding. Do people fund? Do stores join?
            If nothing: thesis tested for 200K sats, not 12 months.
 
 Month 2:   "Forget" threshold: 2+ independent operators per role.
-           Shut down any founder-operated infrastructure. Walk away.
+           Shut down founder-operated VPS (if any). Walk away.
 
 Month 3+:  If validated: independent operators build funded discussion,
            widgets, importance API. The founder builds nothing more.
