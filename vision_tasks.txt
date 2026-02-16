@@ -1,0 +1,445 @@
+OCDN — Development Task Plan
+=============================
+Derived from vision.md. Ordered for incremental, AI-copilot-assisted development.
+Status: [ ] = pending, [x] = done
+
+
+═══════════════════════════════════════════════════════════════
+SPRINT 0 — Project Scaffold
+═══════════════════════════════════════════════════════════════
+[ ] Init Next.js (App Router, TypeScript, Tailwind)
+[ ] Define protocol constants file (GENESIS_ADDRESS, EPOCH_BLOCKS, RS_K, RS_N, MIN_FRAGMENT_SIZE, MIN_REPLICAS, POW_TARGET_BASE, SWEEP_EPOCHS, COVERAGE_BLOCKS, etc.)
+[ ] Define TypeScript types for all four event kinds (FundConfirmation, RequestProof, StoreAttestation, Settlement) + EpochSummary + CoverageSignal
+[ ] Define types for content nodes (Claim, Topic, Reply, Edge, Document) — all keyed by SHA256 hash
+[ ] Define types for protocol roles (Store, Serve, Mint, Settler) and their bond/registration state
+[ ] Setup monorepo structure: packages/protocol, packages/client, packages/mint, packages/settle, packages/store
+
+
+═══════════════════════════════════════════════════════════════
+SPRINT 1 — Cryptographic Primitives
+═══════════════════════════════════════════════════════════════
+[ ] SHA256 hashing utils (content_hash for claims, topics, replies, edges, documents)
+[ ] Convergent encryption: key = SHA256(CONTENT_KEY_DOMAIN || content_hash), AES-256 encrypt/decrypt
+[ ] PoW mining: nonce search against POW_TARGET_BASE, scaling by content size (POW_SIZE_UNIT)
+[ ] PoW verification (O(1) check)
+[ ] HKDF key derivation for relay-encrypted discovery mappings: HKDF(content_hash || shard_index, "discovery-v1")
+[ ] Blind addressing: random blob_id generation for store-blind shard storage
+[ ] Deterministic shard hash computation from content_hash + shard_index
+
+
+═══════════════════════════════════════════════════════════════
+SPRINT 2 — Reed-Solomon Erasure Coding
+═══════════════════════════════════════════════════════════════
+[ ] RS(K=10, N=20) encoder over GF(2^8) — canonical WASM implementation
+[ ] RS decoder (reconstruct from any K of N shards)
+[ ] Deterministic shard ordering + pinned generator polynomial
+[ ] Single-shard path for content < MIN_FRAGMENT_SIZE (N=1, text claims/replies/topics/edges)
+[ ] Test vectors (10 minimum per spec) — regression tests for the one canonical implementation
+[ ] Compute RS_WASM_HASH from compiled binary; embed as protocol constant
+
+
+═══════════════════════════════════════════════════════════════
+SPRINT 3 — Nostr Integration
+═══════════════════════════════════════════════════════════════
+[ ] Relay connection manager (multi-relay WebSocket pool, reconnect logic)
+[ ] Event publishing to relays (signed Nostr events)
+[ ] Event subscription with filters (by kind, by tag, by pubkey)
+[ ] NIP-07 integration: getPublicKey(), signEvent() via window.nostr
+[ ] NIP-47 (Nostr Wallet Connect): connect via QR/string, persist encrypted on relays (NIP-78)
+[ ] NIP-51 encrypted list read/write (watchlist/bookmarks)
+[ ] NIP-78 application-specific data read/write (preferences)
+[ ] Ephemeral key generation for anonymous request proofs / anonymous funding
+
+
+═══════════════════════════════════════════════════════════════
+SPRINT 4 — Protocol Event Construction & Validation
+═══════════════════════════════════════════════════════════════
+[ ] Fund confirmation event builder (kind, tags: v, r, amount, funder, seq, bond, meta:*)
+[ ] Fund confirmation event validator (verify mint signature, verify bond UTXO)
+[ ] Request proof event builder (kind, tags: v, r, pow, epoch, via) with NIP-07 signing
+[ ] Request proof event validator (PoW check, signature check, epoch check)
+[ ] Store attestation message builder (request_hash, store_pubkey, shard_index, response_hash, epoch, sig)
+[ ] Epoch summary event builder/validator (per-mint hash chain via prev tag, seq gap detection)
+[ ] Settlement event builder/validator (per-mint, per-content, reward/residual breakdown)
+[ ] Coverage signal event builder/validator (per-content shard store counts, no store IDs)
+[ ] Encrypted mapping event builder (encrypt store_endpoint||blob_id with HKDF key from content_hash)
+
+
+═══════════════════════════════════════════════════════════════
+SPRINT 5 — Client SPA: Shell & Layout
+═══════════════════════════════════════════════════════════════
+[ ] System font stack, two text sizes (content large, metadata small muted), tabular-nums for sats
+[ ] High-contrast two-tone color scheme, amber/gold accent for ⚡, opacity for state
+[ ] Dark mode via prefers-color-scheme
+[ ] Single-column full-width card layout, mobile-first, RTL-aware (dir="auto")
+[ ] Route structure: / (global), /topic (drill), /<hash> (claim detail), /verify/<hash>, /earn
+[ ] Search bar component — centered landing, expands to leaderboard on focus
+[ ] Sort toggle row inline with search bar: ⚡ (pool), ↑ (velocity), ⚖ (mispriced), ◇ (fragile)
+[ ] Symbol vocabulary rendering (⚡ ↑ ↓ ↩ → ← + / ₿ ↵) — no text labels
+
+
+═══════════════════════════════════════════════════════════════
+SPRINT 6 — Client SPA: Leaderboard & Content Rendering
+═══════════════════════════════════════════════════════════════
+[ ] Global topic leaderboard (empty query state) — subscribe to fund events, compute rankings
+[ ] Topic card: name, pool balance, velocity, reply count, [+] button
+[ ] Search/filter: live filtering as user types (topics + claims matching text)
+[ ] Topic drill-in: /topic prefix in search bar, claims within topic
+[ ] Claim card: full text (hero), pool balance, velocity, reply count, [+] button
+[ ] Claim detail view (/<hash>): expanded text, funder count, velocity, store coverage (n/K◇), citations (→n ←n)
+[ ] Conviction bar: solid fill for claim pool, lighter fill for reply pool
+[ ] Funded reply list beneath claim detail, ranked
+[ ] Ephemeral reply display: collapsed "+ n" count, expand on tap, muted style, no rank
+[ ] Content state rendering: live (full opacity), ghost (faded + history), swept (faded + "swept"), not stored (◇ 0/K)
+[ ] Divergence labels: Underpriced, Flash, Endowed, Contested — computed from axes
+
+
+═══════════════════════════════════════════════════════════════
+SPRINT 7 — Client SPA: Funding & Request Proofs
+═══════════════════════════════════════════════════════════════
+[ ] [+] tap → amount picker (100 / 500 / 2K / 10K sats)
+[ ] NWC payment flow: invoice request → wallet pays → confirmation
+[ ] Cashu in-browser fallback for payment
+[ ] Deposit splitting across DEPOSIT_SPLIT_MIN (2+) bonded mints (round-robin)
+[ ] Shard upload on fund: hash → encrypt → upload initial shard to Blossom → register mapping with mint
+[ ] Background Web Worker for PoW mining of request proofs
+[ ] Dwell-based request proof submission: viewport + paused ≥2s for text, tap for documents
+[ ] via tag set to FOUNDER_VIA_PUBKEY in reference client
+[ ] Ephemeral key default for request proofs (fresh key per session)
+[ ] Publish request proofs to relays (public demand signal)
+
+
+═══════════════════════════════════════════════════════════════
+SPRINT 8 — Client SPA: Replies & Ephemeral Upgrade
+═══════════════════════════════════════════════════════════════
+[ ] [↩] reply input — posts as ephemeral Nostr event (free, relay-only)
+[ ] Optional ⚡ on reply submit to fund immediately (upgrade to stored)
+[ ] [+] on any ephemeral message → upgrade flow: hash → encrypt → upload shard → deposit → mint registers
+[ ] New claim creation: non-matching query + submit → claim creation flow (hash text, fund, upload shard)
+[ ] URL paste detection: hash content at URL, show conviction state or "[+] to create"
+
+
+═══════════════════════════════════════════════════════════════
+SPRINT 9 — Client SPA: Session, Portfolio & Alerts
+═══════════════════════════════════════════════════════════════
+[ ] Session reconstruction on return: detect NIP-07 → query fund events by pubkey → rebuild portfolio
+[ ] Watchlist via NIP-51 encrypted lists
+[ ] Preferences via NIP-78
+[ ] Cross-device sync (same key = same relay queries = same state)
+[ ] Client-side alerts from relay subscriptions + cached last-seen:
+    - "n claims you funded moved up m ranks"
+    - "a contradiction surpassed the parent claim"
+    - "this doc is 1 store away from death"
+    - "new evidence cited by a claim you funded"
+[ ] Badge on return: "n updates on your positions"
+[ ] Onboarding ramp: anonymous reader → localStorage key → NIP-07 → NIP-07 + NWC
+[ ] Background notifications via Service Worker + relay WebSocket (~100 lines)
+
+
+═══════════════════════════════════════════════════════════════
+SPRINT 10 — OG Image Endpoint
+═══════════════════════════════════════════════════════════════
+[ ] Cloudflare Worker / Vercel edge function — stateless
+[ ] Query relays for claim data on each scrape
+[ ] Render OG image: claim text (truncated), ⚡ pool balance, rank, velocity, store count, reply count, URL CTA
+[ ] Serve correct og:image meta tags from SPA for Twitter/Slack/Discord/Reddit
+[ ] Deploy as separate serve-layer function (separate URL from SPA)
+
+
+═══════════════════════════════════════════════════════════════
+SPRINT 11 — /earn Page (Store Operator Recruitment)
+═══════════════════════════════════════════════════════════════
+[ ] Route: /earn — operator view
+[ ] Display funded hashes with low store coverage (from coverage signal events)
+[ ] Estimated sats/epoch per shard given current store count + pool balances
+[ ] Required disk space calculation
+[ ] Copy-paste `docker run ocdn-store --ln-address=<me>` command
+[ ] Live economics: show settlement math breakdown for selected content
+
+
+═══════════════════════════════════════════════════════════════
+SPRINT 12 — Bootstrap Mint Service
+═══════════════════════════════════════════════════════════════
+[ ] Mint server scaffold (Node.js or Rust service, reachable endpoint)
+[ ] On-chain bond UTXO verification (bond = custody ceiling: balance ≤ bond_value)
+[ ] Lightning/Cashu deposit acceptance (credit pool on internal ledger)
+[ ] Upload verification: receive K shards + content_hash, decrypt, reconstruct, verify SHA256
+[ ] Fund confirmation event signing + publishing to relays
+[ ] Pool balance tracking per content_hash (per-mint, independent)
+[ ] Request proof verification (PoW + signature + epoch) → return store locations
+[ ] Store attestation collection via direct channel (not relay)
+[ ] Attestation receipt signing (ack with attestation_hash, epoch, mint_sig)
+[ ] Epoch assignment: block-height-based, mint-canonical
+[ ] Epoch summary generation + publishing (hash chain via prev tag, seq numbering)
+[ ] Coverage signal publishing every COVERAGE_BLOCKS (~1h)
+[ ] Mapping registration: store registers (shard_hash → store, blob_id)
+[ ] Mandatory encrypted mapping event publishing to relays on every store registration
+[ ] Mapping gossip: replicate to all bonded peer mints (O(M²), M small)
+[ ] Gossip authentication: verify peer bond on-chain before accepting gossip
+[ ] Mapping cache rebuild from relay events + gossip on restart
+[ ] Storage challenge issuance: random byte offset + Merkle proof, latency-tested
+[ ] Challenge result tracking: fail → lose epoch earnings, repeated fail → bond slash
+[ ] Cross-store verification ring: block-hash-assigned (RING_CONFIRM_DEPTH=6)
+[ ] Payout accumulation: batch when recipient balance crosses PAYOUT_THRESHOLD (1000 sats)
+[ ] Lightning payout execution
+[ ] MAX_SILENT_EPOCHS liveness: must publish or pause within 6 epochs or bond slash
+[ ] Deposit rejection when balance would exceed bond_value
+[ ] Monotonic sequence numbering for fund confirmations + epoch summaries
+
+
+═══════════════════════════════════════════════════════════════
+SPRINT 13 — Settlement Binary (ocdn-settle)
+═══════════════════════════════════════════════════════════════
+[ ] Deterministic CLI binary (single static binary, content-hash published)
+[ ] Input: relay URL(s) + mint endpoint(s) for epoch summaries
+[ ] Fetch epoch summaries from mints directly (not relay-dependent for settlement path)
+[ ] Per-mint settlement loop:
+    - For each content_hash with balance AND valid attestations:
+      - shard_unit = floor(drain / (RS_N + 1))
+      - remainder_1 → GENESIS_ADDRESS
+      - Coordination shard: floor(coord_drain / (1 mint + R referrers + 1 genesis))
+      - remainder_coord → GENESIS_ADDRESS
+      - Storage shards: for each shard, floor(shard_drain / S stores)
+      - remainder_2 → GENESIS_ADDRESS
+[ ] Earning requires BOTH valid attestation AND passed storage challenge
+[ ] Sweep logic: no valid attestations for SWEEP_EPOCHS → sweep pool to GENESIS_ADDRESS
+[ ] Settlement event publishing to relays (per-mint, independently final)
+[ ] input_set tag: SHA256(sorted epoch_summary_event_ids) for convergence proof
+[ ] OpenTimestamps anchoring of settlement merkle root
+[ ] GENESIS_ADDRESS as source-code constant
+[ ] Cross-settler verification: same input_set → same output (deterministic)
+
+
+═══════════════════════════════════════════════════════════════
+SPRINT 14 — Store Daemon (ocdn-store)
+═══════════════════════════════════════════════════════════════
+[ ] Docker container scaffold (docker run ocdn-store --ln-address=<me>)
+[ ] On-chain bond posting + registration
+[ ] Watch coverage signals on relays for undercovered shards (opportunity discovery)
+[ ] Compute estimated earnings from coverage + pool balance + settlement math
+[ ] Download shards from Blossom, store under random blob_ids (blind addressing)
+[ ] Register mapping (shard_hash → store, blob_id) with any bonded mint
+[ ] Respond to mint storage challenges: random byte offset + Merkle proof within T seconds
+[ ] Serve shards: verify request proof (PoW + signature + epoch) before serving
+[ ] Sign store attestation after serving (bind to specific request)
+[ ] Submit attestation directly to mint (bypass front-end)
+[ ] Broadcast attestations to ALL bonded mints (O(M))
+[ ] Retain attestation receipts for fraud proof capability
+[ ] Cross-store verification: verify assigned peer's challenge response each epoch
+[ ] Shard eviction policy: evict lowest-funded content first when disk full
+[ ] Self-healing: download K surviving shards, reconstruct missing shard, re-upload to earn
+[ ] LN address configuration for payout receipt
+[ ] Zero editorial decisions — shard selection purely by economic signal (payout per byte)
+
+
+═══════════════════════════════════════════════════════════════
+SPRINT 15 — ocdn-pack CLI
+═══════════════════════════════════════════════════════════════
+[ ] Deterministic tar of file tree (--sort=name --mtime=0 --owner=0 --group=0)
+[ ] Same tree → same bytes → same SHA256 → convergent encryption composes
+[ ] RS(10,20) encoding of archive into shards
+[ ] Output: content_hash + encrypted shards ready for Blossom upload
+[ ] Use case: codebases, static sites, datasets, app bundles
+
+
+═══════════════════════════════════════════════════════════════
+SPRINT 16 — HTTP Gateway (Serve Endpoint)
+═══════════════════════════════════════════════════════════════
+[ ] URL path → content_hash resolution
+[ ] Reconstruct archive from K shards (fetch from stores via request proof)
+[ ] Extract requested file from archive, serve with correct Content-Type
+[ ] Cache reconstructed archive (hash = immutable = trivial invalidation)
+[ ] Vanity domains: DNS TXT (_ocdn.example.com TXT "r=<hash>") or Nostr kind mapping
+[ ] Earn referrer income via own via tag in request proofs
+[ ] Self-hosting loop: SPA + source code served by gateway from protocol itself
+[ ] ~500 lines target
+
+
+═══════════════════════════════════════════════════════════════
+SPRINT 17 — Embeddable Widget
+═══════════════════════════════════════════════════════════════
+[ ] Web component: <ocdn-widget> (feed mode) / <ocdn-widget hash="..."> (single card)
+[ ] CDN-hosted, mobile-responsive
+[ ] Renders conviction data from relay subscriptions
+[ ] Ship before media outreach
+
+
+═══════════════════════════════════════════════════════════════
+SPRINT 18 — Fraud Proofs & Advanced Verification
+═══════════════════════════════════════════════════════════════
+[ ] Fraud proof event type: anyone publishes provable evidence of mint/store misbehavior
+[ ] Double-sign detection (conflicting epoch summaries at same seq)
+[ ] Selective attestation omission proof (attestation + ack receipt)
+[ ] Fabricated attestation detection
+[ ] Bond slash execution → GENESIS_ADDRESS
+[ ] Permissionless storage challenges (anyone can issue, not just mints)
+[ ] Cross-mint epoch summary comparison for omission detection
+
+
+═══════════════════════════════════════════════════════════════
+SPRINT 19 — Protocol Spec (NIP)
+═══════════════════════════════════════════════════════════════
+[ ] Write formal NIP: four event types, bonded mints, coordination shard, settlement rule
+[ ] Specify GENESIS_ADDRESS as protocol constant
+[ ] Specify canonical RS WASM encoder (pinned via RS_WASM_HASH)
+[ ] Specify mandatory relay-published encrypted mappings
+[ ] Specify mint-canonical epoch assignment
+[ ] Specify MAX_SILENT_EPOCHS liveness rule
+[ ] Specify settler input_set convergence tag
+[ ] Specify RING_CONFIRM_DEPTH for reorg-safe cross-store verification
+[ ] Specify ["v", "1"] version tag on all events
+[ ] Target: readable in 20 minutes, immutable once published
+
+
+═══════════════════════════════════════════════════════════════
+SPRINT 20 — Deployment & Launch Prep
+═══════════════════════════════════════════════════════════════
+[ ] Deploy SPA to IPFS + pin on multiple gateways
+[ ] Deploy SPA to Vercel/Cloudflare Pages under domain
+[ ] ocdn-pack the SPA build output + fund archive (self-hosting)
+[ ] ocdn-pack the source repo + fund hash
+[ ] Publish ocdn-store Docker image to Docker Hub
+[ ] Content-hash ocdn-settle binary, publish hash
+[ ] Open-source all artifacts on GitHub
+[ ] Recruit partner mint operator OR prepare founder VPS (Phase 2b)
+
+
+═══════════════════════════════════════════════════════════════
+SPRINT 21 — Ignite (Seed & Announce)
+═══════════════════════════════════════════════════════════════
+[ ] 3-5 days seed content curation (editorial, not engineering)
+[ ] Seed 20-30 timely propositions from ephemeral keys (100-500 sats each, 100-200K total)
+[ ] Seed BOTH sides of 5 contested topics (not one side of 15)
+[ ] Tie seed content to current events — must look interesting to a stranger in 3 seconds
+[ ] Announce on Nostr: protocol live, what people are funding, run a store
+[ ] Zap-to-pool bridge — capture existing Nostr economic flow
+[ ] Share OG cards on Nostr + Bitcoin Twitter
+[ ] Monitor: funders-per-item, independent stores joining, coverage per seeded item
+[ ] Active outreach to store/mint operators via /earn page economics
+[ ] Target: 2+ independent stores, 1+ independent mint within 14 days
+
+
+═══════════════════════════════════════════════════════════════
+SPRINT 22 — "Forget" Threshold
+═══════════════════════════════════════════════════════════════
+[ ] Verify: 2+ independent stores earning from pools
+[ ] Verify: 1+ independent bonded mint operating
+[ ] Verify: 1+ independent settler publishing matching settlement events
+[ ] Shut down founder-operated infrastructure
+[ ] Walk away — genesis address continues receiving remainders
+
+
+═══════════════════════════════════════════════════════════════
+POST-LAUNCH — Build When Triggered
+═══════════════════════════════════════════════════════════════
+[ ] Clearinghouse (NIP-PRESERVE / NIP-OFFER / NIP-CLEARING) — trigger: preservation demand
+[ ] Bitcoin inscriptions (NIP-INSCRIBE, Taproot witness) — trigger: permanence demand
+[ ] Importance API + competing index support — trigger: organic API inquiries
+[ ] Agent economy: delegation, structured edges, request-proof-as-credential — trigger: agent platform interest
+[ ] Private content marketplace (encrypted blob + public metadata + direct sale) — trigger: seller demand
+[ ] Block-level chunking for streaming media — trigger: media demand
+[ ] Genesis key ceremony (FROST 2-of-3 threshold) — trigger: income justifies ceremony
+[ ] Pin insurance / SLA — trigger: institutional demand + 6mo telemetry
+[ ] Namespace auctions — trigger: organic "topic ownership" attempts
+[ ] Pro dashboard — trigger: 1000+ DAU
+
+
+═══════════════════════════════════════════════════════════════
+RATIONALES
+═══════════════════════════════════════════════════════════════
+
+WHY NEXT.JS SPA + STATIC DEPLOY
+  The client is the founder's primary income-generating asset (every request proof earns
+  referrer income via via tag). Static SPA = zero server, zero ops cost. IPFS + domain dual
+  deploy = censorship-resistant + updatable. Next.js gives SSR for OG tags while remaining
+  deployable as static export. The client is a bootstrap artifact — superseded by competing
+  clients eventually; coordination shard income (genesis) survives client competition.
+
+WHY CRYPTO PRIMITIVES BEFORE UI
+  Convergent encryption + RS coding are load-bearing: one wrong byte = content unrecoverable
+  with no fraud proof possible. These must be correct and tested before any content enters the
+  system. The WASM binary hash becomes a protocol constant — no room for iteration post-launch.
+
+WHY CANONICAL RS WASM (NOT MULTIPLE IMPLEMENTATIONS)
+  Shard identity is load-bearing for convergent encryption. Independent reimplementation risks
+  silent, undetectable divergence. The zlib pattern: spec exists for auditability, everyone
+  runs the same code. Test vectors are regression tests for the one implementation, not interop
+  tests across N.
+
+WHY MONOREPO WITH PACKAGES
+  Protocol types shared across client, mint, settler, and store. Single source of truth for
+  event schemas, constants, and crypto primitives. AI copilot can reference shared types when
+  building any component.
+
+WHY CLIENT BEFORE MINT/SETTLE/STORE
+  If nobody funds contested claims through the client, the storage market is moot. The client
+  validates the thesis. The storage market captures value from the thesis. Client → spec →
+  settle → store is the vision's explicit priority order.
+
+WHY MINT IS THE LARGEST SPRINT
+  The bonded mint bundles six logically separable functions: custody, privacy bridge, discovery
+  gate, challenge authority, attestation collector, epoch summarizer. It's the irreducible
+  bootstrap cost — deposits require a mint. Every other role can be permissionless or deferred;
+  the mint cannot.
+
+WHY PER-MINT INDEPENDENT SETTLEMENT
+  No cross-mint join eliminates coordination complexity. Each per-mint settlement is a closed
+  computation — a settler needs only that mint's epoch summary. Missing mints are filled in
+  when available. Settlement events are additive. This makes the system partition-tolerant by
+  default.
+
+WHY N+1 SHARDS (COORDINATION COSTS ONE SHARD)
+  No new constants — derived from RS_N. The coordination fraction is 1/(N+1): 50% for text
+  (N=1), 4.8% for documents (N=20). This is the inverse size premium — genesis structural
+  income is highest on the smallest, most frequent content type (text). The founder's durable
+  income requires no client dominance.
+
+WHY STORE-BLIND ARCHITECTURE
+  Stores hold encrypted shards under random blob IDs. No manifest, no content index, no
+  content-addressed scanning surface. Legal posture: generic encrypted blob store. Store
+  compliance (blob-hash removal on legal order) and system censorship-resistance (self-healing
+  re-upload) are independent properties.
+
+WHY RELAY-ENCRYPTED MAPPINGS AS DURABLE LAYER (MINTS AS CACHE)
+  Mints can crash, exit, restart — mapping availability must survive. Mandatory encrypted
+  mapping events on relays are the durable discovery source of truth. Mints are a performance
+  cache (fast, PoW-gated). One honest relay = content discoverable. This is honest-minority
+  resilience — total failure requires ALL relays AND ALL stores AND ALL mints to fail.
+
+WHY DIRECT STORE-TO-MINT ATTESTATION CHANNEL
+  Publishing attestations on relays would link store identity to content identity, breaking
+  store blindness. The direct channel preserves store anonymity in the public record. Stores
+  broadcast to ALL bonded mints — omission by one mint is detectable via cross-mint comparison.
+
+WHY DWELL-BASED POW (NOT TAP-BASED)
+  Demand signal must reflect actual reading, not scroll-by. Pre-mining in a background worker
+  makes reading feel instant while PoW is invisible infrastructure. For text: visible + paused
+  ≥2s. For documents: on tap. Unused pre-mined proofs are discarded.
+
+WHY EPHEMERAL + FUNDED TWO-LAYER DESIGN
+  Free discourse (4chan energy, whistleblowers, hot takes) solves cold start. Funded signal
+  (conviction, persistence) solves quality. The divergence between what people say freely and
+  what people fund is a unique signal axis. The upgrade path ([+] on any ephemeral message)
+  means a whistleblower posts for free, someone else funds it.
+
+WHY OG IMAGES BEFORE LAUNCH
+  Every shared link is a live scoreboard snapshot on Twitter/Slack/Discord/Reddit. The preview
+  IS the product — the share is the viral loop. Without OG cards, sharing a link is sharing a
+  URL. With OG cards, sharing a link is sharing the scoreboard. Ship before media outreach.
+
+WHY GENESIS ADDRESS AS PROTOCOL CONSTANT (NOT ADMIN KEY)
+  Like EPOCH_BLOCKS or the 21M cap — embedded in settler source code. Not an authority, not a
+  delegation root. Forking the income requires changing one constant, but accessing the
+  content-to-store mapping data requires posting a bond and operating an original-protocol
+  mint — expensive and economically self-defeating. The moat is the data, not the constant.
+
+WHY SEED BOTH SIDES OF CONTESTED TOPICS
+  Competitive dynamics drive repeat funding — the highest-velocity economic behavior. Seeding
+  one side invites counter-funding from the other. Plausible deniability (ephemeral keys).
+  The founder earns from the froth of disagreement, not from any position.
+
+WHY FOUNDER OPERATES NOTHING POST-LAUNCH
+  Zero operational cost, zero legal surface, zero admin keys. Every role performed by
+  independent bonded or permissionless actors. The longevity test: if founder is permanently
+  removed, does everything still work? Yes by construction. The income durability test: if
+  founder is in custody, does income still accumulate? Yes — protocol constant + threshold key.
