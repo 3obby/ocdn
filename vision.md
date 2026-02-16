@@ -15,14 +15,15 @@
 7. **Resilience is a property of greed, not architecture** — The protocol doesn't specify redundancy. It makes storage profitable and anonymously operable; serving is a separate, permissionless role that requires no bond and earns referrer income from the coordination shard. Rogue store operators watch for funded content with few stores (the opportunity signal), mirror fragments, earn sats. Censoring content increases the per-store payout, attracting replacements. The adversary fights economic gravity. The protocol specifies incentive gradients; profit-seeking actors carve the architecture.
 8. **The genesis address is a protocol constant** — The genesis address is embedded in the protocol specification — like EPOCH_BLOCKS or RS_K. It is not an authority, not a delegation root, not a key that controls anything. It receives settlement remainder by the math, not by any operational role. Mints are bonded (on-chain UTXO), not genesis-delegated — anyone can become a mint by posting a verifiable bond. The founder operates nothing post-launch. Forking the income requires forking the demand history AND convincing every operator to change one constant in their software. The moat deepens with every request proof and requires zero ongoing effort.
 9. **The founder's income is proportional to settlement dimensionality** — Settlement divides pool drain across independent dimensions: mints (trust distribution), coordination (market facilitation), shards (store-blind storage), and stores (availability). Each dimension produces independent integer remainders. The remainder count scales with the product of dimensions, not their sum. Every architectural improvement — more mints, more referrers, more shards, more stores — that makes the system more robust also multiplies the number of integer divisions. The genesis income has convex scaling: it grows faster than any single system metric. No fee. No rate. The income is the irreducible coordination cost of multi-party integer settlement. The founder operates nothing — the income is passive, structural, embedded in the settlement math that independent settlers run. A fork copies the same physics but starts with zero dimensions.
-10. **Coordination costs one shard** — Settlement divides each mint's drain among N+1 shards: N storage shards that pay stores, and 1 coordination shard that pays the participants who make the market work — the mint that verified, the referrers that brought users, and genesis. No new constants. N+1 is derived from N. The coordination payment is structurally equivalent to one shard's worth of income — the cost of coordination is denominated in the same unit as storage. Mints earn because they verify. Referrers earn because they distribute. Genesis earns a share plus the coordination remainder. The ~4.8% coordination allocation (1/21) is emergent from the shard count, not a parameter.
+10. **Coordination costs one shard** — Settlement divides each mint's drain among N+1 shards: N storage shards that pay stores, and 1 coordination shard that pays the participants who make the market work — the mint that verified, the referrers that brought users, and genesis. No new constants. N+1 is derived from N. The coordination payment is structurally equivalent to one shard's worth of income — the cost of coordination is denominated in the same unit as storage. Mints earn because they verify. Referrers earn because they distribute. Genesis earns a share plus the coordination remainder. The coordination fraction is 1/(N+1): **50% for text (N=1), 4.8% for documents (N=20)**. This is the inverse size premium — the founder's structural income is highest on the smallest, most frequent content type.
 11. **The moat is compound: three defaults** — The genesis address is a protocol constant in settler code (the floor). The reference client hardcodes the founder's pubkey as the default referrer `via` tag (the ceiling — income proportional to traffic through the client). The reference client defaults to the founder-bonded mint (deposit stickiness — sats in custody don't migrate). A fork must change one constant AND build a better client AND attract deposits away from the default mint. Any one is easy. All three simultaneously, while also bootstrapping stores, mints, and demand history, is the moat. Defaults are sticky without ongoing competition.
 12. **Funding is advertising** — Funders pay for availability and visibility. Readers consume for free. This is advertising economics: the person who wants attention pays, the person who has attention consumes for free. Free distribution maximizes the audience that makes funding valuable. Conviction spending is the revenue. Free reading is the amplifier.
 13. **The system optimizes for contested content** — Uncontested content is funded once. Contested content is funded repeatedly by competing sides. Competitive dynamics drive repeat funding — the highest-velocity economic behavior in the system. The founder earns from the froth of disagreement, not from any position. Free reading amplifies this: everyone sees the scoreboard, everyone can take a side.
 14. **The protocol is four event types and one rule** — (1) Fund confirmation: sats bind to a hash. (2) Request proof: client proves intent to consume (PoW-gated, gates content delivery, includes referrer `via` tag). (3) Store attestation: store proves it served a shard for a specific request (signed, submitted directly to mint). (4) Settlement: deterministic payout computation matching request proofs to store attestations. Rule: unclaimed drain → genesis address. Pools with no valid attestations for N consecutive epochs are abandoned — remaining balance sweeps to genesis. Everything else — store pricing, content durability, ranking, discussion structure, edge types, topic organization — is a product concern or emergent market property.
 15. **The network metabolizes failed attention bids** — Self-promoters deposit sats to fund their own content. If nobody reads it, no stores earn, the pool sits unclaimed, and sats sweep to genesis. The network converts low-value interaction into founder income. Contested content produces remainder income (active market). Ignored content produces sweep income (failed attention bid). Both modes pay genesis. The total addressable revenue is all inflow, not just successful content.
 16. **The protocol settles; the product interprets** — Settlement is narrow, deterministic, and hard to game (requires real sats, real storage, real bonds). The importance index is broad, interpretive, and soft-gameable — but also forkable, competitive, and improvable without protocol changes. Most attacks target the index. The index is the expendable layer. Settlement — where the money flows — is robust. Attacks on interpretation don't corrupt settlement. Attacks on settlement require real capital at risk.
-17. **Text conviction is the highest-margin income** — Genesis income per sat funded is inversely proportional to content size. Text claims (no stores, no shards) → pool sweeps to genesis → **100% capture**. Small documents (N=1, 2-shard settlement) → coordination shard = 50% of drain → genesis captures ~16.7%. Large documents (N=20, 21-shard settlement) → coordination shard = 4.8% → genesis captures ~1-2% (one of R+2 coordination participants, plus remainders). The froth of competing ideologies is almost entirely text claims. Text conviction spending is the most efficient income source in the protocol. The store economy earns from documents; the sweep mechanism earns from discourse. Both pay genesis. The escalation from text claims to document evidence is the value creation moment — someone uploads the actual court filing, stores join, the storage market activates.
+17. **All funded content is stored; text conviction is the highest-margin income** — All funded content — text claims, replies, topics, edges, documents — is stored as encrypted shards in the storage market. Unfunded ephemeral messages live on relays only (see thesis 18). Text is bytes; bytes are shards. Text claims store as single encrypted shards (N=1). Documents store as erasure-coded shards (N=RS_N). The coordination shard fraction is 1/(N+1): **50% for text (N=1), 4.8% for documents (N=20)**. Genesis captures a structural share of coordination regardless of which client facilitates traffic — this is the **inverse size premium**. Text claims (N=1, 2-shard settlement) → coordination shard = 50% of drain → genesis captures ~16-25% depending on referrer count (25% adversarial floor with zero founder referrer traffic). Large documents (N=20, 21-shard settlement) → genesis captures ~1-2%. The froth of competing ideologies is almost entirely text. Text conviction spending is the most efficient income source in the protocol — not because of sweep, but because the inverse size premium gives genesis the largest coordination fraction on the highest-velocity content type. Sweep still catches truly abandoned pools (no stores join, no reads occur), but the structural income is settlement, not sweep. The escalation from text claims to document evidence is the value creation moment — someone uploads the actual court filing, stores join, the full storage market activates.
+18. **Two metabolisms: free discourse, funded signal** — Ephemeral messages are regular Nostr events — free to post, relay-dependent, zero protocol awareness. They appear as collapsed `+ n` counts beneath funded content, never occupying screen real estate by default. Anyone can upgrade an ephemeral message to the funded layer with a single `[+]` tap: the client hashes, encrypts, uploads the initial shard to Blossom, and deposits sats to the mint. The free layer is the discourse substrate — volume, whistleblowers, hot takes, the 4chan energy. The funded layer is the conviction signal — what people pay to persist. The divergence between what people say freely and what people fund is itself a signal axis no other system produces. Ephemeral messages don't influence the importance index; only funded signals affect rank. The upgrade path means a whistleblower posts for free with an ephemeral key, someone else funds it, and the poster never touched sats. The free layer solves cold start (people will post for free); the funded layer solves quality (sats surface the signal).
 
 ---
 
@@ -169,13 +170,15 @@ sig: mint signature
 
 | Node type | Pool key | Servable | Genesis income mode |
 |-----------|----------|----------|---------------------|
-| **Document** | SHA256 of file bytes | Yes (shards on Blossom) | Settlement: coordination share + remainder (~1-2%) |
-| **Claim** | SHA256 of claim text | No (text on relays) | Sweep: 100% capture after N epochs |
-| **Topic** | SHA256 of topic string | No | Sweep: 100% capture after N epochs |
-| **Reply** | SHA256 of reply text | No (text on relays) | Sweep: 100% capture after N epochs |
-| **Edge** | SHA256 of rel \|\| hash_A \|\| hash_B | No | Sweep: 100% capture after N epochs |
+| **Document** | SHA256 of file bytes | Yes (N=RS_N shards on Blossom) | Settlement: coordination ~4.8% of drain, genesis ~1-2% |
+| **Claim** | SHA256 of claim text | Yes (N=1 shard on Blossom) | Settlement: coordination = 50% of drain, genesis ~16-25% |
+| **Topic** | SHA256 of topic string | Yes (N=1 shard on Blossom) | Settlement: coordination = 50% of drain, genesis ~16-25% |
+| **Reply** | SHA256 of reply text | Yes (N=1 shard on Blossom) | Settlement: coordination = 50% of drain, genesis ~16-25% |
+| **Edge** | SHA256 of rel \|\| hash_A \|\| hash_B | Yes (N=1 shard on Blossom) | Settlement: coordination = 50% of drain, genesis ~16-25% |
 
-The protocol makes no distinction. Stores earn from any pool they can prove storage for, provided the content has consumption demand. Pools with no servable content and no valid attestations accumulate indefinitely and eventually sweep to genesis — conviction tax on the scoreboard signal. The highest-margin income is text conviction (100% sweep). The highest-volume income is document storage (settlement drain).
+The protocol makes no distinction. All content is stored — text as single encrypted shards (N=1, MIN_REPLICAS stores), documents as erasure-coded shards (N=RS_N). Stores earn from any pool they can prove storage for, provided the content has consumption demand. The **inverse size premium**: text (N=1) produces a 50% coordination shard; documents (N=20) produce a 4.8% coordination shard. Genesis captures a larger fraction of text drain than document drain — and text is the highest-velocity content type. Pools with no valid attestations for SWEEP_EPOCHS consecutive epochs still sweep to genesis, catching noise deposits and failed attention bids. Fund events carry optional `meta:*` tags (title, summary) on relays for discoverability and graceful degradation — but the content itself is stored, not relayed.
+
+**Upgrading ephemeral messages**: Tapping `[+]` on an ephemeral Nostr event (free, relay-only) upgrades it to the funded layer. The client performs four operations atomically: (1) `content_hash = SHA256(message_text)`, (2) deposit sats to mint referencing `content_hash`, (3) encrypt and upload the initial shard to Blossom under a random `blob_id` (convergent encryption — deterministic), (4) publish the encrypted mapping on relays. The content now exists in three independent locations: the original Nostr event (relay-dependent), the encrypted shard (pool-funded), and the fund event `meta:*` tags (relay-dependent). Stores see the funded hash, replicate, and start earning. The message transitions from the `+ n` count into the ranked funded reply list.
 
 **Re-funding after sweep**: A swept pool is zeroed, not destroyed. The hash persists on relays (ghost state). Re-funding the same hash credits the same pool — the claim reappears on the leaderboard at its new balance. The economic history (previous funding rounds, sweep events, edges, replies) is permanent. Each funding cycle is visible: "funded 3 times, swept twice, currently live." Repeat funding of discourse is the primary revenue behavior — the protocol makes it a single tap on a ghost.
 
@@ -199,11 +202,9 @@ content: ""
 sig: client signature (NIP-07)
 ```
 
-**Two modes** — same event, different function depending on content type:
-- **Stored content (documents)**: gates delivery + demand signal + referrer attribution. Stores verify before serving.
-- **Relay content (claims, replies, topics, edges)**: demand signal + referrer attribution only. No delivery gating needed — text is freely available on relays. The client still generates and publishes the request proof for the importance index to count. PoW still provides anti-sybil. `via` tag still attributes the front-end.
+**All content is store-gated.** Text claims, replies, topics, and edges are stored as encrypted single-shard blobs (N=1), identical to documents at the protocol level. Request proofs gate delivery for all content types — stores verify PoW + signature + epoch before serving any shard. Invalid PoW, bad signature, wrong epoch → store refuses. Every consumption event produces a verifiable demand signal by construction. The front-end requests the signature via NIP-07 but cannot modify `content_hash` — the extension shows what it's signing.
 
-**Gating**: For stored content, stores verify the request proof before serving. Invalid PoW, bad signature, wrong epoch → store refuses. This ensures every consumption event produces a verifiable demand signal. The front-end can request this signature from NIP-07 but cannot modify `content_hash` — the extension shows what it's signing.
+**Dwell-based PoW** (reference client implementation): The client pre-mines request proofs in a background Web Worker as content enters the viewport. For text content (leaderboard cards, claims, replies), proofs are submitted on dwell — visible and paused ≥2s — ensuring demand signal reflects actual reading, not scroll-by. For documents, proofs submit on tap. Reading feels instant; PoW is invisible infrastructure. Pre-mined but unused proofs are discarded (no wasted signal, modest wasted compute).
 
 **Ephemeral keys (privacy by default)**: The reference client defaults to ephemeral keys for request proofs — a fresh key per session, unlinkable to the reader's main Nostr identity. Readers who want a consumption credential (agents, researchers) opt in to identified proofs signed by their main key. Sybil risk from ephemeral keys affects only the index (display layer), not settlement (economic layer) — drain is gate-triggered by the existence of valid request proofs, not count-triggered by their volume. The index can weight commitment (sats, unsybilable) over demand (request proofs, sybilable).
 
@@ -372,7 +373,7 @@ Market-driven, no parameters:
 1. **Fully funded**: Multiple stores, multiple jurisdictions. Content available and redundant.
 2. **Thinning**: Expensive stores evict first. Cheapest stores remain. Fewer replicas.
 3. **Last store**: Single point of failure. Index shows warning.
-4. **Dead**: No stores. Bytes gone. Ghost persists on relays — full metadata (`meta:*` tags), economic history (funding events), citation graph (edges), discussion (replies). `[+] to restore`.
+4. **Dead**: No stores. Bytes gone. Ghost persists on relays — full metadata (`meta:*` tags), economic history (funding events), citation graph (edges), discussion (replies). `[+] to restore`. For content upgraded from ephemeral, the original Nostr event may still exist on relays — an independent recovery source that doesn't depend on the storage market. The client re-hashes the relay plaintext, verifies the content hash matches, re-encrypts, and re-uploads the shard.
 5. **Restored**: Someone re-funds. A store sees the opportunity, mirrors shards, starts earning. The gap in the record is permanent and visible.
 
 ### Market Depth = Founder Income
@@ -388,7 +389,7 @@ The founder's income scales with:
 - **Self-healing cycles** — repair lag between shard loss and replacement = unclaimed drain
 - **Reference client traffic** — founder earns referrer share of coordination proportional to traffic through the reference client
 
-A thin market (1 store, 1 shard, 1 mint, 1 referrer) produces modest income — genesis is one of 3 coordination participants (mint + referrer + genesis), earning ~1.6% of drain. A deep market (5 stores per shard, 20+1 shards, 3 mints, 5 referrers) → genesis coordination share ~1-2% plus remainders at every division level. The reference client's referrer income adds on top. **The primary income from active markets is referrer income (via client traffic), not coordination share. The primary income overall is sweep (100% of discourse pools). Building a deep storage market with an active reference client IS building the income.**
+**Inverse size premium**: Text claims (N=1, 2-shard settlement) → coordination shard = 50% of drain. With 1 mint and 1 referrer, genesis earns 1/3 × 50% = 16.7%. With all traffic through forked clients (no founder referrer), genesis still earns 1/2 × 50% = **25% — the adversarial floor**. Large documents (N=20, 21-shard settlement, 3 mints, 5 referrers) → genesis coordination share ~1-2% plus remainders at every division level. On 100 BTC total system throughput with ~60% text / ~40% documents and zero referrer traffic: genesis captures ~15 BTC from text coordination + ~0.6-1.2 BTC from document coordination + remainders + sweep of truly abandoned pools. **The primary income is the inverse size premium: text is the highest-velocity content type and pays genesis the highest coordination fraction. The founder's durable income requires no client dominance — only that the storage market serves content.**
 
 ### Store Interdependence
 
@@ -481,10 +482,10 @@ Permissionless entry via on-chain bond (BTC in time-locked UTXO). Any operator i
 The founder's income comes from two protocol-level sources: the coordination shard (a structural share of settlement) and the dimensional remainder (integer truncation at every division level). Neither is a fee. Neither is a rate. Both are emergent from the settlement structure. The founder operates nothing — income flows to a protocol constant (genesis address) and to the reference client's `via` pubkey.
 
 **Four income modes — all pay the founder:**
-- **Active market (coordination share + remainder)**: Content is funded, stored, read. The coordination shard pays genesis a participant share alongside mints and referrers. Integer truncation at every level → genesis. The reference client's `via` pubkey earns a referrer share of coordination.
-- **Failed attention (sweep)**: Content is funded, nobody reads it, no stores attest. Pool sits unclaimed for N epochs → sweeps entirely to genesis. Self-promoters, whistleblowers, and spammers who fail to attract attention donate their sats to the network. The system metabolizes noise into income.
+- **Active market (coordination share + remainder)**: Content is funded, stored, read. All content is stored — text as N=1, documents as N=RS_N. The coordination shard pays genesis a structural participant share alongside mints and referrers. Integer truncation at every level → genesis. The inverse size premium: text drain (coordination = 50%) pays genesis ~16-25%; document drain (coordination = 4.8%) pays genesis ~1-2%. This is the primary, durable income — survives total client competition.
+- **Failed attention (sweep)**: Content is funded but no stores join and nobody reads it for SWEEP_EPOCHS. Pool sweeps entirely to genesis. Catches noise and failed self-promotion. Not the primary mode — stores are economically incentivized to serve funded content.
 - **Bond slash (misbehavior)**: Stores or mints that cheat (fabricated attestations, failed storage challenges, double-signing) lose their bond to the genesis address. The system converts misbehavior into founder income.
-- **Referrer income (reference client)**: Every request proof facilitated through the reference client includes the founder's `via` pubkey. The coordination shard pays referrers proportionally. Income scales with reference client traffic — a first-mover social moat, not a protocol constant.
+- **Referrer income (reference client)**: Every request proof facilitated through the reference client includes the founder's `via` pubkey. The coordination shard pays referrers proportionally. Bonus income — fragile to client competition, not the foundation.
 
 The total addressable revenue is all inflow — successful, failed, and fraudulent. Every sat deposited either flows through the active market (producing coordination shares + remainder), dies unclaimed (producing sweep), or is slashed from misbehaving operators (producing slash income). Genesis and the reference client's referrer pubkey collect from all modes.
 
@@ -494,15 +495,16 @@ Settlement divides pool drain across four independent dimensions:
 - **Coordination participants** (market facilitation) — coordination shard divided among mint + R referrers + genesis
 - **Stores** (availability) — per-storage-shard drain divided among S stores with valid attestations AND storage proofs
 
-Each division is `floor()` on integer sats. Each produces a remainder. With M=3, R=2, N=20, S=5: the coordination shard allocates ~4.8% of per-mint drain. Genesis is one of R+2 coordination participants → coordination share ≈ 1/(R+2) × 4.8% ≈ 1.2% of per-mint drain, plus integer remainders at every level.
+Each division is `floor()` on integer sats. Each produces a remainder. For documents (N=20, M=3, R=2, S=5): coordination shard = 4.8% of per-mint drain, genesis share ≈ 1.2%. For text (N=1, M=1, R=1): coordination shard = 50% of per-mint drain, genesis share ≈ 16.7%. With zero referrer traffic (adversarial case): genesis share = 25% of text drain. The inverse size premium: genesis captures ~10-20× more per sat on text than on documents.
 
-**Income hierarchy** (descending by margin):
-1. **Sweep** (100% capture) — text conviction pools with no store attestations for SWEEP_EPOCHS. All discourse funding. Highest margin, scales with ideological intensity.
-2. **Referrer** (coordination participant share) — via reference client traffic. Scales with client market share. Fragile to better clients.
-3. **Coordination share + remainder** (~1-2% of active market drain) — structural, scales with market depth. Robust to client competition.
-4. **Bond slash** (episodic) — misbehavior income. Unpredictable, front-loaded to early network.
+**Income hierarchy** (descending by durability):
+1. **Text coordination share** (~16-25% of text drain) — all content is stored; text claims settle with N=1 (coordination shard = 50% of drain). Genesis is a structural coordination participant. **Unforkable** — embedded in settlement math, survives total client competition. The highest-velocity content type pays the highest coordination fraction. Adversarial floor: 25% (forked client, no founder referrer traffic, 1 mint).
+2. **Document coordination share + remainder** (~1-2% of document drain) — structural, scales with market depth. Robust to client competition.
+3. **Sweep** (100% capture) — pools where no stores join and no reads occur for SWEEP_EPOCHS. Catches noise deposits and failed attention bids. Not the primary income mode — stores are economically incentivized to serve any funded content.
+4. **Referrer** (coordination participant share) — via reference client traffic. Bonus income, fragile to better clients. Not the foundation.
+5. **Bond slash** (episodic) — misbehavior income. Unpredictable, front-loaded to early network.
 
-The primary income is sweep and referrer. The coordination share from active storage markets is a structural floor, not the ceiling. Build for sweep volume (contested discourse) and client dominance (OG cards, UX moat).
+The primary income is the text coordination share — structural, unforkable, inversely proportional to content size. In a worst case where forked clients capture 100% of traffic, genesis still earns ~16-25% of all text drain and ~1-2% of all document drain through the coordination shard. The founder's durable income requires no client dominance, no referrer traffic, no operational role — only that the storage market serves content.
 
 Additional sources:
 - **Timing gaps**: store transitions create epochs where shard drain continues but attestations pause.
@@ -515,7 +517,7 @@ The capture rate is not set. It is emergent. Every architectural improvement —
 
 The total volume flowing through settlement is conviction spending (funding volume only). Reading is free and generates no pool income. Contested content generates the most conviction spending — competitive repeat funding is the volume engine. The founder earns from the froth of disagreement.
 
-**Fire-and-forget economics**: The founder's legal posture is: published open-source code, then walked away. Zero operational cost, zero legal surface, zero admin keys. The genesis address is a constant like `EPOCH_BLOCKS = 24`. The reference client's `via` pubkey is hardcoded in a static SPA deployed to IPFS. The compound moat is three defaults: genesis address in settlers, `via` pubkey in the reference client, default mint in the reference client. Removing all three requires forking the protocol, building a better client, and attracting deposits — simultaneously.
+**Fire-and-forget economics**: The founder's legal posture is: published open-source code, then walked away. Zero operational cost, zero legal surface, zero admin keys. The genesis address is a constant like `EPOCH_BLOCKS = 24`. The durable moat is settlement math: genesis earns a structural coordination share at every settlement, with the inverse size premium ensuring ~16-25% capture on text (the highest-velocity content type). This survives total client competition — no referrer traffic needed, no client dominance needed. The reference client's `via` pubkey (bonus referrer income) and default mint (deposit stickiness) are supplementary moats, not the foundation. A fork must change the genesis constant in every settler AND replicate the demand history. The settlement math is the floor; the client defaults are the ceiling.
 
 ### Product-Level (forkable, operated by anyone)
 
@@ -601,11 +603,11 @@ Three-layer durability. Fragment storage is the default for funded content — s
 
 | Layer | Where | Cost | Durability | Store knowledge |
 |-------|-------|------|------------|-----------------|
-| Relay | Nostr relays (metadata, events, manifests) | PoW (~200ms) | Relay-dependent | Full |
-| Fragment | Convergent-encrypted, erasure-coded shards on Blossom servers under random blob IDs | Sats (pool, ~2× overhead) | Pool-funded, self-healing | **None — store is blind, addressing is non-content-based** |
+| Relay | Nostr relays (economic events, metadata, manifests — not content) | PoW (~200ms) | Relay-dependent | Event metadata only |
+| Fragment | All content: text as N=1 encrypted shards, documents as N=RS_N erasure-coded shards, on Blossom servers under random blob IDs | Sats (pool) | Pool-funded, self-healing, MIN_REPLICAS stores | **None — store is blind, addressing is non-content-based** |
 | Inscribed | Bitcoin blockchain | On-chain fee | Permanent | N/A |
 
-Content below MIN_FRAGMENT_SIZE (10 KB) stores as a single shard on Blossom (still encrypted for store-blindness, but no erasure coding — N=1). Content above the threshold is always fragmented. Self-healing: any participant can download K surviving shards, reconstruct, re-encode a missing shard (deterministic — same hash), and upload to a new store to earn from the pool.
+All content is stored. Content below MIN_FRAGMENT_SIZE (10 KB) — including text claims, replies, topics, edges — stores as a single encrypted shard (N=1) replicated to MIN_REPLICAS stores. Content above the threshold is erasure-coded into RS(K,N) shards. Self-healing: any participant can download K surviving shards, reconstruct, re-encode a missing shard (deterministic — same hash), and upload to a new store to earn from the pool.
 
 **NIP-INSCRIBE**: Taproot witness envelope for permanent content/edges on Bitcoin. Materializer watches for OCDN-prefixed inscriptions. Batched into daily Bitcoin anchor transaction.
 
@@ -639,7 +641,7 @@ Agents read for free (PoW) and fund with conviction (delegation budget). Three a
 
 ## Human Interface
 
-**Principle**: The product is the READ experience. Reading is free — tap a card, content loads, no payment. The economic signal (what people fund, how heavily, the shape of the disagreement) IS the content. The only economic action is [+] — a deliberate conviction signal, not a consumption toll. Identity lives in NIP-07. **No free interaction primitives.** Every signal that influences rank must cost sats. Free signals (votes, reactions, stance labels) are substitutes for paid signals — every free vote is a funding event that didn't happen. The funding UX IS the interaction UX. 100 sats should feel like a like.
+**Principle**: The product is the READ experience. Reading is free — tap a card, content loads, no payment. The economic signal (what people fund, how heavily, the shape of the disagreement) IS the content. The only economic action is [+] — a deliberate conviction signal, not a consumption toll. Identity lives in NIP-07. **Two layers: free discourse, funded signal.** Ephemeral messages are free Nostr events — relay-dependent, visible as collapsed `+ n` counts beneath funded content, never occupying default screen real estate, never influencing rank. Every signal that influences rank must cost sats. Ephemeral posting is the discourse substrate; funding is the conviction layer on top. `[+]` on any ephemeral message upgrades it to the funded layer. 100 sats should feel like a like. The divergence between free volume and funded persistence IS the signal.
 
 ### Design
 
@@ -750,27 +752,27 @@ Topic prefix stays in the bar as a breadcrumb. Backspace past it = return to glo
  Internal audit reveals $2.3B misallocation
  across three divisions
 
- 184,000⚡  · 47 funders  · 23↩
+ 184,000⚡  · 47 funders  · 23↩  + 147
  2,400⚡/epoch ↑  ·  8/10◇  ·  →3  ←14
  ████████████████████████████░░░░░  [+]
 
  ↩  corroborating: I worked in div. 2   [+]
     and saw the ledger discrepancies...
-    4,200⚡
+    4,200⚡  · + 31
 
  ↩  this is a misread of GAAP           [+]
     standards...
-    2,100⚡
+    2,100⚡  · + 22
 
  ↩  → spreadsheet.xlsx                  [+]
-    1,800⚡
+    1,800⚡  · + 8
 
  [↩]
 ```
 
-Velocity with direction, store coverage (`8/10◇`), outgoing citations (`→3`), incoming citations (`←14`). All symbols, no labels. Conviction bar: solid fill = claim pool, lighter fill = reply pool. When reply fill exceeds claim fill, the claim is being actively contested.
+Velocity with direction, store coverage (`8/10◇`), outgoing citations (`→3`), incoming citations (`←14`). All symbols, no labels. `+ n` = ephemeral replies (collapsed, relay-only, free). Tapping `+ n` expands ephemeral messages inline — muted, chronological, no `⚡`, no rank position. `[+]` on any ephemeral message upgrades it to funded. Conviction bar: solid fill = claim pool, lighter fill = reply pool. When reply fill exceeds claim fill, the claim is being actively contested.
 
-`[↩]` at the bottom — tap to reply. No label.
+`[↩]` at the bottom — tap to reply. Free (ephemeral). Optional ⚡ to fund on submit.
 
 ### One Action
 
@@ -780,13 +782,14 @@ No label. The symbol is the action. 100 sats should cost the same mental effort 
 
 **Wallet**: NIP-47 (Nostr Wallet Connect). Connect once (QR/string), persists encrypted on relays (NIP-78). Subsequent `[+]` taps → wallet pays automatically from any device. We hold zero sats. Cashu in-browser as fallback.
 
-**Reply**: `[↩]` → text input. PoW in background. Optional ⚡ attached. Submit.
+**Reply**: `[↩]` → text input. Posts as ephemeral Nostr event (free, relay-only). Optional ⚡ attached on submit to fund immediately (upgrade to stored). PoW in background for request proofs.
 
 **Content states** (communicated by opacity + one-line status, no labels):
+- **Ephemeral** — relay-only, no pool, no storage. Visible only inside `+ n` expansion. Muted. `[+]` upgrades to funded.
 - **Live** — full opacity. Card is normal.
 - **Not indexed** — `[+] to create`. Faded, one line.
 - **Not stored** — `[+] to summon stores`. Card visible, `◇` indicator shows 0/K.
-- **Ghost** — faded. Full economic history visible. `[+] to restore`.
+- **Ghost** — faded. Full economic history visible. `[+] to restore`. For upgraded ephemeral content, the original Nostr event on relays is an independent recovery source — the client re-encrypts and re-uploads the shard from relay plaintext.
 - **Swept** — faded. `10K⚡ · 3 funders · 7 days · swept` in small muted type. `[+] to re-fund`. Swept is the normal end-state for discourse. The ghost IS the permanent record; the pool balance is the ephemeral amplifier.
 
 ### Routes
@@ -893,6 +896,7 @@ Only protocol-adjacent constants. Everything else is operator-set or market-dete
 | RS_K | 10 | Reconstruction threshold. Any 10 of 20 shards suffice. |
 | RS_N | 20 | Total storage shards. 2× storage overhead. 10-of-20 for censorship resistance. Settlement divides among N+1 (21) shards: N storage + 1 coordination. |
 | MIN_FRAGMENT_SIZE | 10240 (10 KB) | Below this: single encrypted shard (N=1). Above: full RS(K,N). |
+| MIN_REPLICAS | 3 | Minimum stores per shard for settlement validity. Ensures redundancy even for N=1 content (text claims, replies, topics, edges). |
 | CONTENT_KEY_DOMAIN | "ocdn-v1" | Convergent encryption: key = SHA256(domain \|\| content_hash). |
 | POW_TARGET_BASE | 2^240 | Anti-spam for request proofs + comments. ~200ms mobile. |
 | POW_SIZE_UNIT | 1048576 (1 MB) | PoW scales with content size. |
@@ -1066,4 +1070,4 @@ Every event, request proof, body edge, graph computation, and threshold crossing
 
 ## The One-Sentence Version
 
-**A permissionless conviction scoreboard where sats bind to hashes, reading is free, and content is convergent-encrypted and erasure-coded into store-blind shards. Four separated roles — stores prove possession, serve endpoints deliver bytes and earn referrer income, mints verify and earn from coordination, genesis collects the remainder — ensure no intermediary can redirect economic flows. Settlement divides pool drain across mints, N+1 shards (N storage + 1 coordination), and stores — each division is integer arithmetic on sats, each produces a remainder that flows to the genesis address. Coordination costs one shard: the N+1th shard funds mints, referrers, and genesis. No fee, no rate: the structure is the irreducible cost of multi-party settlement on an integer substrate. Funding is advertising. Contested content drives repeat funding. The founder operates nothing. The compound moat is three defaults: genesis address in settlers, referrer pubkey in the reference client, default mint in the reference client. The dimensional friction of a deep storage market is the founder's permanent passive income. The moat deepens with every request proof and every link shared, and requires zero effort.**
+**A permissionless conviction scoreboard where sats bind to hashes, reading is free, and all content — text and documents alike — is convergent-encrypted into store-blind shards. Four separated roles — stores prove possession, serve endpoints deliver bytes and earn referrer income, mints verify and earn from coordination, genesis collects the remainder — ensure no intermediary can redirect economic flows. Settlement divides pool drain across mints, N+1 shards (N storage + 1 coordination), and stores — each division is integer arithmetic on sats, each produces a remainder that flows to the genesis address. The inverse size premium: coordination costs one shard, and 1/(N+1) is 50% for text (N=1) vs 4.8% for documents (N=20) — the founder's structural income is highest on the smallest, most frequent content. No fee, no rate: the structure is the irreducible cost of multi-party settlement on an integer substrate. Funding is advertising. Contested content drives repeat funding. The founder operates nothing. The durable moat is settlement math — genesis earns ~16-25% of all text drain and ~1-2% of all document drain regardless of which client facilitates traffic. The moat deepens with every request proof and requires zero effort.**
