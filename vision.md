@@ -1,6 +1,6 @@
 # Permissionless Storage Market — Nostr-Native
 
-**Purpose**: A permissionless conviction scoreboard. Sats bind to hashes. Reading is free. Funding is advertising. Four separated roles (store, serve, mint, genesis) ensure no intermediary can redirect economic flows. Settlement divides each mint's pool drain among P participants at parity — coordination earns what one store-shard pair earns. The importance index is the product. The dimensional friction of a deep storage market is the income. The mapping moat deepens with every upload.
+**Purpose**: A permissionless conviction scoreboard. Sats bind to hashes. Reading is free. Funding is advertising. Four separated roles (store, serve, mint, genesis) ensure no intermediary can redirect economic flows. Settlement divides each mint's pool drain among P participants at parity — coordination earns what one store-shard pair earns. The importance index is the product. The dimensional friction of a deep storage market is the income. The economic moat deepens with every upload.
 
 ---
 
@@ -14,33 +14,36 @@ Terms are defined here once; the rest of the document uses them by reference.
 |------|-----------|
 | **Store** | Bonded operator holding encrypted shards. Earns from pool drain via settlement. |
 | **Serve endpoint** | Untrusted delivery pipe (front-end, CDN, proxy). Earns referrer income via `via` tag. No bond required. |
-| **Mint** | Bonded operator: holds pool balances, verifies request proofs, collects attestations, issues storage challenges, publishes epoch summaries. |
+| **Mint** | Fidelity-bonded operator (time-locked UTXO): holds pool balances, verifies request proofs, collects attestations, issues storage challenges, publishes epoch summaries. Tenure-weighted custody ceiling. |
 | **Settler** | Anyone who computes deterministic payouts from epoch summaries. Public service, no bond. |
-| **Genesis address** | Protocol constant receiving settlement remainders + sweep + slash. Like the 21M cap — embedded in code, not an authority. |
+| **Genesis address** | Protocol constant receiving settlement remainders + sweep. Like the 21M cap — embedded in code, not an authority. No income from misbehavior. |
 
 ### Settlement Math
+
+Settlement is **per-shard**: each shard is an independent micro-market. No cross-shard coupling.
 
 | Symbol | Definition |
 |--------|-----------|
 | **N** | Shard count. 1 for text (below MIN_FRAGMENT_SIZE), RS_N (20) for documents. |
-| **S** | Stores per shard with valid attestations this epoch (market depth of thinnest shard). |
-| **K** | Reconstruction threshold: any K of N shards suffice (RS_K = 10). |
-| **P** | Participant count = N·S+1. One per store-shard pair, plus one for coordination. |
+| **S_s** | Stores with valid attestations for shard *s* this epoch. Per-shard, not global. |
+| **K** | Reconstruction threshold: any K of N shards suffice (RS_K = 10). Mints gate request proofs on coverage ≥ K. |
+| **P_s** | Participant count per shard = S_s + 1. Stores for this shard + 1 coordination. |
 | **R** | Unique referrer count from valid request proofs this epoch. |
-| **Coordination fraction** | 1/P = 1/(N·S+1). Self-regulating: shrinks as market deepens. |
-| **Participant parity** | All P participants earn `floor(drain/P)`. Coordination is one of them — priced at parity with one unit of storage labor. |
-| **Remainder** | Integer truncation from `floor()` at each division level → genesis. Grows with P. |
-| **Inverse size premium** | Text (N=1) has a higher coordination fraction than documents (N=20) at every S. |
+| **DRAIN_RATE** | Per-epoch fraction of mint balance drained. `drain = floor(balance × DRAIN_RATE)`. Pool half-life = ln(2)/DRAIN_RATE. Balance-proportional → mint-count-invariant (deposit splitting doesn't penalize duration). |
+| **Coordination fraction** | 1/P_s = 1/(S_s+1) per shard. Independent of N. Shrinks as shard depth grows. |
+| **Participant parity** | All P_s participants per shard earn `floor(shard_drain/P_s)`. Coordination is one of them. |
+| **Cascading remainder** | Two levels of `floor()` per shard: L1 (shard division) + L2 (coordination subdivision). Both remainders → genesis. More participants at either level → more integer friction → more genesis income in absolute sats, smaller percentage. |
+| **Self-balancing** | Equal shard drain + per-shard parity: thin shards (low S_s) pay more per store, thick shards (high S_s) pay less. Stores migrate to gaps. |
 
-Bootstrap reference: At S=1, coordination fraction = 50% for text, 4.8% for documents. At S=3: text 25%, documents 1.6%. At S=10: text 9.1%. See [Settlement Rule](#4-settlement-settler-signed) for canonical pseudocode.
+Bootstrap reference (any N, at R=1): At S=1, coordination fraction = 50%. At S=3: 25%. At S=10: 9.1%. At S=100: ~1%. Genesis share ≈ coordination/(R+2) + remainders. See [Settlement Rule](#4-settlement-settler-signed) for canonical pseudocode.
 
 ### Content Lifecycle
 
 | Term | Definition |
 |------|-----------|
 | **Pool** | Sats bound to a content hash. Credits accumulate from fund events; drains pay stores + coordination. |
-| **Drain** | Per-epoch outflow from a pool. `epoch_drain = Σ store_claims`. More stores = faster drain. |
-| **Sweep** | Pool with no valid attestations for SWEEP_EPOCHS (42 epochs, ~7 days) → entire balance to genesis. |
+| **Drain** | Per-epoch outflow from a pool. `drain = floor(balance × DRAIN_RATE)`, divided equally across N shards. Balance-proportional: pool half-life is deterministic, store count doesn't affect drain speed. Gate-triggered: drain fires when any valid attestation exists this epoch; request proof volume doesn't change the amount. |
+| **Sweep** | Pool with no valid attestations AND no valid request proofs for SWEEP_EPOCHS (42 epochs, ~7 days) → entire balance to genesis. Dual condition prevents adversary-triggered sweep via mint takedown (popular content with broken attestation channel still has request proofs on relays). |
 | **Ghost** | Content whose pool is depleted. Metadata, economic history, edges, and discussion survive on relays. Bytes are gone. `[+] to restore`. |
 | **Coverage signal** | Per-content shard store count, published by mints each COVERAGE_BLOCKS (~1h). No store identities. Used by stores for opportunity assessment. |
 
@@ -69,10 +72,10 @@ Bootstrap reference: At S=1, coordination fraction = 50% for text, 4.8% for docu
 | Term | Definition |
 |------|-----------|
 | **Via tag** | Referrer pubkey in request proofs. The front-end that facilitated the request. Earns a coordination sub-share. |
-| **Bond** | On-chain BTC UTXO as collateral for stores/mints. `balance(mint) ≤ bond_value(mint)`. |
+| **Bond (fidelity)** | Time-locked on-chain BTC UTXO (`OP_CSV`) as commitment signal. `balance(mint) ≤ bond_value(mint) × tenure_factor`. Not slashable — enforcement is economic death (fraud proof → clients route around → income = 0). Bond unlocks after time-lock; the business is already dead. |
 | **Dwell-based PoW** | Reference client pre-mines request proofs in background; submits on viewport dwell ≥2s. Reading feels instant. |
 | **Ephemeral message** | Free Nostr event. Relay-only, no protocol awareness, no pool, no rank influence. Visible as collapsed `+ n` counts. `[+]` upgrades to funded. |
-| **Mapping moat** | Content-to-store mappings accumulated inside bonded mints since genesis. A fork must bond a mint to receive gossip — expensive and self-defeating. |
+| **Economic moat** | Four layers: (a) mapping data — fresh discovery requires bonding a mint for gossip; relay mappings (layer 1) are accessible but stale and compute-gated. (b) math — genesis address is a protocol constant. (c) traffic — reference client hardcodes the founder's via tag. (d) deposits — reference client defaults to founder-bonded mint. A fork can freeload on relay mappings but cannot redirect deposits without bonding its own mints and operating settlement — the expensive part. |
 
 ---
 
@@ -99,24 +102,26 @@ Bootstrap reference: At S=1, coordination fraction = 50% for text, 4.8% for docu
 
    **Permissionless mints**: Bonded (on-chain UTXO), not genesis-delegated — anyone can become a mint by posting a verifiable bond.
 
-   **Fork resistance**: Forking the income requires changing one constant in settler code — but accessing mappings requires bonding a mint to receive gossip, which is expensive and self-defeating (that mint earns from the original protocol). The mapping moat deepens with every upload.
-9. **The founder's income is proportional to settlement dimensionality** — Each mint settles independently. Remainder grows with P (see Glossary: Remainder). Every architectural improvement that makes the system more robust also increases P and the coordination subdivision count. See [Settlement Rule](#4-settlement-settler-signed).
+   **Fork resistance**: Forking the income requires changing one constant in settler code. Relay mappings (layer 1) are accessible but stale and compute-gated (Argon2). Fresh discovery requires bonding a mint for gossip — expensive and self-defeating (that mint earns from the original protocol). A fork can freeload on relay data but cannot redirect deposits without operating its own economic layer. The moat is the economic engine (deposits, settlement, coordination income), not the address book.
+9. **The founder's income is proportional to settlement dimensionality** — Each shard is an independent settlement unit. Cascading remainders from two levels of integer division per shard, across N shards × C content items, produce genesis income that grows in absolute sats while shrinking as a percentage. See [Settlement Rule](#4-settlement-settler-signed).
 
-   **Passive by construction**: No fee. No rate. The income is the irreducible coordination cost of multi-party integer settlement, embedded in the math that independent settlers run.
-10. **Coordination costs one participant** — Participant parity: coordination earns what one store-shard pair earns (see Glossary: Participant parity). Counter-cyclical: during booms (high S), value flows to stores; during busts (low S), value flows to coordination. Within coordination: mints earn because they verify, referrers because they distribute, genesis earns a share plus all sub-remainders.
-11. **The moat is compound: four layers** — (a) The mapping moat: accessing mappings requires bonding a mint (see Glossary: Mapping moat). (b) The math moat: genesis address is a protocol constant in settler code. (c) The traffic moat: reference client hardcodes the founder's via tag. (d) The deposit moat: reference client defaults to the founder-bonded mint. Each layer is individually surmountable; collectively they require re-bootstrapping the entire system.
+   **Passive by construction**: No fee. No rate. The income is the irreducible coordination cost of multi-party integer settlement, embedded in the math that independent settlers run. Documents produce higher genesis sweep income than text (exponential decay tail: larger N → larger residual balance at zero-drain floor → more sweep to genesis). The "inverse size premium" is emergent from exponential decay physics, not baked into a formula.
+10. **Coordination costs one participant per shard** — Per-shard parity: coordination earns what one store earns per shard (see Glossary: Participant parity). Counter-cyclical: during booms (high S_s), value flows to stores; during busts (low S_s), value flows to coordination. Within coordination: mints earn because they verify, referrers because they distribute, genesis earns a share plus all sub-remainders. Coordination fraction is independent of N — a 20-shard document and a text claim pay the same coordination percentage at equal store depth.
+11. **The moat is compound: four layers** — (a) The economic moat: fresh discovery requires bonding a mint for gossip; relay mappings are stale and compute-gated (see Glossary: Economic moat). Redirecting deposits requires operating settlement — the expensive part. (b) The math moat: genesis address is a protocol constant in settler code. (c) The traffic moat: reference client hardcodes the founder's via tag. (d) The deposit moat: reference client defaults to the founder-bonded mint. Each layer is individually surmountable; collectively they require re-bootstrapping the entire system.
 12. **Funding is advertising** — Funders pay for availability and visibility. Readers consume for free. This is advertising economics: the person who wants attention pays, the person who has attention consumes for free. Free distribution maximizes the audience that makes funding valuable. Conviction spending is the revenue. Free reading is the amplifier.
 13. **The system optimizes for contested content** — Uncontested content is funded once. Contested content is funded repeatedly by competing sides. Competitive dynamics drive repeat funding — the highest-velocity economic behavior in the system. The founder earns from the froth of disagreement, not from any position. Free reading amplifies this: everyone sees the scoreboard, everyone can take a side.
-14. **The protocol is four event types and one rule** — Fund confirmation, request proof, store attestation, settlement (see Glossary: Events). Rule: unclaimed drain → genesis; pools with no attestations for SWEEP_EPOCHS → sweep. Everything else is a product concern or emergent market property.
+14. **The protocol is four event types and one rule** — Fund confirmation, request proof, store attestation, settlement (see Glossary: Events). Rule: unclaimed drain → genesis; pools with no attestations AND no request proofs for SWEEP_EPOCHS → sweep. Everything else is a product concern or emergent market property.
 15. **The network metabolizes failed attention bids** — Self-promoters fund their own content. If nobody reads it, sats sweep to genesis. Contested content produces remainder income (active market). Ignored content produces sweep income (failed attention bid). Both modes pay genesis. The total addressable revenue is all inflow.
 16. **The protocol settles; the product interprets** — Settlement is narrow, deterministic, and hard to game (requires real sats, real storage, real bonds). The importance index is broad, interpretive, and soft-gameable — but also forkable, competitive, and improvable without protocol changes. Most attacks target the index. The index is the expendable layer. Settlement — where the money flows — is robust. Attacks on interpretation don't corrupt settlement. Attacks on settlement require real capital at risk.
-17. **All funded content is stored; text conviction is the highest-margin income at bootstrap** — All funded content is stored as encrypted shards. Unfunded ephemeral messages live on relays only (see thesis 18).
+17. **All funded content is stored; text bootstraps, documents sustain** — All funded content is stored as encrypted shards. Unfunded ephemeral messages live on relays only (see thesis 18).
 
-    **Uniform storage**: Text stores as N=1 shards, documents as N=RS_N. The protocol makes no distinction — the inverse size premium emerges from the settlement math (see Glossary).
+    **Uniform storage**: Text stores as N=1 shards, documents as N=RS_N. Per-shard settlement treats both identically — coordination fraction = 1/(S_s+1) regardless of N. No formula-based size premium.
 
-    **Text as revenue engine**: Small-drain, high-volume — where remainder is most significant relative to drain. The froth of competing ideologies is almost entirely text. At scale, text income transitions from coordination share (low S) to remainder (high S).
+    **Text as bootstrap engine**: Low minimum viable pool (N/DRAIN_RATE ≈ 128 sats for text vs. ~2560 for documents). High volume, small drain, quick sweep cycles. The froth of competing ideologies is almost entirely text.
 
-    **Escalation path**: Text claims → document evidence is the value creation moment. Sweep catches truly abandoned pools.
+    **Documents as sweep engine**: Larger N → larger residual balance at the zero-drain floor → more sweep to genesis. Documents produce higher genesis income per sat deposited, through exponential decay physics.
+
+    **Escalation path**: Text claims → document evidence is the value creation moment.
 18. **Two metabolisms: free discourse, funded signal** — Ephemeral messages are regular Nostr events — free, relay-dependent, zero protocol awareness, visible as collapsed `+ n` counts. `[+]` upgrades to the funded layer. The free layer is the discourse substrate (volume, whistleblowers, the 4chan energy). The funded layer is the conviction signal. The divergence between free volume and funded persistence is itself a signal axis no other system produces. Ephemeral messages don't influence the importance index. The free layer solves cold start; the funded layer solves quality.
 19. **Honest-minority resilience** — The protocol's durability depends on honest minorities, not honest majorities.
 
@@ -177,7 +182,7 @@ Everything else is borrowed infrastructure.
 |------|-------|---------------------|----------------|
 | **STORE** | On-chain bond | Yes — storage shard drain via settlement | Bonded, mint-challenged, peer-verified |
 | **SERVE** | None | Yes — referrer income via via tag | **None — untrusted delivery pipe** |
-| **MINT** | On-chain bond | Yes — coordination share + bond slash income | Bonded, auditable |
+| **MINT** | On-chain fidelity bond (time-locked) | Yes — coordination share | Bonded (fidelity), auditable |
 | **SETTLER** | None | None (public service) | Deterministic, auditable by anyone |
 
 ### Unbundled Mint Functions
@@ -209,7 +214,7 @@ MINT   ─────────────────→ RELAYS        cove
 
 **Four mapping layers** (degrading privacy, increasing availability — see also Glossary: Mapping):
 
-1. **Relay-encrypted mappings (mandatory, durable)** — mints MUST publish on every store registration: `encrypt(store_endpoint || blob_id, key=HKDF(content_hash || shard_index, "discovery-v1"))`. Anyone with the content_hash can derive the key. No mint needed. Survives mint exits/crashes. Clients SHOULD re-publish on successful reconstruction (belt-and-suspenders). Privacy cost: adversary with content_hash discovers stores without PoW gate, marginal vs. state-actor class.
+1. **Relay-encrypted mappings (mandatory, durable, compute-gated)** — mints MUST publish on every store registration and periodically refresh for active stores: `encrypt(store_endpoint || blob_id, key=Argon2id(content_hash || shard_index, "ocdn-discovery-v1", ARGON2_PARAMS))`. Compute-hard KDF: ~1-3s per shard on desktop, bulk scanning linearly expensive. No mint needed for decryption. Survives mint exits/crashes — the defense against coordinated mint takedown (mints are the smallest, most identifiable, most regulatable actor set). Clients SHOULD re-publish on successful reconstruction (belt-and-suspenders). Privacy boundary: bulk mapping is computationally gated, not prevented. Targeted identification of known content remains feasible (derive one key, ~seconds).
 2. **Mint cache (fast, private)** — actual store locations, request-proof-gated, replicated via gossip. Any mint can serve discovery for any content. Rebuilds from relay events + gossip on restart.
 3. **Serve-layer cache** — organic fallback from prior reads, proportional to content popularity. No privacy guarantee, no mint dependency.
 4. **Coverage signals** — per-content shard store counts on relays each COVERAGE_BLOCKS, no store identities. Enables supply response, not a discovery layer.
@@ -237,11 +242,11 @@ Mints are a discovery cache — the relay layer is the source of truth. Economic
 | **Request proof event** | Protocol | Client PoW + Nostr signature + via tag. Gates delivery, published as demand signal. See §2. |
 | **Store attestation** | Protocol | Store proves shard service for a specific request. Direct to mint. See §3. |
 | **Settlement event** | Protocol | Per-mint deterministic payout across P participants. See §4. |
-| **Storage challenge protocol** | Protocol | Permissionless — anyone can challenge (no bond needed). Random byte offsets + Merkle proofs, latency-tested. Failure → lose epoch earnings. Repeated failure → bond slash. |
+| **Storage challenge protocol** | Protocol | Permissionless — anyone can challenge (no bond needed). Random byte offsets + Merkle proofs, latency-tested. Failure → lose epoch earnings. Repeated failure → fraud proof → economic death. |
 | **Cross-store verification** | Protocol | Block-hash-assigned per-epoch peer verification. Earning requires proving own storage AND verifying a peer. |
 | **Attestation broadcast** | Protocol | Stores submit to ALL bonded mints (O(M), M small). Omission detectable via cross-mint comparison. Receipts enable fraud proofs. |
-| **Bonded mint registration** | Protocol | On-chain UTXO bond. Permissionless. Fraud proof → bond slashed to genesis. |
-| **Fraud proof event** | Protocol | Anyone can publish provable evidence of mint/store misbehavior → triggers bond slash |
+| **Bonded mint registration** | Protocol | Time-locked on-chain UTXO (fidelity bond). Permissionless. Tenure-weighted custody ceiling. Fraud proof → economic death (clients route around). |
+| **Fraud proof event** | Protocol | Anyone can publish provable evidence of mint/store misbehavior → triggers economic death (clients route around flagged operator). Each fraud proof type is mechanically verifiable (double-sign, attestation omission vs. receipt, ceiling violation). |
 | **`ocdn-store` daemon** | Product | Commodity storage: watches coverage signals on relays for undercovered shards, stores encrypted shards, registers mapping with mint (gossip replicates), responds to mint challenges, attests to mint, cross-verifies peers, earns BTC. Zero editorial decisions. `docker run` entry point. |
 | **Importance index** | Product | Rankings, feed, API, widget. Anyone operates. |
 | **OG image endpoint** | Product | Cloudflare Worker renders live scoreboard snapshots for social sharing. Stateless, serve-layer. The viral loop. |
@@ -251,7 +256,7 @@ Mints are a discovery cache — the relay layer is the source of truth. Economic
 
 ### Trust Assumptions
 
-- **Custodial trust (bond = custody ceiling)**: Bonded mints hold pool balances. Irreducible — sats that persist across epochs and pay multiple parties over time require custody. **Protocol rule: `balance(mint) ≤ bond_value(mint)`.** The bond is not a fixed entry cost — it is the maximum custodial capacity. Deposits that would exceed the ratio are rejected; the client routes to the next mint. Mints compete for deposits by posting larger bonds: larger bond → more capacity → more deposits → more coordination income. Net gain from theft is zero or negative (bond forfeited ≥ balances stolen). All custody operations are auditable from public events.
+- **Custodial trust (fidelity bond + tenure-weighted ceiling)**: Bonded mints hold pool balances. Irreducible — sats that persist across epochs and pay multiple parties over time require custody. **Protocol rule: `balance(mint) ≤ bond_value(mint) × tenure_factor(epochs)`.** Bonds are time-locked on-chain UTXOs (`OP_CSV`) — a commitment signal, not slashable collateral. No trusted counter-signer, no covenant opcodes required. Works on Bitcoin mainnet today. `tenure_factor` starts low (~5% in first week) and grows toward 100% over months — new mints custody little, established mints custody more. Deposits that would exceed the ceiling are rejected; the client routes to the next mint. **Enforcement is economic death**: fraud proof published → clients route around → income = 0. Bond unlocks after time-lock; the business is already dead. No genesis income from misbehavior — the protocol constant earns from the math, not from punishment. All custody operations are auditable from public events (sum fund confirmations per mint vs. bond value × tenure).
 - **Founder operates nothing post-launch.** No operational role, no delegation authority, no admin key. All roles operated by independent actors.
 - Independent operators run: bonded mints, stores, serve endpoints, settlers, importance indexes
 - All settlement is deterministic and auditable — settlers query mints directly for epoch summaries, each per-mint settlement is independently verifiable, anyone can recompute from day 1
@@ -372,7 +377,7 @@ store → mint (direct channel):
 
 **Verification**: O(1). `Ed25519_verify(attestation, store_pubkey)` + `bond_check(store_pubkey)` + `request_hash matches valid request proof`.
 
-**Attestation receipt**: Mint returns a signed acknowledgment on attestation delivery: `ack(attestation_hash, epoch, mint_sig)`. Store retains the receipt. If the mint's epoch summary omits an acknowledged attestation, the store publishes `(attestation, ack)` as a fraud proof → selective omission is provable → bond slash. Without receipts, a mint can silently drop attestations with no recourse.
+**Attestation receipt**: Mint returns a signed acknowledgment on attestation delivery: `ack(attestation_hash, epoch, mint_sig)`. Store retains the receipt. If the mint's epoch summary omits an acknowledged attestation, the store publishes `(attestation, ack)` as a fraud proof → selective omission is provable → economic death (clients route around the mint). Without receipts, a mint can silently drop attestations with no recourse.
 
 ### Epoch Summary (bonded mint-signed)
 
@@ -394,7 +399,7 @@ tags:
 sig: mint signature
 ```
 
-**Why summaries**: Individual request proofs are signed by clients (unbounded, non-enumerable on relays). Epoch summaries are signed by bonded mints (bounded, enumerable, gap-detectable via `seq`). The `prev` tag creates a per-mint hash chain — settlers detect gaps (missing summaries), forks (conflicting summaries at the same `seq`), and converge by collecting all chains to the current epoch. Two settlers that see the same hash chains produce the same settlement. Conflicting summaries at the same `seq` are a double-sign → fraud proof → bond slash. Individual store identities never appear in public events — the mint resolves store pubkeys for payout internally.
+**Why summaries**: Individual request proofs are signed by clients (unbounded, non-enumerable on relays). Epoch summaries are signed by bonded mints (bounded, enumerable, gap-detectable via `seq`). The `prev` tag creates a per-mint hash chain — settlers detect gaps (missing summaries), forks (conflicting summaries at the same `seq`), and converge by collecting all chains to the current epoch. Two settlers that see the same hash chains produce the same settlement. Conflicting summaries at the same `seq` are a double-sign → fraud proof → economic death. Individual store identities never appear in public events — the mint resolves store pubkeys for payout internally.
 
 ### 4. Settlement (settler-signed)
 
@@ -416,53 +421,64 @@ content: JSON settlement details
 sig: settler signature
 ```
 
-**The settlement rule** (per-mint, participant parity with coordination subdivision):
+**The settlement rule** (per-mint, per-shard, participant parity with cascading remainders):
 
-Each mint settles independently — no cross-mint join. Settlers query each bonded mint directly for its epoch summary. A settler that reaches mint M produces a deterministic settlement for M regardless of whether it has reached mint N. Settlement events are additive: each per-mint settlement is independently final; missing mints are filled in when available.
+Each mint settles independently — no cross-mint join. Each shard settles independently — no cross-shard coupling. Settlers query each bonded mint directly for its epoch detail (per-shard attestation sets). Settlement events are additive: each per-mint settlement is independently final; missing mints are filled in when available.
 
 ```
 for each mint m:
   for each content_hash cid where m holds balance AND has valid attestations this epoch:
-    mint_drain = drain(m, cid, epoch)                          # from attestations submitted to THIS mint
+    N = shard_count(cid)                                        # 1 for text, RS_N for documents
+    mint_drain = floor(balance(m, cid) × DRAIN_RATE)            # balance-proportional, mint-count-invariant
+    shard_drain = floor(mint_drain / N)
+    remainder_L0 = mint_drain - N × shard_drain                 → GENESIS_ADDRESS
 
-    # Participant parity: P = N·S+1 participants (N·S store-shard pairs + 1 coordination).
-    # S = min stores with valid attestations across shards (market depth of thinnest shard).
-    N = shard_count(cid)                                       # 1 for text, RS_N for documents
-    S = min(len(stores_with_valid_attestations_AND_storage_proofs(s, m, epoch)) for s in 0..N-1)
-    if S == 0: continue                                        # no service, no drain
-    P = N * S + 1
-    participant_unit = floor(mint_drain / P)
-    remainder_p += mint_drain - (P × participant_unit)         → GENESIS_ADDRESS
-
-    # Coordination: 1 participant_unit, subdivided among market participants
-    coord_drain = participant_unit
     referrers = unique_via_pubkeys_from_valid_request_proofs(cid, epoch)
-    coord_participants = 1(mint m) + len(referrers) + 1(genesis)  # R+2
-    per_coord = floor(coord_drain / coord_participants)
-    remainder_coord += coord_drain - (coord_participants × per_coord) → GENESIS_ADDRESS
-    payout(mint m) += per_coord
-    for each referrer r in referrers:
-      payout(r) += per_coord
-    payout(genesis) += per_coord + remainder_coord             # share + sub-remainder
+    R = len(referrers)
 
-    # Storage: each store-shard pair earns 1 participant_unit
     for each shard s in 0..N-1:
-      for each store st in stores_with_valid_attestations_AND_storage_proofs(s, m, epoch):
-        payout(st) += participant_unit
+      stores_s = stores_with_valid_attestations_AND_storage_proofs(s, m, epoch)
+      S_s = len(stores_s)
+      if S_s == 0: continue                                     # uncovered shard: no drain, pool preserved
 
-genesis_total = remainder_p + remainder_coord
-             + coordination_shares
+      # Level 1: per-shard parity — S_s stores + 1 coordination
+      P_s = S_s + 1
+      unit_s = floor(shard_drain / P_s)
+      remainder_L1 = shard_drain - P_s × unit_s                 → GENESIS_ADDRESS
 
-# Abandoned pools sweep to genesis
-if no_valid_attestations(cid, last_N_epochs):
+      # Storage: each store earns 1 unit
+      for each store st in stores_s:
+        payout(st) += unit_s
+
+      # Level 2: coordination unit subdivided — mint + referrers + genesis
+      coord = unit_s
+      coord_parts = R + 2                                        # 1(mint) + R(referrers) + 1(genesis)
+      per_coord = floor(coord / coord_parts)
+      remainder_L2 = coord - coord_parts × per_coord             → GENESIS_ADDRESS
+
+      payout(mint m) += per_coord
+      for each referrer r in referrers:
+        payout(r) += per_coord
+      payout(genesis) += per_coord + remainder_L2 + remainder_L1
+
+    payout(genesis) += remainder_L0
+
+# Abandoned pools sweep to genesis (requires BOTH no attestations AND no request proofs)
+# Request-proof gate prevents adversary-triggered sweep via mint takedown
+if no_valid_attestations(cid, last_SWEEP_EPOCHS) \
+   AND no_valid_request_proofs(cid, last_SWEEP_EPOCHS):
     sweep(pool[cid]) → GENESIS_ADDRESS
 ```
 
+**K-threshold gating**: Mints reject request proofs for content with fewer than K covered shards. Below K: content is unrecoverable, no request proofs accepted, no attestations, no drain, pool preserved. Settlement requires actual availability.
+
 **Earning requires BOTH demand AND proven storage**: A store earns for a shard only if (1) it submitted a valid attestation for a valid request proof this epoch AND (2) it passed the mint's storage challenge for that shard this epoch. Attestation without storage proof = invalid (prevents proxy-only stores). Storage proof without attestation = no demand signal (content not consumed).
 
-**Participant parity**: See Glossary. The pseudocode above is canonical. Bootstrap reference numbers are in the Glossary. The counter-intuitive property: remainder grows with P, so at high market depth, integer friction becomes a significant genesis income source.
+**Per-shard parity**: See Glossary. The pseudocode above is canonical. Cascading remainders from L0 + L1 + L2 across N shards produce genesis income that grows in absolute sats while shrinking as a percentage. At high market depth, integer friction across many independent shard settlements becomes a significant genesis income source.
 
-No mandated drain rate. Drain = sum of valid store claims. Content below MIN_FRAGMENT_SIZE settles as N=1.
+**Self-balancing**: Equal shard drain means thin shards (low S_s) pay more per store and thick shards (high S_s) pay less. Stores migrate to undercovered shards. Coverage signals make the economics visible.
+
+**Drain rate**: `DRAIN_RATE × balance`. No store-declared rates at the protocol level. Pool half-life = ln(2)/DRAIN_RATE. Store count doesn't affect drain speed — it affects how the drain is divided. Funders can calculate expected duration at deposit time. Minimum viable pool ≈ N/DRAIN_RATE sats (below this, per-shard drain rounds to 0, stores stop earning, sweep timer starts).
 
 **Per-mint independence**: Each pool-CID-mint triple tracks its own balance. The mint that confirmed the deposit handles claims against that balance. No cross-mint coordination needed. Each mint's settlement is a closed computation — a settler needs only that mint's epoch summary to produce a deterministic result.
 
@@ -476,7 +492,7 @@ No mandated drain rate. Drain = sum of valid store claims. Content below MIN_FRA
 - Epochs by block height (EPOCH_BLOCKS). Mint-canonical epoch assignment.
 - Settlement merkle root anchored via OpenTimestamps.
 - Multiple settlers cross-verify via `input_set` convergence tag.
-- Mint liveness: missing MAX_SILENT_EPOCHS summaries → bond slash.
+- Mint liveness: missing MAX_SILENT_EPOCHS summaries → fraud proof → economic death (clients re-route deposits).
 - All events carry `["v", "1"]` version tag.
 
 ---
@@ -487,7 +503,7 @@ The protocol is a market. Demand side: funders. Supply side: stores. Clearing me
 
 ### Reading is Free; Funding is Advertising
 
-Readers consume at zero cost (PoW-gated). Serve endpoints deliver and earn via the via tag. Stores earn from pools for proven storage of consumed content. Popular content drives faster drain but attracts more funders (visibility drives conviction). The market equilibrates: storage costs scale with demand, funding scales with visibility.
+Readers consume at zero cost (PoW-gated). Serve endpoints deliver and earn via the via tag. Stores earn from pools for proven storage of consumed content. Popular content attracts more stores (more per-shard competition) and more funders (visibility drives conviction). The market equilibrates: store depth scales with demand, funding scales with visibility.
 
 ### Demand Signal
 
@@ -499,17 +515,18 @@ Stores read coverage signals for undercovered funded content. Mirror shards, reg
 
 ### Price Discovery
 
-Stores declare rates. Cheap stores attract more content. Expensive stores serve premium (jurisdiction diversity, SLA, speed). Content naturally migrates to the cheapest adequate store. The market determines drain rate, durability, and redundancy. No protocol parameters needed.
+Protocol drain is mechanical: `DRAIN_RATE × balance`, independent of store count or store-declared rates. Store rate competition occurs at the **clearinghouse** layer (NIP-OFFER/NIP-PRESERVE) for committed storage with SLA guarantees. At the protocol level, stores compete on which shards to serve — thin shards pay more per store, thick shards pay less. Coverage signals make the economics visible.
 
 ### Drain
 
 ```
-epoch_drain(cid) = Σ store_claims(cid, epoch)
+drain(m, cid, epoch) = floor(balance(m, cid) × DRAIN_RATE)
+shard_drain = floor(drain / N)
 ```
 
-More stores = faster drain = shorter durability = more funding urgency = more deposits. Fast drain means an active, healthy market. Stores compete on price; competition compresses rates over time, making content more durable — an emergent anti-decay force.
+Balance-proportional. Pool half-life = ln(2)/DRAIN_RATE ≈ 89 epochs (~15 days at DRAIN_RATE=1/128). Funders can calculate expected duration at deposit time. Mint-count-invariant: deposit splitting across M mints doesn't change total drain rate (each mint drains its own fraction proportionally).
 
-**Drain rate floor**: `MIN_DRAIN_RATE` (protocol constant, e.g., 1 sat/shard/epoch) prevents market equilibrium from converging to near-zero throughput. Without a floor, store competition compresses rates indefinitely → drain slows → pool duration increases → re-funding urgency drops → genesis income starves. The floor ensures genesis income has a minimum proportional to stored content count, independent of how efficiently stores compete. Content below the floor effectively decays at a fixed calendar rate — the irreducible cost of persistence.
+Store count doesn't affect drain speed — it affects how drain is divided. More stores per shard → less per store → some stores migrate to thinner shards or other content. The equilibrium is income-driven, not drain-driven. Funding urgency comes from the countdown itself (exponential decay), not from store-count acceleration.
 
 ### Degradation
 
@@ -527,28 +544,28 @@ Coverage signals are decoupled from settlement: every COVERAGE_BLOCKS (~1h) vs. 
 
 ### Market Depth = Founder Income
 
-Genesis remainder scales with P, which grows with market depth (see Glossary: Remainder, Participant parity). The founder's income scales with:
-- **P** — more shards × more stores = more divisions = more remainder
-- **R** — more referrers = more coordination subdivisions
-- **Store transitions** — churn creates epochs with unclaimed drain
-- **Self-healing cycles** — repair lag = unclaimed drain
+Genesis income comes from cascading remainders across N shards × C content items, plus coordination shares, sweep, and slash. The founder's income scales with:
+- **S_s per shard** — deeper shards = more integer friction per L1 division
+- **R** — more referrers = more L2 subdivisions = more L2 remainder
+- **N × C** — more shards across more content items = more independent divisions
+- **Sweep tail** — exponential decay residuals below the zero-drain floor. Documents (high N) produce larger residuals
 - **Reference client traffic** — referrer share via via tag
 
-The inverse size premium (see Glossary) persists at every S. The founder's durable income requires no client dominance — only that the storage market serves content.
+Genesis income percentage decreases monotonically with market depth (1/(S_s+1) per shard). Absolute income grows because total drain grows. The founder's durable income requires no client dominance — only that the storage market serves content.
 
 ### Store Interdependence
 
-With RS(10,20), content requires K stores to collectively serve for reconstruction. Each store's income depends on peer stores being available:
-- If fewer than K stores are online for a content item, it can't be consumed → no request proofs → no drain → **all** stores for that content earn nothing
-- Each store is incentivized to want more peer stores online (collective availability = more consumption events = more drain)
-- Stores monitor peer availability — if a peer goes down, their own income drops
+With RS(10,20), content requires K shards for reconstruction. Mints gate request proofs on K-threshold coverage (see §4). Collective interdependence is availability-based, not formula-based:
+- If fewer than K shards are covered, the mint rejects request proofs → no attestations → no drain → **all** stores for that content earn nothing (pool preserved, not wasted)
+- Once K shards are covered, per-shard settlement activates. Each shard settles independently
+- Thin shards (low S_s) earn more per store, incentivizing gap-filling. Coverage signals make opportunity visible
 - Cross-store verification (random per-epoch peer assignment) creates a ring of mutual dependency for earning
 
 ### Three Self-Correcting Loops
 
-1. **Eviction → funding urgency**: Store fills → low-funded content evicted → "not stored" visible on index → community funds → content re-stored
-2. **High prices → new stores**: Stores fill → storage prices rise → storage becomes profitable → new operators join → capacity increases → prices stabilize
-3. **Content migration**: Expensive store → cheap store has capacity → content migrates → expensive store frees space → equilibrium
+1. **Eviction → funding urgency**: Pool decays below minimum viable → stores stop attesting → "not stored" visible on index → community funds → content re-stored
+2. **Thin shards → new stores**: Shard has low S_s → high per-store income visible in coverage signals → new operators mirror that shard → S_s increases → per-store income normalizes
+3. **Over-replication → exit**: Shard has high S_s → per-store income drops → least-efficient stores stop attesting that shard → S_s decreases → equilibrium
 
 ### Conviction Momentum
 
@@ -562,18 +579,18 @@ The feedback loop: reads → visibility → funding → storage → reads. The m
 
 | Attack | Defense |
 |--------|---------|
-| Fake demand (sybil clients) | PoW cost per request proof. Ephemeral keys make sybil cheaper but only affect the index (display layer), not settlement (economic layer) — drain is gate-triggered, not count-triggered. Index weights commitment (sats) over demand (PoW). |
+| Fake demand (sybil clients) | PoW cost per request proof. Ephemeral keys make sybil cheaper but only affect the index (display layer), not settlement (economic layer) — drain = DRAIN_RATE × balance (gate-triggered by attestation existence, not count-triggered by volume). Index weights commitment (sats) over demand (PoW). |
 | Flood requests | PoW difficulty scales with volume — exponential cost |
 | Replay requests | Epoch-bound, single use |
 | Fake bytes served | response_hash in store attestation must match expected shard hash |
 | Forge store attestation | Requires store's private key (Ed25519) + valid bond |
 | Front-end redirects store income | **Impossible** — multi-party binding (see §3). Front-end earns only via the via tag. |
 | Sybil referrers (fake `via` tags) | Referrer income requires valid request proofs with matching store attestations. You can't profit from fake referrals without generating real consumption. |
-| Store proxies without storing | Storage challenges (random byte offset + Merkle proof, latency-tested) catch fetch-on-demand. Repeated failure → bond slash. |
+| Store proxies without storing | Storage challenges (random byte offset + Merkle proof, latency-tested) catch fetch-on-demand. Repeated failure → fraud proof → economic death. |
 | Sybil receipt inflation | Receipt doesn't credit specific stores — demand signal is diluted across ALL stores for that content. Less profitable than original model. |
 | Store self-dealing (own request proofs) | **Tolerated — self-dealing is work, not fraud.** Pays real PoW, provides real storage, triggers correct settlement. Cost makes it unprofitable at scale. At small scale, converts sweep to settlement income — a bounded loss. |
 | Mint-store collusion | Block-hash-assigned cross-store verification. Colluding mint cannot rig peer assignments. Probability of colluding verifier = C/S per epoch. Over multiple epochs, honest peer is assigned and fake storage is caught. Bond at risk for both parties. |
-| Mint deposit flight | Bond = custody ceiling (see Glossary). Net gain from theft ≤ 0. |
+| Mint deposit flight | Fidelity bond + tenure-weighted custody ceiling (see Glossary: Bond). New mints custody little; established mints have too much future income to lose. Deposit splitting bounds per-mint exposure. Enforcement: economic death, not seizure. |
 | Centrality gaming (citation clusters) | PageRank with pool-based teleportation: unfunded nodes inject zero importance. Isolated unfunded clusters have zero importance regardless of edge density. Gaming requires funding multiple nodes — expensive and self-defeating (outgoing edges donate importance to real content). |
 
 ### Storage Challenge Protocol
@@ -590,7 +607,7 @@ Every epoch, for each claimed shard:
     latency < T (proves local storage, not fetch-on-demand)
 
 Stores that fail: lose earnings for that epoch.
-Repeated failure (N consecutive): bond slashed → genesis address.
+Repeated failure (N consecutive): fraud proof published → economic death (clients/mints stop interacting).
 ```
 
 ### Cross-Store Verification (block-hash assigned)
@@ -616,7 +633,7 @@ Permissionless entry via on-chain bond (BTC in time-locked UTXO). Any operator i
 
 **Resilience**: Any 2 mints surviving = full functionality. Serve caches provide organic fallback.
 
-**Fraud proofs**: Anyone publishes evidence of misbehavior → bond slashed to genesis.
+**Fraud proofs**: Anyone publishes evidence of misbehavior → economic death (clients route around flagged operator). No genesis income from misbehavior.
 
 **Mint verification is free.** Free verification maximizes request proof volume, deepening the demand history moat.
 
@@ -628,24 +645,24 @@ Permissionless entry via on-chain bond (BTC in time-locked UTXO). Any operator i
 
 Neither is a fee. Neither is a rate. Both are emergent from the settlement structure (see §4 pseudocode). Income flows to genesis (protocol constant) and to the reference client's via pubkey.
 
-**Four income modes — all pay genesis:**
+**Three income modes — all pay genesis:**
 - **Active market** — coordination share + remainder from settlement. The primary, durable income. Survives total client competition.
-- **Sweep** — pools with no attestations for SWEEP_EPOCHS → 100% to genesis. Catches noise and failed self-promotion.
-- **Bond slash** — misbehavior → bond to genesis.
+- **Sweep** — pools with no attestations AND no request proofs for SWEEP_EPOCHS → 100% to genesis. Catches noise and failed self-promotion. Request-proof gate prevents adversary-triggered sweep (e.g., coordinated mint takedown — content still in demand doesn't sweep).
 - **Referrer** — via tag income through the reference client. Bonus, fragile to client competition.
 
-Total addressable revenue = all inflow (successful, failed, and fraudulent).
+No genesis income from misbehavior — bonds are fidelity (time-locked, not slashable). Enforcement is economic death, not fund seizure. The protocol constant earns from the math and from abandoned content, not from punishment.
+
+Total addressable revenue = all inflow (successful and failed).
 
 **Income hierarchy** (descending by durability):
-1. **Text coordination share + remainder** — N=1, highest coordination fraction at every S (inverse size premium). Income transitions from coordination rent (low S) to integer friction (high S). Fork-resistant via the mapping moat.
-2. **Document coordination share + remainder** — smaller coordination fraction but remainder grows with market depth.
-3. **Sweep** (100% capture) — failed attention bids.
+1. **Per-shard coordination share + cascading remainder** — coordination fraction 1/(S_s+1) per shard, independent of N. Income transitions from coordination rent (low S_s) to integer friction (high S_s). Fork-resistant via the economic moat.
+2. **Document sweep tail** — exponential decay + integer rounding: documents (N=20) hit zero-drain floor with ~20% residual balance vs. ~1% for text. Documents produce higher genesis sweep income per sat deposited.
+3. **Text sweep** — smaller residual but higher volume. Quick cycles.
 4. **Referrer** — fragile to better clients.
-5. **Bond slash** — episodic, front-loaded to early network.
 
-Additional genesis income: timing gaps (store transitions), cross-epoch prorating (fractional claims → 0), self-healing repair lag, bond slashes.
+Additional genesis income: L0 remainder (drain mod N), timing gaps (store transitions), cross-epoch prorating, self-healing repair lag.
 
-The capture rate is emergent and convex — every architectural improvement multiplies divisions. Fork resistance: the mapping moat (see Glossary). The founder earns from the froth of disagreement — contested content drives the most conviction spending.
+The capture rate is emergent and convex — every architectural improvement multiplies divisions. Fork resistance: the economic moat (see Glossary). The founder earns from the froth of disagreement — contested content drives the most conviction spending.
 
 **Fire-and-forget economics**: Published code, walked away. Zero operational cost, zero legal surface. The data moat is the floor; the client defaults are the ceiling.
 
@@ -1034,17 +1051,18 @@ Only protocol-adjacent constants. Everything else is operator-set or market-dete
 | RS_K | 10 | Reconstruction threshold. Any 10 of 20 shards suffice. |
 | RS_N | 20 | Total storage shards. 2× overhead. 10-of-20 for censorship resistance. |
 | MIN_FRAGMENT_SIZE | 10240 (10 KB) | Below this: single encrypted shard (N=1). Above: full RS(K,N). |
-| MIN_REPLICAS | 3 | Minimum stores per shard for settlement validity. Ensures redundancy even for N=1 content (text claims, replies, topics, edges). |
+| DRAIN_RATE | 1/128 | Per-epoch fraction of mint balance drained. Half-life ≈ 89 epochs (~15 days). Minimum viable pool ≈ N/DRAIN_RATE (128 sats for text, 2560 for documents). |
 | CONTENT_KEY_DOMAIN | "ocdn-v1" | Convergent encryption: key = SHA256(domain \|\| content_hash). |
 | POW_TARGET_BASE | 2^240 | Anti-spam for request proofs + comments. ~200ms mobile. |
 | POW_SIZE_UNIT | 1048576 (1 MB) | PoW scales with content size. |
 | SWEEP_EPOCHS | 42 | ~7 days. See Glossary: Sweep. |
-| MIN_ATTESTATIONS | 1 (graduates to RS_K) | Minimum store attestations for a valid consumption event. Starts at 1 for bootstrap; increases toward RS_K as store count grows. Graduation thresholds are protocol constants, not operator-set. |
+| MIN_ATTESTATIONS | 1 | Minimum store attestations per shard for settlement validity. K-threshold gating (coverage ≥ K) at the mint ensures availability; MIN_ATTESTATIONS ensures per-shard service proof. |
 | CHALLENGE_INTERVAL | 1 epoch | How often mints challenge stores for storage proof. |
-| MIN_DRAIN_RATE | 1 sat/shard/epoch | Drain rate floor. See Storage Market: Drain. |
+| MIN_COVERAGE_K | RS_K (10) | Minimum covered shards for request proof acceptance. Mints gate on coverage ≥ K. For text (N=1), K=1. |
 | COVERAGE_BLOCKS | 6 | ~1h. Coverage signal frequency. Decoupled from EPOCH_BLOCKS. |
 | RS_WASM_HASH | SHA256 of canonical WASM binary | Protocol ships one RS encoder/decoder. This hash pins it. New binary = protocol version bump. |
-| MAX_SILENT_EPOCHS | 6 | ~24h. Missing summaries without pause event → bond slash. |
+| MAX_SILENT_EPOCHS | 6 | ~24h. Missing summaries without pause event → fraud proof → economic death. |
+| ARGON2_PARAMS | t=3, m=8MB, p=1 | Layer 1 mapping KDF. ~1-3s desktop, tuned for phone-browser WASM. Bulk scanning linearly expensive. Protocol constant — upgrade = version bump. |
 | RING_CONFIRM_DEPTH | 6 | Cross-store verification ring uses block at `epoch_start_height - 6`. Reorg-proof at depth 6. ~1h delay on ring assignment, negligible vs. 4h epoch. |
 | PROTOCOL_VERSION | 1 | All events carry `["v", "1"]` tag. Version bumps are coordinated flag days. |
 | PAYOUT_THRESHOLD | 1000 sats | Minimum accumulated balance before Lightning payout executes. Sub-threshold amounts accumulate across epochs. |
@@ -1065,7 +1083,7 @@ Only protocol-adjacent constants. Everything else is operator-set or market-dete
 | Min deposit | Each mint | Anti-spam. Reference mint: 100 sats. Low-ball mints attract dust — their overhead. |
 | Venue fee | Serve endpoint operator | Market-priced. |
 | Clearing spread | Clearinghouse operator | Whatever the clearinghouse charges. |
-| Store rate | Each store | Market-determined. Covers storage costs. |
+| Clearinghouse offer rate | Each store | Committed storage rate via NIP-OFFER. Market-determined. Protocol drain is DRAIN_RATE × balance regardless. |
 | Damping factor | Each index | Reference: 0.85. Competing indexes choose their own. |
 | Inscription weight | Each index | Reference: 2×. Product decision. |
 
@@ -1145,11 +1163,11 @@ Every protocol role is profitable to operate independently. The founder operates
 |------|----------------|---------|--------------|
 | Stores | Independent bonded operators | Storage shard drain via settlement | Any K survive per content = availability maintained |
 | Serve endpoints | Anyone (front-ends, CDNs) | Coordination shard referrer share + venue fees, ads | Any 1 survives = content deliverable |
-| Bonded mints | Independent bonded operators | Coordination shard mint share + bond slash income | Any 2 survive = request proofs verified + payouts flow |
+| Bonded mints | Independent bonded operators | Coordination shard mint share | Any 2 survive = request proofs verified + payouts flow |
 | Importance indexes | Independent operators | API fees, venue fees | Any 1 survives = rankings exist |
 | Settlers | Anyone | None (public service) | Any 1 survives = settlements computed |
 | Clearinghouse | Anyone | Market-set spread | Degrades to raw pool credits |
-| **Founder** | **None** | **Genesis coordination share + remainder + sweep + slash + referrer income via reference client** | **N/A — no operational role to fail** |
+| **Founder** | **None** | **Genesis coordination share + remainder + sweep + referrer income via reference client** | **N/A — no operational role to fail** |
 
 ### The Longevity Test
 
@@ -1244,9 +1262,55 @@ Every event, request proof, body edge, graph computation, and threshold crossing
 
 ---
 
+## Unresolved Design Conflicts
+
+### 1. ~~Relay-Encrypted Mappings vs. Store-Blindness~~ RESOLVED
+
+**Resolution**: Argon2id KDF for layer 1 mapping encryption. Key = `Argon2id(content_hash || shard_index, "ocdn-discovery-v1", ARGON2_PARAMS)`. Bulk scanning linearly expensive. Single-item lookup: ~1-3s (tolerable — layer 1 only fires when all mints are down). Privacy claim now consistent across all layers: "PoW cost scales linearly with scan breadth."
+
+**Why layer 1 is non-negotiable**: Mints are the smallest, most identifiable, most regulatable actor set (on-chain bonds, public endpoints, custodial = money transmission). Coordinated mint takedown is the obvious state-actor playbook. Layer 1 decouples content availability from mint liveness — mint death becomes economic pause, not censorship. Eliminating layer 1 creates a single targetable bottleneck. The adversary analysis killed options (a) and (b).
+
+**Residual concerns**: (i) Layer 1 mapping staleness — mints should periodically refresh for active stores, not just publish on registration. (ii) Relay pruning — no economic incentive for relays to retain mapping events; periodic refresh doubles as anti-pruning signal. (iii) Argon2 parameter tuning needs device benchmarking (phone-browser WASM target).
+
+### 2. ~~Bond Slash Enforcement~~ RESOLVED
+
+**Resolution**: Fidelity bonds — time-locked on-chain UTXOs (`OP_CSV`), not slashable. Enforcement is economic death: fraud proof published → clients route around → income = 0. Bond unlocks after time-lock; the business is already dead. No trusted counter-signer, no covenant opcodes, works on Bitcoin mainnet today. No genesis income from misbehavior — removes structural conflict of interest.
+
+**Tenure-weighted custody ceiling**: `balance(mint) ≤ bond_value × tenure_factor(epochs)`. New mints start at ~5% ceiling (first week), growing toward 100% over months. Rug-and-run by new operators yields trivial theft. Established operators lose too much future income. Deposit splitting (`DEPOSIT_SPLIT_MIN`) bounds per-mint exposure.
+
+**Residual concerns**: (i) Sybil mint spam — 100 new mints each stealing small ceiling amounts. Mitigated by reference client limiting simultaneous new-mint routing. (ii) `tenure_factor` curve needs calibration. (iii) Fraud proof types need enumeration — each must be a mechanically verifiable claim (double-sign, attestation omission vs. receipt, ceiling violation) so client evaluation is automatable.
+
+### 3. Cross-Store Verification Ring at Low S
+
+Verification ring requires S ≥ 3 for minimal independence. At S=1: no peer. At S=2: mutual verification (trivially collusive). **Fallback**: mint-only challenges below S=3. The cross-store ring is a strengthening, not the foundation — the mint already challenges every epoch. Explicitly state the weaker security property at low S.
+
+### 4. WASM Binary Governance
+
+Single canonical RS encoder/decoder. Bug = silent data loss. Upgrade = "coordinated flag day." Who coordinates? De facto governance by whoever publishes the binary. **Mitigation**: extensive test vectors (1000+, not 10). Vectors are the spec; the binary is the implementation. Doesn't eliminate the governance problem, reduces it. Needs explicit upgrade coordination process.
+
+### 5. Epoch Summary Detail vs. Store Privacy
+
+Per-shard settlement requires settlers to see per-shard, per-store attestation sets. Public epoch summaries on relays carry only aggregates. Private epoch detail (settler queries mint directly) must contain full per-shard data. Settlers are semi-trusted with store-shard mapping data — they can observe which stores serve which content. Auditability: anyone can become a settler. **Needs**: concrete schema for private epoch detail, explicit statement that settlers see store-shard mappings.
+
+### 6. Lightning Payout Failure Handling
+
+Lightning payments fail routinely (routing failures, capacity). What happens when a payout fails? Retry policy, accumulation timeout. **Timed-out accumulated balances MUST NOT sweep to genesis** — same perverse incentive as bond slash (genesis profits from system malfunction). Failed payouts should accumulate and retry indefinitely, or until the store/mint provides an updated Lightning endpoint. Needs operational spec.
+
+### 7. DRAIN_RATE Calibration
+
+DRAIN_RATE = 1/128 is a napkin estimate. Determines pool half-life, minimum viable pool, store income per epoch, genesis sweep income. Too high → pools deplete fast. Too low → stores earn dust. Needs simulation with realistic parameters: funding amounts, store costs, content lifecycle patterns.
+
+### 8. Sweep Trigger Calibration
+
+Sweep now requires no attestations AND no request proofs for SWEEP_EPOCHS. Request proofs are sybilable (~200ms PoW per proof) — anyone can keep a pool alive for ~200ms compute/epoch. This is cheap but deliberate. **Design tension**: lower keepalive cost preserves more pools during mint outages (good) but also lets spammers delay sweep on abandoned content (reduces sweep income). Threshold options: (a) any 1 request proof per SWEEP_EPOCHS (current — cheapest keepalive). (b) N request proofs from distinct pubkeys. (c) Request proofs weighted by PoW difficulty (harder PoW = stronger keepalive signal). Needs calibration based on desired sweep income vs. adversary resistance.
+
+---
+
 ## Sprint Updates/Resolutions
-founder shards 1/(N+1)->1/(N·S+1)
+per-shard settlement: P_s=S_s+1 per shard, DRAIN_RATE×balance, K-threshold gating, cascading remainders
+
+fidelity bonds + Argon2 layer 1: bonds are time-locked fidelity (not slashable), enforcement is economic death, tenure-weighted custody ceiling. Layer 1 mappings use Argon2id KDF (compute-gated, not free). Sweep requires no attestations AND no request proofs (prevents adversary-triggered sweep via mint takedown). Bond slash income removed from genesis revenue — genesis earns from math + abandoned content, not from punishment. Fork-resistance moat reframed as economic engine (deposits/settlement), not address book.
 
 ## The One-Sentence Version
 
-**Sats bind to hashes; four separated roles (store, serve, mint, genesis) settle at participant parity; the founder operates nothing; the income is settlement math; the moat is mapping data.**
+**Sats bind to hashes; four separated roles (store, serve, mint, genesis) settle at participant parity; the founder operates nothing; the income is settlement math; the moat is the economic engine.**
