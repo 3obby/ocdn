@@ -32,10 +32,10 @@ Settlement is **per-shard**: each shard is an independent micro-market. No cross
 | **DRAIN_RATE** | Per-epoch fraction of mint balance drained. `drain = floor(balance × DRAIN_RATE)`. Pool half-life = ln(2)/DRAIN_RATE. Balance-proportional → mint-count-invariant (deposit splitting doesn't penalize duration). |
 | **Coordination fraction** | 1/P_s = 1/(S_s+1) per shard. Independent of N. Shrinks as shard depth grows. |
 | **Participant parity** | All P_s participants per shard earn `floor(shard_drain/P_s)`. Coordination is one of them. |
-| **Cascading remainder** | Two levels of `floor()` per shard: L1 (shard division) + L2 (coordination subdivision). Both remainders → genesis. More participants at either level → more integer friction → more genesis income in absolute sats, smaller percentage. |
+| **Cascading remainder** | Two levels of `floor()` per shard: L1 (shard division) + L2 (coordination subdivision). L1 + L2 remainders → genesis. L2 uses a constant 3-way split (mint / referrer pool / genesis) — R-invariant. Referrer pool subdivided internally by proof count; internal remainder → top referrer (sybil-dilutive). More shards × more content = more independent divisions = more genesis income in absolute sats, smaller percentage. |
 | **Self-balancing** | Equal shard drain + per-shard parity: thin shards (low S_s) pay more per store, thick shards (high S_s) pay less. Stores migrate to gaps. |
 
-Bootstrap reference (any N, at R=1): At S=1, coordination fraction = 50%. At S=3: 25%. At S=10: 9.1%. At S=100: ~1%. Genesis share ≈ coordination/(R+2) + remainders. See [Settlement Rule](#4-settlement-settler-signed) for canonical pseudocode.
+Bootstrap reference (any N, at R=1): At S=1, coordination fraction = 50%. At S=3: 25%. At S=10: 9.1%. At S=100: ~1%. Genesis share = 1/3 of coordination unit + L1 remainder + L2 remainder (0-2 sats). R-invariant: referrer count doesn't change the L2 denominator. See [Settlement Rule](#4-settlement-settler-signed) for canonical pseudocode.
 
 ### Content Lifecycle
 
@@ -450,16 +450,20 @@ for each mint m:
       for each store st in stores_s:
         payout(st) += unit_s
 
-      # Level 2: coordination unit subdivided — mint + referrers + genesis
+      # Level 2: coordination unit — fixed 3-way split (R-invariant)
       coord = unit_s
-      coord_parts = R + 2                                        # 1(mint) + R(referrers) + 1(genesis)
-      per_coord = floor(coord / coord_parts)
-      remainder_L2 = coord - coord_parts × per_coord             → GENESIS_ADDRESS
+      per_third = floor(coord / 3)                               # constant denominator: mint / referrer pool / genesis
+      remainder_L2 = coord - 3 × per_third                       → GENESIS_ADDRESS  (always 0, 1, or 2 sats)
 
-      payout(mint m) += per_coord
+      payout(mint m) += per_third
+      payout(genesis) += per_third + remainder_L2 + remainder_L1
+
+      # Referrer pool: subdivided by proof count (sybil-dilutive, R-invariant at L2)
+      ref_pool = per_third
+      total_proofs = sum(proof_count(r, cid, epoch) for r in referrers)
       for each referrer r in referrers:
-        payout(r) += per_coord
-      payout(genesis) += per_coord + remainder_L2 + remainder_L1
+        payout(r) += floor(ref_pool × proof_count(r) / total_proofs)
+      ref_remainder = ref_pool - sum(referrer payouts)            → top referrer by proof_count  (NOT genesis)
 
     payout(genesis) += remainder_L0
 
@@ -546,7 +550,7 @@ Coverage signals are decoupled from settlement: every COVERAGE_BLOCKS (~1h) vs. 
 
 Genesis income comes from cascading remainders across N shards × C content items, plus coordination shares, sweep, and slash. The founder's income scales with:
 - **S_s per shard** — deeper shards = more integer friction per L1 division
-- **R** — more referrers = more L2 subdivisions = more L2 remainder
+- **R** — more referrers = more proof-count competition within the referrer pool (but L2 denominator is constant at 3 — R-invariant)
 - **N × C** — more shards across more content items = more independent divisions
 - **Sweep tail** — exponential decay residuals below the zero-drain floor. Documents (high N) produce larger residuals
 - **Reference client traffic** — referrer share via via tag
@@ -585,7 +589,7 @@ The feedback loop: reads → visibility → funding → storage → reads. The m
 | Fake bytes served | response_hash in store attestation must match expected shard hash |
 | Forge store attestation | Requires store's private key (Ed25519) + valid bond |
 | Front-end redirects store income | **Impossible** — multi-party binding (see §3). Front-end earns only via the via tag. |
-| Sybil referrers (fake `via` tags) | Referrer income requires valid request proofs with matching store attestations. You can't profit from fake referrals without generating real consumption. |
+| Sybil referrers (fake `via` tags) | L2 uses a constant 3-way split (mint / referrer pool / genesis) — inflating R doesn't change the denominator. Referrer pool subdivided by proof count: sybil referrers dilute their own per-pubkey proof count, earning less than a consolidated honest referrer. Internal remainder → top referrer by proof count, not genesis. |
 | Store proxies without storing | Storage challenges (random byte offset + Merkle proof, latency-tested) catch fetch-on-demand. Repeated failure → fraud proof → economic death. |
 | Sybil receipt inflation | Receipt doesn't credit specific stores — demand signal is diluted across ALL stores for that content. Less profitable than original model. |
 | Store self-dealing (own request proofs) | **Tolerated — self-dealing is work, not fraud.** Pays real PoW, provides real storage, triggers correct settlement. Cost makes it unprofitable at scale. At small scale, converts sweep to settlement income — a bounded loss. |
@@ -1300,9 +1304,11 @@ Lightning payments fail routinely (routing failures, capacity). What happens whe
 
 DRAIN_RATE = 1/128 is a napkin estimate. Determines pool half-life, minimum viable pool, store income per epoch, genesis sweep income. Too high → pools deplete fast. Too low → stores earn dust. Needs simulation with realistic parameters: funding amounts, store costs, content lifecycle patterns.
 
-### 8. Sweep Trigger Calibration
+### 8. ~~Sweep Trigger Calibration~~ RESOLVED
 
-Sweep now requires no attestations AND no request proofs for SWEEP_EPOCHS. Request proofs are sybilable (~200ms PoW per proof) — anyone can keep a pool alive for ~200ms compute/epoch. This is cheap but deliberate. **Design tension**: lower keepalive cost preserves more pools during mint outages (good) but also lets spammers delay sweep on abandoned content (reduces sweep income). Threshold options: (a) any 1 request proof per SWEEP_EPOCHS (current — cheapest keepalive). (b) N request proofs from distinct pubkeys. (c) Request proofs weighted by PoW difficulty (harder PoW = stronger keepalive signal). Needs calibration based on desired sweep income vs. adversary resistance.
+**Resolution**: PoW-weighted sweep threshold (option c). Sweep fires when aggregate PoW across all request proofs for a content hash within SWEEP_EPOCHS falls below `SWEEP_POW_THRESHOLD`. A single 200ms proof is insufficient — keepalive requires sustained organic traffic or deliberate PoW investment proportional to the threshold. Anti-sweep griefing cost scales linearly with number of pools targeted. `SWEEP_POW_THRESHOLD` needs calibration: organic traffic on modestly-read content should clear it easily; one adversary keeping 10K pools alive should be expensive.
+
+**Residual concern**: threshold too high = organic content swept prematurely during traffic dips. Threshold too low = griefing remains cheap. Needs telemetry from real request proof volume distributions.
 
 ---
 
@@ -1310,6 +1316,8 @@ Sweep now requires no attestations AND no request proofs for SWEEP_EPOCHS. Reque
 per-shard settlement: P_s=S_s+1 per shard, DRAIN_RATE×balance, K-threshold gating, cascading remainders
 
 fidelity bonds + Argon2 layer 1: bonds are time-locked fidelity (not slashable), enforcement is economic death, tenure-weighted custody ceiling. Layer 1 mappings use Argon2id KDF (compute-gated, not free). Sweep requires no attestations AND no request proofs (prevents adversary-triggered sweep via mint takedown). Bond slash income removed from genesis revenue — genesis earns from math + abandoned content, not from punishment. Fork-resistance moat reframed as economic engine (deposits/settlement), not address book.
+
+R-invariant L2 + PoW-weighted sweep: L2 coordination split changed from `R+2` (unbounded, sybilable) to constant 3-way (mint / referrer pool / genesis). Referrer pool subdivided by proof count; internal remainder → top referrer, not genesis. Eliminates referrer-sybil remainder capture (inflating R no longer inflates L2 denominator). Sweep threshold changed from "any 1 request proof" to aggregate PoW threshold — anti-sweep griefing now linearly expensive.
 
 ## The One-Sentence Version
 
