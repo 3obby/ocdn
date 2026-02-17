@@ -12,7 +12,7 @@ Terms are defined here once; the rest of the document uses them by reference.
 
 | Term | Definition |
 |------|-----------|
-| **Store** | Bonded operator holding encrypted shards. Earns from pool drain via settlement. |
+| **Store** | Unbonded operator holding encrypted shards. Earns from pool drain via settlement. Challenge protocol is the sole enforcement. |
 | **Serve endpoint** | Untrusted delivery pipe (front-end, CDN, proxy). Earns referrer income via `via` tag. No bond required. |
 | **Mint** | Fidelity-bonded operator (time-locked UTXO): holds pool balances, verifies request proofs, collects attestations, issues storage challenges, publishes epoch summaries. Tenure-weighted custody ceiling. |
 | **Settler** | Anyone who computes deterministic payouts from epoch summaries. Public service, no bond. |
@@ -180,7 +180,7 @@ Everything else is borrowed infrastructure.
 
 | Role | Entry | Earns from protocol | Trust required |
 |------|-------|---------------------|----------------|
-| **STORE** | On-chain bond | Yes — storage shard drain via settlement | Bonded, mint-challenged, peer-verified |
+| **STORE** | None | Yes — storage shard drain via settlement | Mint-challenged, peer-verified |
 | **SERVE** | None | Yes — referrer income via via tag | **None — untrusted delivery pipe** |
 | **MINT** | On-chain fidelity bond (time-locked) | Yes — coordination share | Bonded (fidelity), auditable |
 | **SETTLER** | None | None (public service) | Deterministic, auditable by anyone |
@@ -246,7 +246,7 @@ Mints are a discovery cache — the relay layer is the source of truth. Economic
 | **Cross-store verification** | Protocol | Block-hash-assigned per-epoch peer verification. Earning requires proving own storage AND verifying a peer. |
 | **Attestation broadcast** | Protocol | Stores submit to ALL bonded mints (O(M), M small). Omission detectable via cross-mint comparison. Receipts enable fraud proofs. |
 | **Bonded mint registration** | Protocol | Time-locked on-chain UTXO (fidelity bond). Permissionless. Tenure-weighted custody ceiling. Fraud proof → economic death (clients route around). |
-| **Fraud proof event** | Protocol | Anyone can publish provable evidence of mint/store misbehavior → triggers economic death (clients route around flagged operator). Each fraud proof type is mechanically verifiable (double-sign, attestation omission vs. receipt, ceiling violation). |
+| **Fraud proof event** | Protocol | Anyone can publish provable evidence of mint misbehavior → triggers economic death (clients route around flagged operator). Each fraud proof type is mechanically verifiable (double-sign, attestation omission vs. receipt, ceiling violation). Stores have no fraud proofs — challenge failure = no payment. |
 | **`ocdn-store` daemon** | Product | Commodity storage: watches coverage signals on relays for undercovered shards, stores encrypted shards, registers mapping with mint (gossip replicates), responds to mint challenges, attests to mint, cross-verifies peers, earns BTC. Zero editorial decisions. `docker run` entry point. |
 | **Importance index** | Product | Rankings, feed, API, widget. Anyone operates. |
 | **OG image endpoint** | Product | Cloudflare Worker renders live scoreboard snapshots for social sharing. Stateless, serve-layer. The viral loop. |
@@ -261,7 +261,7 @@ Mints are a discovery cache — the relay layer is the source of truth. Economic
 - Independent operators run: bonded mints, stores, serve endpoints, settlers, importance indexes
 - All settlement is deterministic and auditable — settlers query mints directly for epoch summaries, each per-mint settlement is independently verifiable, anyone can recompute from day 1
 - **Competing settlers, competing mints, and competing importance indexes are permitted and encouraged from day 1**
-- **Store liability isolation**: Store-blind (see Glossary). Legal posture: generic encrypted blob cache. Blob-hash removal on valid legal order (safe harbor). System heals through replacement — compliance and censorship-resistance are independent properties.
+- **Store liability isolation**: Unbonded — no on-chain footprint linking operator to protocol. Store-blind (see Glossary). Legal posture: generic encrypted blob cache. Blob-hash removal on valid legal order (safe harbor). Enforcement: challenge failure = no payment. Sybil (false redundancy) is a mint-policy / clearinghouse concern, not protocol-level. System heals through replacement — compliance and censorship-resistance are independent properties.
 - **Serve endpoint isolation**: Serve endpoints earn via the via tag but cannot redirect store income — multi-party binding (see §3) prevents it. The front-end's economic role is bounded to coordination.
 
 ### Symbiosis
@@ -593,7 +593,7 @@ The feedback loop: reads → visibility → funding → storage → reads. The m
 | Store proxies without storing | Storage challenges (random byte offset + Merkle proof, latency-tested) catch fetch-on-demand. Repeated failure → fraud proof → economic death. |
 | Sybil receipt inflation | Receipt doesn't credit specific stores — demand signal is diluted across ALL stores for that content. Less profitable than original model. |
 | Store self-dealing (own request proofs) | **Tolerated — self-dealing is work, not fraud.** Pays real PoW, provides real storage, triggers correct settlement. Cost makes it unprofitable at scale. At small scale, converts sweep to settlement income — a bounded loss. |
-| Mint-store collusion | Block-hash-assigned cross-store verification. Colluding mint cannot rig peer assignments. Probability of colluding verifier = C/S per epoch. Over multiple epochs, honest peer is assigned and fake storage is caught. Bond at risk for both parties. |
+| Mint-store collusion | Block-hash-assigned cross-store verification. Colluding mint cannot rig peer assignments. Probability of colluding verifier = C/S per epoch. Over multiple epochs, honest peer is assigned and fake storage is caught. Mint bond at risk; store loses earnings. |
 | Mint deposit flight | Fidelity bond + tenure-weighted custody ceiling (see Glossary: Bond). New mints custody little; established mints have too much future income to lose. Deposit splitting bounds per-mint exposure. Enforcement: economic death, not seizure. |
 | Centrality gaming (citation clusters) | PageRank with pool-based teleportation: unfunded nodes inject zero importance. Isolated unfunded clusters have zero importance regardless of edge density. Gaming requires funding multiple nodes — expensive and self-defeating (outgoing edges donate importance to real content). |
 
@@ -611,7 +611,7 @@ Every epoch, for each claimed shard:
     latency < T (proves local storage, not fetch-on-demand)
 
 Stores that fail: lose earnings for that epoch.
-Repeated failure (N consecutive): fraud proof published → economic death (clients/mints stop interacting).
+Repeated failure (N consecutive): mint stops interacting. No bond, no fraud proof — challenge protocol is the enforcement.
 ```
 
 ### Cross-Store Verification (block-hash assigned)
@@ -625,7 +625,7 @@ Epoch E (block hash determines ring):
   Store_C proves shard_12 → Store_A assigned to verify Store_C's response
 ```
 
-Earning requires BOTH passing your own challenge AND verifying a peer. Block-hash assignment removes the mint from the challenge loop — the mint collects attestations and publishes summaries, but cannot rig verification assignments. Mint-store collusion requires the block-hash-assigned peer verifier to also be colluding. With S total stores and C colluding, probability of drawing a colluding verifier is C/S per epoch — over multiple epochs, an honest verifier is eventually assigned and fake storage is caught. The assignment record is public: if a fraud proof later shows Store B never had the shard, Store A's "pass" verdict implicates Store A's bond too.
+Earning requires BOTH passing your own challenge AND verifying a peer. Block-hash assignment removes the mint from the challenge loop — the mint collects attestations and publishes summaries, but cannot rig verification assignments. Mint-store collusion requires the block-hash-assigned peer verifier to also be colluding. With S total stores and C colluding, probability of drawing a colluding verifier is C/S per epoch — over multiple epochs, an honest verifier is eventually assigned and fake storage is caught. The assignment record is public: if a fraud proof later shows Store B never had the shard, Store A's "pass" verdict implicates Store A (mint stops interacting with both).
 
 ### Bonded Mint Operators (Permissionless)
 
@@ -1165,7 +1165,7 @@ Every protocol role is profitable to operate independently. The founder operates
 
 | Role | Day 1 operators | Revenue | Failure mode |
 |------|----------------|---------|--------------|
-| Stores | Independent bonded operators | Storage shard drain via settlement | Any K survive per content = availability maintained |
+| Stores | Independent operators (unbonded) | Storage shard drain via settlement | Any K survive per content = availability maintained |
 | Serve endpoints | Anyone (front-ends, CDNs) | Coordination shard referrer share + venue fees, ads | Any 1 survives = content deliverable |
 | Bonded mints | Independent bonded operators | Coordination shard mint share | Any 2 survive = request proofs verified + payouts flow |
 | Importance indexes | Independent operators | API fees, venue fees | Any 1 survives = rankings exist |
