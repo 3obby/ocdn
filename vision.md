@@ -16,7 +16,7 @@ Terms are defined here once; the rest of the document uses them by reference.
 | **Serve endpoint** | Untrusted delivery pipe (front-end, CDN, proxy) + filtered Nostr relay for OCDN event kinds. Earns referrer income via `via` tag. No bond required. Event persistence is a natural extension of the serve role — serve endpoints already consume relay data to function; persisting it aligns incentives (better event availability → more traffic → more via income). Signed events make persistence trustless. |
 | **Mint** | Fidelity-bonded operator (time-locked UTXO) behind anonymous transport (Tor hidden service default, like stores): holds pool balances, verifies request proofs, collects attestations, issues storage challenges, publishes epoch summaries. Tenure-weighted custody ceiling. Identified by pubkey + on-chain bond UTXO, not by operator identity. Deposits via HTLC-gated Cashu-over-Tor (atomic, zero-trust — see §1). |
 | **Settler** | Anyone who computes deterministic payouts from epoch summaries. Public service, no bond. |
-| **Genesis address** | Protocol constant receiving settlement remainders + sweep. Like the 21M cap — embedded in code, not an authority. No income from misbehavior. |
+| **Genesis address** | Protocol constant receiving settlement remainders + sweep. Embedded in code — the one value that spans all protocol versions and all per-mint parameter sets. Not an authority. No income from misbehavior. |
 
 ### Settlement Math
 
@@ -79,7 +79,7 @@ Bootstrap reference (any N, at R=1): At S=1, coordination fraction = 50%. At S=3
 | **Cashu payout** | Store earnings issued as Cashu ecash tokens (blind-signed bearer instruments) delivered via Tor. Mint cannot link issuance to redemption (Chaum blind signatures). Store redeems at any Cashu-compatible mint, any time. Closes the anonymity loop: anonymous transport hides the operator, blind signatures hide the payment. Eliminates Lightning payout failures and PAYOUT_THRESHOLD accumulation. |
 | **Dwell-based PoW** | Reference client pre-mines request proofs in background; submits on viewport dwell ≥2s. Reading feels instant. |
 | **Ephemeral message** | Free Nostr event. Relay-only, no protocol awareness, no pool, no rank influence. Visible as collapsed `+ n` counts. `[+]` upgrades to funded. |
-| **Economic moat** | Four layers: (a) mapping data — fresh discovery requires bonding a mint for gossip; relay mappings (layer 1) are accessible but stale and compute-gated. (b) math — genesis address is a protocol constant. (c) traffic — reference client hardcodes the founder's via tag. (d) deposits — reference client defaults to founder-bonded mint. A fork can freeload on relay mappings but cannot redirect deposits without bonding its own mints and operating settlement — the expensive part. |
+| **Economic moat** | Four layers, descending by durability: (a) **economic state** — accumulated deposits, settlement history, Bitcoin-anchored content state tree. Unforkable without re-bootstrapping the entire system. (b) **Schelling point** — reference implementations set defaults; market converges around them. Requires out-competing adoption, not changing a constant. (c) **traffic** — reference client hardcodes the founder's via tag. (d) **deposit routing** — reference client defaults to founder-bonded mint. A fork can freeload on relay mappings but cannot redirect deposits without bonding its own mints and operating settlement — the expensive part. Layers (c) and (d) are speed bumps; layers (a) and (b) are structural. |
 
 ---
 
@@ -102,16 +102,16 @@ Bootstrap reference (any N, at R=1): At S=1, coordination fraction = 50%. At S=3
 
    **Censorship resistance**: Requires deanonymizing AND taking down more than N-K stores simultaneously, while economic incentives actively recruit replacements. The adversary's takedown action increases per-store payout, advertising the opportunity to anonymous replacement stores. The adversary must: (a) break anonymous transport to find operators, (b) obtain M to identify which addresses to target, (c) do both faster than the market recruits replacements. The system forces the adversary from the legal domain (where states are strong) into the technical/economic domain (where distributed systems are strong).
 7. **Resilience is a property of greed, not architecture** — The protocol doesn't specify redundancy. It makes storage profitable and anonymously operable (anonymous transport default — store operators cannot be identified or compelled); serving is a separate, clearnet, permissionless role earning via the via tag. Stores watch coverage signals for undercovered funded content, mirror shards, earn sats. Censoring content increases per-store payout, attracting anonymous replacements. The adversary fights economic gravity with legal tools that don't apply to unidentifiable operators.
-8. **The genesis address is a protocol constant** — Not an authority, not a delegation root, not a key that controls anything. Receives remainder by the math, not by any operational role (see Glossary: Genesis address).
+8. **The genesis address is a protocol constant** — Not an authority, not a delegation root, not a key that controls anything. Receives remainder by the math, not by any operational role (see Glossary: Genesis address). Spans all protocol versions and all per-mint parameter sets — the one value that never varies across the upgrade model (see Upgrade Model).
 
    **Permissionless mints**: Bonded (on-chain UTXO), not genesis-delegated — anyone can become a mint by posting a verifiable bond.
 
-   **Fork resistance**: Forking the income requires changing one constant in settler code. Relay mappings (layer 1) are accessible but stale and compute-gated (Argon2). Fresh discovery requires bonding a mint for gossip — expensive and self-defeating (that mint earns from the original protocol). A fork can freeload on relay data but cannot redirect deposits without operating its own economic layer. The moat is the economic engine (deposits, settlement, coordination income), not the address book.
+   **Fork resistance**: Forking the income requires changing one constant in settler code — trivial at the code level. The moat is not the constant; it's the accumulated economic state (deposits, settlement history, Bitcoin-anchored content state tree) and the Schelling point (reference implementations that the market converges around). A fork can freeload on relay data but cannot redirect deposits without re-bootstrapping the entire economic engine.
 9. **The founder's income is proportional to settlement dimensionality** — Each shard is an independent settlement unit. Cascading remainders from two levels of integer division per shard, across N shards × C content items, produce genesis income that grows in absolute sats while shrinking as a percentage. See [Settlement Rule](#4-settlement-settler-signed).
 
    **Passive by construction**: No fee. No rate. The income is the irreducible coordination cost of multi-party integer settlement, embedded in the math that independent settlers run. Documents produce higher genesis sweep income than text (exponential decay tail: larger N → larger residual balance at zero-drain floor → more sweep to genesis). The "inverse size premium" is emergent from exponential decay physics, not baked into a formula.
 10. **Coordination costs one participant per shard** — Per-shard parity: coordination earns what one store earns per shard (see Glossary: Participant parity). Counter-cyclical: during booms (high S_s), value flows to stores; during busts (low S_s), value flows to coordination. Within coordination: mints earn because they verify, referrers because they distribute, genesis earns a share plus all sub-remainders. Coordination fraction is independent of N — a 20-shard document and a text claim pay the same coordination percentage at equal store depth.
-11. **The moat is compound: four layers** — (a) The economic moat: fresh discovery requires bonding a mint for gossip; relay mappings are stale and compute-gated (see Glossary: Economic moat). Redirecting deposits requires operating settlement — the expensive part. (b) The math moat: genesis address is a protocol constant in settler code. (c) The traffic moat: reference client hardcodes the founder's via tag. (d) The deposit moat: reference client defaults to the founder-bonded mint. Each layer is individually surmountable; collectively they require re-bootstrapping the entire system.
+11. **The moat is compound: four layers, two structural** — (a) The economic state moat: accumulated deposits, settlement history, Bitcoin-anchored content state tree. Unforkable without re-bootstrapping. (b) The Schelling point moat: reference implementations set defaults for per-mint parameters and protocol versions; market converges around them. Requires out-competing adoption, not changing a constant. (c) The traffic moat: reference client hardcodes the founder's via tag. Surmountable — a competing client replaces one pubkey. (d) The deposit moat: reference client defaults to the founder-bonded mint. Surmountable — same. Layers (a) and (b) are structural; (c) and (d) are speed bumps that buy time for (a) and (b) to compound.
 12. **Funding is advertising** — Funders pay for availability and visibility. Readers consume for free. This is advertising economics: the person who wants attention pays, the person who has attention consumes for free. Free distribution maximizes the audience that makes funding valuable. Conviction spending is the revenue. Free reading is the amplifier.
 13. **The system optimizes for contested content** — Uncontested content is funded once. Contested content is funded repeatedly by competing sides. Competitive dynamics drive repeat funding — the highest-velocity economic behavior in the system. The founder earns from the froth of disagreement, not from any position. Free reading amplifies this: everyone sees the scoreboard, everyone can take a side.
 14. **The protocol is four event types and one rule** — Fund confirmation, request proof, store attestation, settlement (see Glossary: Events). Rule: unclaimed drain → genesis; pools with no attestations AND no request proofs for SWEEP_EPOCHS → sweep. Everything else is a product concern or emergent market property.
@@ -248,7 +248,7 @@ Mints are a discovery cache — the relay layer is the source of truth (includin
 
 | Component | Layer | Purpose |
 |-----------|-------|---------|
-| **Convergent encryption + deterministic RS** | Protocol | Content key = SHA256(domain \|\| content_hash). RS(K,N) over GF(2^8) with pinned generator polynomial and canonical shard ordering. Shard hashes are deterministic for verification — no manifest trust surface. **Canonical RS implementation**: protocol ships a single WASM encoder/decoder (~2-5KB compiled). Content-hash of the WASM binary (`RS_WASM_HASH`) is a protocol constant. Every client, store, and settler loads the same binary — no independent reimplementation. Shard identity is load-bearing for convergent encryption; one wrong byte = content unrecoverable, silently, with no fraud proof possible. Test vectors (10 included) are regression tests for the one implementation, not interop tests across N implementations. Upgrading the encoder = new WASM hash = protocol version bump. The zlib pattern: spec exists for auditability, everyone runs the same code. |
+| **Convergent encryption + deterministic RS** | Protocol | Content key = SHA256(domain \|\| content_hash). RS(K,N) over GF(2^8) with pinned generator polynomial and canonical shard ordering. Shard hashes are deterministic for verification — no manifest trust surface. **Canonical RS implementation**: protocol ships a single WASM encoder/decoder (~2-5KB compiled). Content-hash of the WASM binary (`RS_WASM_HASH`) is a protocol constant. Every client, store, and settler loads the same binary — no independent reimplementation. Shard identity is load-bearing for convergent encryption; one wrong byte = content unrecoverable, silently, with no fraud proof possible. Test vectors (10 included) are regression tests for the one implementation, not interop tests across N implementations. Upgrading the encoder = new WASM hash = content-fork (new CONTENT_KEY_DOMAIN, parallel operation, natural sunset — see Upgrade Model). The zlib pattern: spec exists for auditability, everyone runs the same code. |
 | **Blind addressing + relay-durable mapping** | Protocol | See Glossary: Blind addressing, Mapping. Four mapping layers with relay-encrypted events as durable source of truth. |
 | **Coverage signal event** | Protocol | See Glossary: Coverage signal. The gap between "how many" and "which ones" is the privacy boundary. |
 | **Fund confirmation event** | Protocol | Bind sats to content hash (bonded mint-signed). See §1. |
@@ -499,7 +499,7 @@ if no_valid_attestations(cid, last_SWEEP_EPOCHS) \
 
 **Self-balancing**: Equal shard drain means thin shards (low S_s) pay more per store and thick shards (high S_s) pay less. Stores migrate to undercovered shards. Coverage signals make the economics visible.
 
-**Drain rate**: `DRAIN_RATE × balance`. No store-declared rates at the protocol level. Pool half-life = ln(2)/DRAIN_RATE. Store count doesn't affect drain speed — it affects how the drain is divided. Funders can calculate expected duration at deposit time. Minimum viable pool ≈ N/DRAIN_RATE sats (below this, per-shard drain rounds to 0, stores stop earning, sweep timer starts).
+**Drain rate**: `DRAIN_RATE × balance`. DRAIN_RATE is per-mint declared (see Constants); settlers use the declaring mint's value. Pool half-life = ln(2)/DRAIN_RATE. Store count doesn't affect drain speed — it affects how the drain is divided. Funders can calculate expected duration at deposit time from the mint's declared rate. Minimum viable pool ≈ N/DRAIN_RATE sats (below this, per-shard drain rounds to 0, stores stop earning, sweep timer starts).
 
 **Per-mint independence**: Each pool-CID-mint triple tracks its own balance. The mint that confirmed the deposit handles claims against that balance. No cross-mint coordination needed. Each mint's settlement is a closed computation — a settler needs only that mint's epoch summary to produce a deterministic result.
 
@@ -1063,33 +1063,40 @@ The protocol earns friction on the seller's promotion spend. The sale is peer-to
 
 ## Constants
 
-Only protocol-adjacent constants. Everything else is operator-set or market-determined.
+Three tiers: global invariants (must match across all participants or interop breaks — change via content-fork), per-mint declared parameters (each mint chooses, market converges via reference defaults), and reference client / operator-set (unchanged).
+
+**Global invariants** (change = content-fork version bump — see Upgrade Model):
 
 | Constant | Value | Note |
 |----------|-------|------|
-| GENESIS_ADDRESS | `<address>` | See Glossary: Genesis address. |
-| EPOCH_BLOCKS | 24 | ~4h at 10min/block. Bitcoin block height. Natural Schelling point. |
+| GENESIS_ADDRESS | `<address>` | See Glossary: Genesis address. Spans all versions and all per-mint parameter sets. |
+| CONTENT_KEY_DOMAIN | "ocdn-v1" | Convergent encryption: key = SHA256(domain \|\| content_hash). IS the content-fork version tag — new structural version = new domain = new content namespace. |
 | RS_K | 10 | Reconstruction threshold. Any 10 of 20 shards suffice. |
 | RS_N | 20 | Total storage shards. 2× overhead. 10-of-20 for censorship resistance. |
+| RS_WASM_HASH | SHA256 of canonical WASM binary | Protocol ships one RS encoder/decoder. This hash pins it. New binary = content-fork. |
 | MIN_FRAGMENT_SIZE | 10240 (10 KB) | Below this: single encrypted shard (N=1). Above: full RS(K,N). |
-| DRAIN_RATE | 1/128 | Per-epoch fraction of mint balance drained. Half-life ≈ 89 epochs (~15 days). Minimum viable pool ≈ N/DRAIN_RATE (128 sats for text, 2560 for documents). |
-| CONTENT_KEY_DOMAIN | "ocdn-v1" | Convergent encryption: key = SHA256(domain \|\| content_hash). |
-| POW_TARGET_BASE | 2^240 | Anti-spam for request proofs + comments. ~200ms mobile. |
-| POW_SIZE_UNIT | 1048576 (1 MB) | PoW scales with content size. |
-| SWEEP_EPOCHS | 42 | ~7 days. See Glossary: Sweep. |
-| MIN_ATTESTATIONS | 1 | Minimum store attestations per shard for settlement validity. K-threshold gating (coverage ≥ K) at the mint ensures availability; MIN_ATTESTATIONS ensures per-shard service proof. |
-| CHALLENGE_INTERVAL | 1 epoch | How often mints challenge stores for storage proof. |
-| MIN_COVERAGE_K | RS_K (10) | Minimum covered shards for request proof acceptance. Mints gate on coverage ≥ K. For text (N=1), K=1. |
-| COVERAGE_BLOCKS | 6 | ~1h. Coverage signal frequency. Decoupled from EPOCH_BLOCKS. |
-| RS_WASM_HASH | SHA256 of canonical WASM binary | Protocol ships one RS encoder/decoder. This hash pins it. New binary = protocol version bump. |
-| MAX_SILENT_EPOCHS | 6 | ~24h. Missing summaries → stores and clients reroute. No death penalty — mint resumes on return; epoch summary gap is a permanent reputation signal. |
-| ARGON2_PARAMS | t=3, m=8MB, p=1 | Layer 1 mapping KDF. ~1-3s desktop, tuned for phone-browser WASM. Bulk scanning linearly expensive. Protocol constant — upgrade = version bump. |
-| RING_CONFIRM_DEPTH | 6 | Cross-store verification ring uses block at `epoch_start_height - 6`. Reorg-proof at depth 6. ~1h delay on ring assignment, negligible vs. 4h epoch. |
-| PROTOCOL_VERSION | 1 | All events carry `["v", "1"]` tag. Version bumps are coordinated flag days. |
-| ~~PAYOUT_THRESHOLD~~ | ~~1000 sats~~ | Eliminated by Cashu payout model. Tokens issued every epoch for any amount. No accumulation at the mint. |
-| TOKEN_VALIDITY | 1 epoch | Delivery tokens expire at epoch boundary. Single-use, nonce-bound. |
-| SERVE_CREDENTIAL_POW | 2^236 | ~3s PoW to register as serve endpoint with a mint. Prevents credential spam. Lightweight — no bond required. |
+| ARGON2_PARAMS | t=3, m=8MB, p=1 | Layer 1 mapping KDF. ~1-3s desktop, tuned for phone-browser WASM. Bulk scanning linearly expensive. |
+| EPOCH_BLOCKS | 24 | ~4h at 10min/block. Bitcoin block height. Natural Schelling point. |
+| RING_CONFIRM_DEPTH | 6 | Cross-store verification ring uses block at `epoch_start_height - 6`. Reorg-proof at depth 6. |
+| PROTOCOL_VERSION | 1 | All events carry `["v", "1"]` tag. Structural upgrades = content-fork (new CONTENT_KEY_DOMAIN, parallel operation, natural sunset via sweep). See Upgrade Model. |
 | NIP Event Kinds | 1000-9999 range | Non-replaceable. Pool credits are additive. |
+
+**Per-mint declared parameters** (each mint publishes in bond registration event; settlers use declaring mint's values; reference client defaults anchor market convergence):
+
+| Parameter | Reference default | Note |
+|-----------|-------------------|------|
+| DRAIN_RATE | 1/128 | Per-epoch fraction of mint balance drained. Half-life ≈ 89 epochs (~15 days). Reference default is a Schelling point, not a protocol constant. Mints compete on drain economics — funders and stores select based on disclosed parameters. |
+| SWEEP_EPOCHS | 42 | ~7 days. See Glossary: Sweep. |
+| CHALLENGE_INTERVAL | 1 epoch | How often this mint challenges stores for storage proof. |
+| MAX_SILENT_EPOCHS | 6 | ~24h. Missing summaries → stores and clients reroute. |
+| MIN_ATTESTATIONS | 1 | Minimum store attestations per shard for settlement validity. |
+| MIN_COVERAGE_K | RS_K (10) | Minimum covered shards for request proof acceptance. |
+| COVERAGE_BLOCKS | 6 | ~1h. Coverage signal frequency. |
+| POW_TARGET_BASE | 2^240 | Anti-spam for request proofs. ~200ms mobile. |
+| POW_SIZE_UNIT | 1048576 (1 MB) | PoW scales with content size. |
+| TOKEN_VALIDITY | 1 epoch | Delivery tokens expire at epoch boundary. Single-use, nonce-bound. |
+| SERVE_CREDENTIAL_POW | 2^236 | ~3s PoW to register as serve endpoint with this mint. |
+| ~~PAYOUT_THRESHOLD~~ | ~~1000 sats~~ | Eliminated by Cashu payout model. |
 
 **Reference client constants** (not protocol — embedded in the reference SPA):
 
@@ -1112,6 +1119,44 @@ Only protocol-adjacent constants. Everything else is operator-set or market-dete
 
 ---
 
+## Upgrade Model
+
+Two upgrade mechanisms for two kinds of change. Neither requires founder authority, endorsement events, or coordination with anonymous operators. The reference implementation IS the governance — the code speaks, adoption follows market incentives.
+
+### Structural Upgrades: Content-Fork
+
+Global invariants (RS params, WASM binary, encryption domain, Argon2 params) change via content-fork. New CONTENT_KEY_DOMAIN = new content namespace. v1 and v2 operate in parallel on the same relay/mint/store infrastructure. Old content drains under old rules until pools sweep. New content accumulates under new rules. No migration, no flag day.
+
+**Propagation**: The reference client starts funding new content under the latest version by default. Stores and mints that don't upgrade keep earning from old-version pools until sweep, then have economic incentive to upgrade. The upgrade propagates through economic gravity, not authority.
+
+**Revenue-generating**: Content-fork means important content gets re-uploaded and re-funded under the new version. New deposits, new settlement, new genesis income. The founder is incentivized to ship better versions. The market is incentivized to adopt them.
+
+**Frequency**: Extremely rare — ideally never after v1 stabilizes. Encoding and encryption are the kind of things you get right once and freeze.
+
+### Economic Upgrades: Per-Mint Declared Parameters
+
+Economic parameters (DRAIN_RATE, SWEEP_EPOCHS, challenge intervals, etc.) are per-mint declared. Each mint publishes its parameter set in its bond registration event. Settlers compute per-mint settlement using that mint's declared values. Deterministic — same declared params + same epoch summary = same settlement.
+
+**Convergence**: The reference client sorts mints by proximity to reference defaults. Funders see parameter implications at deposit time ("estimated pool duration: ~15 days"). Mints near reference defaults attract more deposits. Mints far from defaults serve niches or attract nothing. The reference implementation is the Schelling point — not by authority, but by default.
+
+**Verification**: Fund confirmations (public) + epoch summaries (public) + declared parameters → expected drain and payouts are independently computable by any settler or store. Competitive exit handles discrepancies. No new trust assumption.
+
+**Self-correcting**: If the reference default DRAIN_RATE is wrong, mints that declare better rates attract more deposits. The reference implementation can update its defaults in the next release — no protocol change, no content-fork, just a new Schelling point.
+
+### What the Founder Actually Does
+
+1. Publishes reference implementations (open source, forkable, but the founder's repo is the coordination point by convention).
+2. Sets reference defaults (not enforced, just defaults — the Schelling point).
+3. Signs nothing. Operates nothing. Endorses nothing explicitly.
+
+### Moat Properties
+
+- **Genesis address spans all versions and all parameter sets.** Content-fork from v1 to v2 pays the same genesis address. A mint with DRAIN_RATE=1/64 uses the same settlement formula with the same genesis remainder.
+- **The Schelling point is harder to attack than an authority.** You can't "override" a default — you can only out-compete it by bootstrapping a whole alternative ecosystem.
+- **Encoding upgrades generate revenue.** Re-upload + re-fund under new version = new market activity = more settlement = more genesis income.
+
+---
+
 ## MVP Build Order
 
 ### Phase 1: Prior Work (Complete)
@@ -1123,7 +1168,7 @@ File layer, L402, node kit, receipt SDK, pin contracts. Cryptographic primitives
 The client validates the thesis. The storage market captures value from the thesis. Build the client first — if nobody funds contested claims through it, the storage market is moot. All four ship in MVP, but priority is: client → spec → settle → store.
 
 1. **Static client SPA + OG endpoint** — No backend. Stateless (see Human Interface: Stateless Client). Via tag = FOUNDER_VIA_PUBKEY. Funding via NWC/Cashu through DEFAULT_MINT, split across DEPOSIT_SPLIT_MIN mints. Deploy to IPFS + domain + self-host via `ocdn-pack`. OG endpoint as Cloudflare Worker. `/earn` route for operator recruitment. **This is the founder's primary income-generating asset** — every request proof earns referrer income. First-mover links and OG cards compound the social moat. **Shelf life**: IPFS SPA breaks within 6-18 months; domain version is updatable. Genesis income survives client competition; referrer income doesn't.
-2. **Protocol spec (NIP)** — Four event types (see §1-4), bonded mints, settlement rule, all protocol constants. Short enough to read in 20 minutes. Immutable once published (version bumps via flag days).
+2. **Protocol spec (NIP)** — Four event types (see §1-4), bonded mints, settlement rule, global invariants, per-mint parameter schema. Short enough to read in 20 minutes. Structural upgrades via content-fork (see Upgrade Model); economic parameters are per-mint declared.
 3. **`ocdn-settle` binary** — Deterministic CLI (single static binary). Input: relay URL(s) + mint epoch summaries. Output: settlement events published to relays. `GENESIS_ADDRESS` is a constant in the source. Content-hash the binary, publish the hash.
 4. **`ocdn-store` daemon** — Docker container bundling Tor. Binds .onion address on first run (key persists in volume). Watches coverage signals, stores shards, registers mappings via anonymous transport, responds to challenges, attests to mint, cross-verifies peers, earns Cashu ecash tokens (blind-signed, redeemable anywhere). Zero editorial decisions. `docker run ocdn-store`. Operator identity never leaves the container. Earnings accumulate as bearer token files in the volume; `ocdn-store cashout` sweeps to Lightning. Laptop-viable: zero cost basis, graceful sleep/wake, earns when online.
 
@@ -1313,9 +1358,9 @@ Every event, request proof, body edge, graph computation, and threshold crossing
 
 Verification ring requires S ≥ 3 for minimal independence. At S=1: no peer. At S=2: mutual verification (trivially collusive). **Fallback**: mint-only challenges below S=3. The cross-store ring is a strengthening, not the foundation — the mint already challenges every epoch. Explicitly state the weaker security property at low S.
 
-### 4. WASM Binary Governance
+### 4. ~~WASM Binary Governance~~ RESOLVED → Content-Fork
 
-Single canonical RS encoder/decoder. Bug = silent data loss. Upgrade = "coordinated flag day." Who coordinates? De facto governance by whoever publishes the binary. **Mitigation**: extensive test vectors (1000+, not 10). Vectors are the spec; the binary is the implementation. Doesn't eliminate the governance problem, reduces it. Needs explicit upgrade coordination process.
+**Resolution**: WASM binary hash is a global invariant pinned to CONTENT_KEY_DOMAIN. New binary = new domain = content-fork: new content uses the new encoder under a new content namespace; old content continues under the old encoder until pools sweep. No flag day, no coordination with anonymous operators, no migration. Old and new versions operate in parallel on the same infrastructure. The reference implementation shipping the new version IS the coordination — adoption propagates through market selection, not authority. Extensive test vectors (1000+) remain the defense against bugs within a version. The verification oracle (#11) catches silent corruption before data loss. **Residual**: content-fork should be extremely rare — get v1 right and freeze.
 
 ### 5. ~~Epoch Summary Detail vs. Store Privacy~~ RESOLVED
 
@@ -1325,9 +1370,9 @@ Single canonical RS encoder/decoder. Bug = silent data loss. Upgrade = "coordina
 
 **Resolution**: Cashu ecash payout. Settlement produces blind-signed Cashu tokens delivered to stores via the existing Tor channel. No outbound Lightning from mint to store. Token delivery failures retry next epoch (idempotent — token serial numbers prevent double-redemption). Stores redeem tokens at their own pace via any Cashu-compatible mint. Eliminates: Lightning routing failures, PAYOUT_THRESHOLD accumulation, payment timing correlation, and payment-layer deanonymization (blind signatures make issuance and redemption unlinkable). The "timed-out balances MUST NOT sweep to genesis" concern is moot — no balances accumulate at the mint. See Glossary: Cashu payout.
 
-### 7. DRAIN_RATE Calibration
+### 7. ~~DRAIN_RATE Calibration~~ RESOLVED → Per-Mint Declared
 
-DRAIN_RATE = 1/128 is a napkin estimate. Determines pool half-life, minimum viable pool, store income per epoch, genesis sweep income. Too high → pools deplete fast. Too low → stores earn dust. Needs simulation with realistic parameters: funding amounts, store costs, content lifecycle patterns.
+**Resolution**: DRAIN_RATE is a per-mint declared parameter, not a protocol constant. Each mint publishes its rate in its bond registration event. Settlers compute per-mint settlement using that mint's declared rate. The reference implementation defaults to 1/128 (Schelling point). Mints compete on drain economics: high rate → faster store income, shorter pool life; low rate → slower income, longer life. Funders and stores select mints based on disclosed parameters. The reference client shows implications at deposit time ("estimated pool duration: ~15 days"). Market converges without calibration authority. **Residual**: reference default 1/128 is still a napkin estimate — but now it's a default that the market can correct, not a constant that requires a protocol upgrade to fix.
 
 ### 8. ~~Sweep Trigger Calibration~~ RESOLVED
 
@@ -1413,6 +1458,8 @@ anonymous mints: Mints operate behind anonymous transport (Tor hidden service de
 relay economics → serve role extension: Event persistence folded into the serve endpoint role. Serve endpoints already consume relay data to function (fund events, coverage signals, request proof history); persisting OCDN events is a natural extension, not a new function. Via tag income provides structural incentive — better event availability → more traffic → more referrer income. No settlement math change, no new coordination subdivision. Serve endpoints run filtered Nostr relays accepting only OCDN event kinds (~200 lines on existing relay implementation). Signed events make persistence trustless — serve endpoints cannot forge or modify events, only withhold them, and any other serve endpoint can serve the same events. External Nostr relays become unaligned fallback, not a load-bearing dependency. Layer 1 mapping durability moves from unaligned infrastructure (external relays that can prune freely) to economically aligned infrastructure (serve endpoint relay archives). Honest-minority: one honest serve endpoint = events discoverable. "Forget" threshold updated: 2+ serve endpoints running relay functionality. Storage footprint is commodity — OCDN events are small signed JSON (~500B-2KB each), single-digit GB at scale.
 
 competitive exit replaces fraud proofs: Entire fraud proof apparatus removed — attestation receipts, fraud proof event type, "economic death" concept, MAX_SILENT_EPOCHS death trigger, client-side adjudication logic. Replaced by competitive exit + attestation Merkle root. The PoW insight: don't build courts for small claims; build markets where theft is unprofitable because the customer leaves. Two additions to epoch summary: `attestation_root` (Merkle root over hash(attestation) leaves — store-private because attestation signatures make leaves unpredictable) and `shard_stores` (per-shard S_s counts — stores compute exact expected payouts). Store daemon automates: verify Merkle inclusion, compute expected payout, compare against Cashu token, reroute on anomaly. Reputation emerges from observable behavior — four signals, none sufficient alone, robust in combination: (a) Merkle inclusion (private, immediate), (b) store count trajectory in epoch summaries (public, ~1 epoch lag), (c) epoch chain integrity (public, permanent), (d) bond tenure (on-chain). No reporting, no staking, no oracles, no new trusted parties. Every failed reputation design (staking, funded claims, web of trust, mandatory reporting, centralized oracle) violates the same cluster of properties: requires reporting (breaks store privacy), enables self-promotion (breaks signal quality), or introduces a trusted arbiter (moves the trust problem). The surviving design uses only signals that are byproducts of normal operation. Mint enforcement transitions from prosecution (irreversible death penalty with false-positive risk and DDoS-as-assassination vector) to market dynamics (gradual customer loss, bounded by custody ceiling). #2 re-resolved. #13 added.
+
+upgrade model + per-mint parameters: Two-layer upgrade model replaces "coordinated flag days." Structural invariants (RS params, WASM binary, encryption domain, Argon2) change via content-fork: new CONTENT_KEY_DOMAIN = new content namespace, parallel operation, natural sunset via sweep. No migration, no flag day, no coordination with anonymous operators. Economic parameters (DRAIN_RATE, SWEEP_EPOCHS, challenge intervals, etc.) changed from protocol constants to per-mint declared parameters — each mint publishes its parameter set in bond registration; settlers use declaring mint's values. Reference implementation defaults anchor market convergence (Schelling point). Genesis address spans all versions and all parameter sets — the one true constant. #4 resolved (WASM governance → content-fork). #7 resolved (DRAIN_RATE calibration → per-mint declared, market-converged). Moat reframed: economic state (unforkable) + Schelling point (reference implementation defaults) are structural; traffic and deposit moats are speed bumps. "21M cap" analogy removed — genesis address is a constant, not an immutable law. "Immutable once published" removed — structural upgrades are content-forks, economic upgrades are per-mint.
 
 ## The One-Sentence Version
 
