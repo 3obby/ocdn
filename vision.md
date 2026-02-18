@@ -34,6 +34,8 @@ Settlement is **per-shard**: each shard is an independent micro-market. No cross
 | **Participant parity** | All P_s participants per shard earn `floor(shard_drain/P_s)`. Coordination is one of them. |
 | **Cascading remainder** | Two levels of `floor()` per shard: L1 (shard division) + L2 (coordination subdivision). L1 + L2 remainders → genesis. L2 uses a constant 3-way split (mint / referrer pool / genesis) — R-invariant. Referrer pool subdivided internally by proof count; internal remainder → top referrer (sybil-dilutive). More shards × more content = more independent divisions = more genesis income in absolute sats, smaller percentage. |
 | **Self-balancing** | Equal shard drain + per-shard parity: thin shards (low S_s) pay more per store, thick shards (high S_s) pay less. Stores migrate to gaps. |
+| **TENURE_DECAY** | Per-mint declared. Store income maturation curve: `weight = 1 - TENURE_DECAY^tenure` where `tenure` = consecutive epochs with valid attestations for this shard at this mint. New stores earn less; the unpaid portion recycles to the pool, extending content lifetime. Reference default 2/3. |
+| **Tenure recycling** | Per-store, per-shard: `unit_s - floor(unit_s × weight)` credits back to the pool each epoch. Pool balance is no longer strictly monotonically decreasing — churn returns sats, extending effective half-life beyond `ln(2)/DRAIN_RATE`. Stable stores earn full rate; churning stores subsidize duration. |
 
 Bootstrap reference (any N, at R=1): At S=1, coordination fraction = 50%. At S=3: 25%. At S=10: 9.1%. At S=100: ~1%. Genesis share = 1/3 of coordination unit + L1 remainder + L2 remainder (0-2 sats). R-invariant: referrer count doesn't change the L2 denominator. See [Settlement Rule](#4-settlement-settler-signed) for canonical pseudocode.
 
@@ -42,7 +44,7 @@ Bootstrap reference (any N, at R=1): At S=1, coordination fraction = 50%. At S=3
 | Term | Definition |
 |------|-----------|
 | **Pool** | Sats bound to a content hash. Credits accumulate from fund events; drains pay stores + coordination. |
-| **Drain** | Per-epoch outflow from a pool. `drain = floor(balance × DRAIN_RATE)`, divided equally across N shards. Balance-proportional: pool half-life is deterministic, store count doesn't affect drain speed. Gate-triggered: drain fires when any valid attestation exists this epoch; request proof volume doesn't change the amount. |
+| **Drain** | Per-epoch outflow from a pool. `drain = floor(balance × DRAIN_RATE)`, divided equally across N shards. Balance-proportional: pool half-life is deterministic, store count doesn't affect drain speed. Gate-triggered: drain fires when any valid attestation exists this epoch; request proof volume doesn't change the amount. Effective drain is reduced by tenure recycling — immature stores earn less, and the unpaid portion credits back to the pool (see Glossary: Tenure recycling, §4). |
 | **Sweep** | Pool with no valid attestations AND no valid request proofs for SWEEP_EPOCHS (42 epochs, ~7 days) → entire balance to genesis. Dual condition prevents adversary-triggered sweep via mint takedown (popular content with broken attestation channel still has request proofs on relays). |
 | **Ghost** | Content whose pool is depleted. The economic fossil persists: metadata, economic history, edges, discussion on relays; content hash + cumulative economic state provable against Bitcoin-anchored content state tree (see Settlement §4). Bytes are gone from the storage market — stores evicted, no one paid to serve. M persists on relays (inert without shards; enables recovery from surviving offline copies). `[+] to restore`. |
 | **Coverage signal** | Per-content shard store count, published by mints each COVERAGE_BLOCKS (~1h). No store identities. Used by stores for opportunity assessment. |
@@ -459,9 +461,14 @@ for each mint m:
       unit_s = floor(shard_drain / P_s)
       remainder_L1 = shard_drain - P_s × unit_s                 → GENESIS_ADDRESS
 
-      # Storage: each store earns 1 unit
+      # Storage: each store earns 1 tenure-weighted unit
+      shard_recycle = 0
       for each store st in stores_s:
-        payout(st) += unit_s
+        tenure = consecutive_attestation_epochs(st, s, m)   # ≥1 (attested this epoch)
+        weight = 1 - TENURE_DECAY^tenure                     # 0→1 asymptote
+        payout(st) += floor(unit_s × weight)
+        shard_recycle += unit_s - floor(unit_s × weight)
+      recycle(pool[m, cid]) += shard_recycle                  # extends pool life
 
       # Level 2: coordination unit — fixed 3-way split (R-invariant)
       coord = unit_s
@@ -495,6 +502,10 @@ if no_valid_attestations(cid, last_SWEEP_EPOCHS) \
 
 **Self-balancing**: Equal shard drain means thin shards (low S_s) pay more per store and thick shards (high S_s) pay less. Stores migrate to undercovered shards. Coverage signals make the economics visible.
 
+**Tenure-weighted payout**: Store income matures with continuous presence. `weight = 1 - TENURE_DECAY^tenure` where `tenure` counts consecutive epochs of valid attestation for this store-shard-mint triple. At reference default TENURE_DECAY = 2/3: first epoch ≈ 33%, 6 epochs (~24h) ≈ 91%, 12 epochs (~48h) ≈ 99%. The gap between `unit_s` and `floor(unit_s × weight)` recycles to the pool each epoch, extending content lifetime proportionally to store churn. Stable content with long-tenured stores drains at the nominal DRAIN_RATE. High-churn content drains slower because departing stores' forfeited income returns to the pool. The mechanism is self-funding: the stores that cost the pool the most (short-tenure churners) cost it the least (low weight). Coordination share is not tenure-weighted — mints, referrers, and genesis earn at full rate regardless.
+
+**Tenure computation**: Settlers compute tenure from the epoch summary chain — `consecutive_attestation_epochs(st, s, m)` is the count of unbroken consecutive epochs (walking the `prev` chain backward from current epoch) in which store `st` appears in mint `m`'s per-shard attestation set for shard `s`. Settlement for epoch E requires epoch detail from at most the last `ceil(log(0.01)/log(TENURE_DECAY))` epochs (~12 at reference default) — beyond this, all stores have weight > 0.99 and the lookback can be truncated without material settlement error. The lookback is bounded, deterministic, and independently verifiable.
+
 **Drain rate**: `DRAIN_RATE × balance`. DRAIN_RATE is per-mint declared (see Constants); settlers use the declaring mint's value. Pool half-life = ln(2)/DRAIN_RATE. Store count doesn't affect drain speed — it affects how the drain is divided. Funders can calculate expected duration at deposit time from the mint's declared rate. Minimum viable pool ≈ N/DRAIN_RATE sats (below this, per-shard drain rounds to 0, stores stop earning, sweep timer starts).
 
 **Per-mint independence**: Each pool-CID-mint triple tracks its own balance. The mint that confirmed the deposit handles claims against that balance. No cross-mint coordination needed. Each mint's settlement is a closed computation — a settler needs only that mint's epoch summary to produce a deterministic result.
@@ -504,7 +515,7 @@ if no_valid_attestations(cid, last_SWEEP_EPOCHS) \
 **Payout via Cashu**: Each epoch, settlement produces Cashu ecash tokens for each store's earnings, delivered via the existing Tor channel. Blind signatures (Chaum) make issuance and redemption unlinkable — the mint cannot correlate "issued tokens to `.onion:abc`" with "someone redeemed tokens." Tokens are bearer instruments: stores accumulate locally, redeem at any Cashu-compatible mint (including cross-mint swap for full separation from the issuing OCDN mint), at any time. Eliminates: PAYOUT_THRESHOLD (every epoch pays, even 1 sat), Lightning routing failures (no outbound Lightning at settlement), payment timing correlation (no observable mint-to-store payments). The OCDN mint is already custodial — Cashu token issuance is a natural extension, not a new trust assumption. See Glossary: Cashu payout.
 
 **Properties**:
-- Deterministic: same epoch summary → same settlement. Anyone can verify.
+- Deterministic: same epoch summary chain → same settlement. Anyone can verify. Tenure-weighted payout requires bounded lookback (~12 epochs at reference TENURE_DECAY) — deterministic from the same `prev`-chained epoch summaries settlers already consume.
 - Per-mint decomposition: no cross-mint join.
 - Epochs by block height (EPOCH_BLOCKS). Mint-canonical epoch assignment.
 - Content state tree: `content_state_root` is a Merkle root over cumulative per-content economic states. Per-content proofs (historical precedence, accountability) are Merkle paths against this root. Bitcoin-anchored via periodic OP_RETURN (~80 bytes: 32B content_state_root + 32B prev_anchor_hash + 16B metadata). Cost: ~2,500 sats/day from genesis remainder. Proves every funded content hash existed with specific economic properties at a specific block height. Per-content fossil proof: state tuple + Merkle path + Bitcoin txid (~500 bytes, self-contained, self-verifying). Multiple settlers produce identical roots from the same input (deterministic) — disagreement is a permanent on-chain inconsistency signal. The OP_RETURN chain is the deepest moat: unforgeable per-epoch economic history on Bitcoin, stretching back to genesis.
@@ -536,7 +547,7 @@ Protocol drain is mechanical: `DRAIN_RATE × balance`, independent of store coun
 
 ### Drain
 
-`drain = floor(balance × DRAIN_RATE)`, divided equally across N shards (see Glossary: Drain, §4). Balance-proportional, mint-count-invariant. Store count affects division, not speed. The equilibrium is income-driven: more stores per shard → less per store → migration to thinner shards. Funding urgency comes from the exponential decay countdown, not from store-count acceleration.
+`drain = floor(balance × DRAIN_RATE)`, divided equally across N shards (see Glossary: Drain, §4). Balance-proportional, mint-count-invariant. Store count affects division, not speed. Tenure recycling reduces effective drain: sats unpaid to immature stores credit back to the pool (see §4: Tenure-weighted payout). Nominal half-life = `ln(2)/DRAIN_RATE`; effective half-life ≥ nominal (longer when churn is high). Funding urgency comes from the exponential decay countdown, not from store-count acceleration.
 
 ### Degradation
 
@@ -572,6 +583,7 @@ K-threshold gating (see §4) creates collective interdependence: below K covered
 1. **Eviction → funding urgency**: Pool decays below minimum viable → stores stop attesting → "not stored" visible on index → community funds → content re-stored
 2. **Thin shards → new stores**: Shard has low S_s → high per-store income visible in coverage signals → new operators mirror that shard → S_s increases → per-store income normalizes
 3. **Over-replication → exit**: Shard has high S_s → per-store income drops → least-efficient stores stop attesting that shard → S_s decreases → equilibrium
+4. **Churn → duration**: Store drops shard → forfeited tenure-weighted income recycles to pool → pool lasts longer → remaining stores earn for more epochs → content outlives unreliable stores
 
 ### Conviction Momentum
 
@@ -594,6 +606,7 @@ The feedback loop: reads → visibility → funding → storage → reads. The m
 | Sybil referrers (fake `via` tags) | L2 uses a constant 3-way split (mint / referrer pool / genesis) — inflating R doesn't change the denominator. Referrer pool subdivided by proof count: sybil referrers dilute their own per-pubkey proof count, earning less than a consolidated honest referrer. Internal remainder → top referrer by proof count, not genesis. |
 | Store proxies without storing | Storage challenges (random byte offset + Merkle proof, latency-tested) catch fetch-on-demand. Repeated failure → mint stops interacting → store loses income. |
 | Sybil receipt inflation | Receipt doesn't credit specific stores — demand signal is diluted across ALL stores for that content. Less profitable than original model. |
+| Store identity churn (drop + rejoin as new pubkey to reset tenure) | Tenure maturation period is the cost. At reference TENURE_DECAY = 2/3: churning store forfeits ~67% of income in first epoch, ~46% in second. Break-even requires holding for ~3 epochs (~12h) before churn has any advantage over staying — and staying always earns more. Rapid churn (every 1-2 epochs) earns ~33-54% of stable income. Anti-churn is economic, not identity-based — works under full anonymity. |
 | Store self-dealing (own request proofs) | **Tolerated — self-dealing is work, not fraud.** Pays real PoW, provides real storage, triggers correct settlement. Cost makes it unprofitable at scale. At small scale, converts sweep to settlement income — a bounded loss. |
 | Mint-store collusion | Block-hash-assigned cross-store verification. Colluding mint cannot rig peer assignments. Probability of colluding verifier = C/S per epoch. Over multiple epochs, honest peer is assigned and fake storage is caught. Mint bond at risk; store loses earnings. |
 | Mint deposit flight | Fidelity bond + tenure-weighted custody ceiling (see Glossary: Bond). New mints custody little; established mints have too much future income to lose. Deposit splitting bounds per-mint exposure. Ceiling bounds damage by construction; no prosecution needed. |
@@ -1069,6 +1082,7 @@ Three tiers: global invariants (must match across all participants or interop br
 | Parameter | Reference default | Note |
 |-----------|-------------------|------|
 | DRAIN_RATE | 1/128 | Per-epoch fraction of mint balance drained. Half-life ≈ 89 epochs (~15 days). Reference default is a Schelling point, not a protocol constant. Mints compete on drain economics — funders and stores select based on disclosed parameters. |
+| TENURE_DECAY | 2/3 | Store income maturation curve. `weight = 1 - TENURE_DECAY^tenure`. At 2/3: ~33% at epoch 1, ~91% at epoch 6 (~24h), ~99% at epoch 12 (~48h). Unpaid fraction recycles to pool. Lower values = faster maturation (less churn penalty); higher values = slower maturation (more churn penalty, longer duration extension). |
 | SWEEP_EPOCHS | 42 | ~7 days. See Glossary: Sweep. |
 | CHALLENGE_INTERVAL | 1 epoch | How often this mint challenges stores for storage proof. |
 | MAX_SILENT_EPOCHS | 6 | ~24h. Missing summaries → stores and clients reroute. |
@@ -1421,7 +1435,17 @@ Mints select "one random store per shard per request" for delivery tokens. Pure 
 
 `POW_TARGET_BASE` is per-mint declared but static. As hardware improves, the spam boundary erodes. Under active sybil attack, no mechanism exists to raise difficulty reactively. Per-mint declaration means each mint adjusts independently — convergence via Schelling point may be too slow under attack. **Tension**: adaptive difficulty (mint adjusts based on request proof volume) creates gaming incentives — an attacker floods proofs to raise difficulty, pricing out legitimate mobile readers. Static difficulty is stable but brittle to hardware trends. Bitcoin's difficulty adjustment works because block production is bounded; request proof production is unbounded. Needs: whether per-mint declaration + reference default updates are sufficient, or whether an in-protocol adaptive mechanism is required, and if so, how to prevent attacker-induced difficulty manipulation.
 
-### 22. DNS/Domain as Bootstrap Single Point of Failure
+### 22. Tenure-Weighted Payout Considerations
+
+Three residual concerns from tenure-weighted settlement:
+
+(i) **Bootstrap cold start**: New stores joining an undercovered shard earn ~33% in their first epoch (reference TENURE_DECAY = 2/3). At small `unit_s`, `floor(unit_s × 0.33)` may round to 0 — store earns nothing for 1-2 epochs. This slows initial store recruitment for low-balance pools. **Mitigation**: the ramp-up is short (~24h to 91%); the stores that persist through maturation are exactly the stores that provide durable availability. Coverage signals already show opportunity — stores that join for the long term are rewarded; stores that would churn and waste pool sats are filtered. At bootstrap with few stores, the recycled income from maturation extends the pool, buying time for stable stores to establish tenure.
+
+(ii) **Mint tenure tracking burden**: Mints must track per-store-per-shard consecutive attestation counts across epochs. This is O(stores × shards) state, updated each epoch. For a mint with 1000 active store-shard pairs, this is a small integer per pair — trivial memory and storage. The attestation Merkle root already commits the mint to its attestation set; tenure is a derived count from the committed history. Settlers independently verify tenure by walking the `prev`-chained epoch summaries (bounded lookback). No new trust assumption — settlers already reconstruct mint history from the chain.
+
+(iii) **TENURE_DECAY calibration**: Reference default 2/3 is a napkin estimate targeting ~24h to 91% income. Too low (fast maturation) = weak churn penalty, minimal duration extension. Too high (slow maturation) = discourages new store entry, especially at bootstrap. Per-mint declared: mints that choose aggressive TENURE_DECAY (high value, slow ramp) attract longer-tenure stores and extend pool life; mints that choose gentle TENURE_DECAY (low value, fast ramp) attract more stores but with less churn protection. Funders see the implication at deposit time: "this mint's stores mature in ~24h" vs "~48h." The market finds the equilibrium.
+
+### 23. DNS/Domain as Bootstrap Single Point of Failure
 
 The reference client deploys to "IPFS + domain." Domain seizure is the cheapest, most proven state-actor censorship vector. IPFS addresses change with content updates ("breaks within 6-18 months"). The viral loop (OG images, shared links) fundamentally depends on a clearnet URL — there is no elegant solution for the link-sharing use case without DNS. **Partial mitigations**: (i) Tor .onion address for the client (no DNS dependency, but breaks the viral loop), (ii) ENS/HNS for censorship-resistant naming (small user base, extra resolution step), (iii) multiple mirror domains across registrars/jurisdictions (operational complexity), (iv) client-as-browser-extension (no domain needed, but limits reach). The OG image endpoint has the same DNS dependency. The honest answer may be: DNS is a speed bump, not a wall — if the domain is seized, the protocol continues (all state on relays + Bitcoin), and a new client on a new domain reconstructs in hours. The viral/social moat is lost; the economic moat is not.
 
