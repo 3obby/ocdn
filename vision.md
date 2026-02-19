@@ -1524,3 +1524,213 @@ The genesis pubkey is rooted in every cryptographic derivation (content keys, Ar
 ## The One-Sentence Version
 
 **Sats bind to hashes; the genesis pubkey seeds every derivation; four separated roles (store, serve, mint, genesis) settle at participant parity; epoch_hash mutual authentication at every boundary; all infrastructure is anonymous; the founder operates nothing; the income is settlement math; the moat is cryptographic.**
+
+---
+
+## Adversarial Action Model
+
+Every participant is assumed adversarial. The protocol must make honest behavior the profit-maximizing strategy and malice either unprofitable, detectable, or inert. This section enumerates every action available to each role at each boundary, the consequence, and the detection mechanism.
+
+Notation: `→` = sends to, `←` = receives from, `⊕` = honest action, `⊘` = malicious action, `[D]` = detected by, `[C]` = consequence.
+
+### CLIENT (reader/funder)
+
+**Boundary: CLIENT → SERVE ENDPOINT (request proof)**
+
+| # | Action | Type | Detection | Consequence |
+|---|--------|------|-----------|-------------|
+| C1 | Submit valid request proof (correct epoch_hash, valid PoW, signed) | ⊕ | — | Content delivered. Demand signal created. |
+| C2 | Submit request proof with wrong epoch_hash | ⊘ | [D] Serve endpoint recomputes epoch_hash from protocol_seed + BTC | [C] Rejected at first contact. Zero content. Inert. |
+| C3 | Submit request proof with insufficient PoW | ⊘ | [D] Serve endpoint / mint verify PoW target | [C] Rejected. |
+| C4 | Submit request proof with forged signature | ⊘ | [D] Ed25519 verification | [C] Rejected. |
+| C5 | Submit request proof with wrong via tag (steal referrer income) | ⊘ | [D] NIP-07 extension shows what's signed — client can't modify without user's key | [C] If user signs: referrer income redirected, but user paid the PoW, provided real demand. Tolerated — self-dealing is work. |
+| C6 | Replay old request proof | ⊘ | [D] Epoch-bound, single-use nonce | [C] Rejected. |
+| C7 | Flood request proofs (sybil demand) | ⊘ | [D] PoW cost scales linearly | [C] Expensive. Affects index only (display layer), not settlement (drain is gate-triggered not count-triggered). |
+| C8 | Submit request proof for content below K coverage | ⊘ | [D] Mint checks coverage ≥ K | [C] Rejected — content unrecoverable, no drain. |
+
+**Boundary: CLIENT → MINT (deposit)**
+
+| # | Action | Type | Detection | Consequence |
+|---|--------|------|-----------|-------------|
+| C9 | Deposit via HTLC-gated Cashu (honest) | ⊕ | — | Pool credited. Fund confirmation published. |
+| C10 | Deposit, mint doesn't publish confirmation | ⊘ (mint) | [D] HTLC timeout | [C] Funder reclaims. Atomic. |
+| C11 | Deposit garbage content (griefing) | ⊘ | [D] Mint verifies shard integrity (Step 1b): decrypt, reconstruct, SHA256 == content_hash | [C] Deposit rejected. |
+| C12 | Deposit to attacker-controlled mint (via compromised client) | ⊘ | [D] Client should verify mint's epoch summaries match Bitcoin-anchored state root chain | [C] If undetected: funder loses deposit to attacker mint. Bounded by deposit amount. |
+
+### SERVE ENDPOINT
+
+**Boundary: SERVE ENDPOINT ↔ CLIENT**
+
+| # | Action | Type | Detection | Consequence |
+|---|--------|------|-----------|-------------|
+| S1 | Proxy request honestly, return blobs + sealed key envelope | ⊕ | — | Earns via tag income. |
+| S2 | Drop/refuse to serve specific content (censor) | ⊘ | [D] User notices. No protocol-level detection. | [C] Users switch to competing serve endpoint. Loss of via income. At bootstrap with 1 serve endpoint: availability degraded until alternative appears. |
+| S3 | Modify sealed key envelope | ⊘ | [D] Envelope encrypted to client pubkey — serve endpoint can't decrypt or meaningfully modify | [C] Client decryption fails. Client retries with different serve endpoint. |
+| S4 | Modify delivery token | ⊘ | [D] Delivery token is mint-signed. Store verifies signature. | [C] Store rejects. Content not delivered. |
+| S5 | Return wrong blobs | ⊘ | [D] Client verifies content_hash after decryption | [C] Hash mismatch. Client retries. |
+| S6 | Forge via tag in request proof | ⊘ | [D] Request proof is client-signed via NIP-07 — serve endpoint can't modify | [C] Impossible without client's key. |
+| S7 | Log which content is requested (surveillance) | ⊘ | [D] Not protocol-detectable | [C] Privacy leak. Mitigated by: ephemeral client keys, multiple competing serve endpoints (mixing), batched/delayed relay publication. Residual risk at bootstrap. |
+| S8 | Withhold OCDN events from relay archive | ⊘ | [D] External relays have copies. Serve endpoints that retain more events serve better → more traffic → more via income. | [C] Self-harming — less event availability → less traffic → less income. |
+
+**Boundary: SERVE ENDPOINT → MINT (forwarding request proof)**
+
+| # | Action | Type | Detection | Consequence |
+|---|--------|------|-----------|-------------|
+| S9 | Forward honest request proof | ⊕ | — | Receives delivery tokens + key envelope. |
+| S10 | Submit fake request proof | ⊘ | [D] Mint verifies epoch_hash + PoW + client signature | [C] Rejected. Serve endpoint gets nothing. |
+| S11 | Replay old delivery tokens | ⊘ | [D] Single-use, epoch-bound, nonce-verified by store | [C] Store rejects. |
+
+**Boundary: SERVE ENDPOINT ↔ STORE (blob fetch)**
+
+| # | Action | Type | Detection | Consequence |
+|---|--------|------|-----------|-------------|
+| S12 | Present valid delivery token, fetch blob | ⊕ | — | Blob returned. Store attests to mint. |
+| S13 | Present delivery token with wrong epoch_hash | ⊘ | [D] Store verifies epoch_hash | [C] Rejected. |
+| S14 | Contact store without delivery token (healthy mode) | ⊘ | [D] Store requires delivery token or PoW (degraded only) | [C] Rejected in healthy mode. |
+
+### STORE
+
+**Boundary: STORE ↔ MINT (challenges + attestations)**
+
+| # | Action | Type | Detection | Consequence |
+|---|--------|------|-----------|-------------|
+| ST1 | Respond to challenge correctly (has blob, passes Merkle proof + latency) | ⊕ | — | Earns for that shard this epoch. |
+| ST2 | Fail challenge (doesn't have blob) | ⊘ | [D] Merkle proof invalid or latency > T | [C] Loses earnings for shard. Repeated failure → mint stops interacting for that shard. |
+| ST3 | Proxy challenge response from another store (doesn't store locally) | ⊘ | [D] Latency test: Tor round-trip to fetch + respond > T threshold | [C] Fails latency. Same as ST2. |
+| ST4 | Submit valid attestation (served blob for valid delivery token) | ⊕ | — | Recorded by mint. Included in epoch summary. Earns. |
+| ST5 | Submit attestation with wrong epoch_hash | ⊘ | [D] Mint verifies epoch_hash | [C] Rejected. No payment. |
+| ST6 | Submit attestation for blob not actually served | ⊘ | [D] response_hash must match expected shard bytes. Mint knows expected hash. | [C] Rejected. |
+| ST7 | Submit attestation referencing non-existent delivery token | ⊘ | [D] Mint checks delivery_token_hash against issued tokens | [C] Rejected. |
+| ST8 | Sybil: one machine, many pubkeys, one disk copy | ⊘ | [D] Cross-store verification (correlated latency heuristic). Per-store unique wrapping (if implemented) forces N× disk. | [C] Currently: profitable but harmless (store-blind — can't weaponize position). Per-store wrapping raises cost to N× disk. |
+| ST9 | Selectively refuse to serve (censor specific blobs) | ⊘ | [D] Store is store-blind — doesn't know which content a blob corresponds to. Can only drop by blob_id. | [C] Loses earnings for dropped blob. Mint routes around. Market recruits replacement. Random blob_id dropping is self-harming. |
+| ST10 | Verify challenge nonce correctness (mutual auth) | ⊕ | — | Detects wrong-genesis mint. |
+| ST11 | Accept challenge with wrong nonce (from wrong-genesis mint) | ⊘ | [D] Store computes expected nonce from epoch_hash | [C] Store should reject — accepting wrong nonces → interacting with incompatible network. |
+
+**Boundary: STORE ↔ STORE (cross-verification)**
+
+| # | Action | Type | Detection | Consequence |
+|---|--------|------|-----------|-------------|
+| ST12 | Verify assigned peer honestly | ⊕ | — | Required for own earnings. |
+| ST13 | Pass a peer that doesn't have the shard (collude) | ⊘ | [D] Assignment is epoch_hash-deterministic. If peer later fails mint challenge, verdicting store is implicated. | [C] Mint stops interacting with both. |
+| ST14 | Refuse to verify peer (DoS) | ⊘ | [D] No verification result → own earnings withheld | [C] Self-harming. |
+
+### MINT
+
+**Boundary: MINT ← CLIENT (deposits)**
+
+| # | Action | Type | Detection | Consequence |
+|---|--------|------|-----------|-------------|
+| M1 | Accept deposit, verify shards, publish fund confirmation | ⊕ | — | Pool credited. Earns coordination share over pool life. |
+| M2 | Accept deposit, don't publish confirmation (steal) | ⊘ | [D] HTLC timeout — funder reclaims | [C] Atomic failure. Mint gets nothing. |
+| M3 | Publish confirmation for amount ≠ actual deposit | ⊘ | [D] HTLC preimage binds to content_hash + amount + mint pubkey | [C] Preimage won't match. Funder reclaims. |
+| M4 | Accept deposit exceeding custody ceiling | ⊘ | [D] Auditable: sum(fund confirmations) vs bond_value × tenure_factor. Reference client rejects. | [C] Deposit routed to next mint by reference client. |
+
+**Boundary: MINT → SERVE ENDPOINT (delivery tokens)**
+
+| # | Action | Type | Detection | Consequence |
+|---|--------|------|-----------|-------------|
+| M5 | Issue correct delivery token (valid selection proof, correct epoch_hash) | ⊕ | — | Content delivered. Store attests. |
+| M6 | Issue delivery token with biased store selection | ⊘ | [D] selection_proof = hash(epoch_hash \|\| content_hash \|\| shard_index \|\| request_proof_hash) mod S_s. Store verifies. Settler audits against committed store_set_root. | [C] Provable fraud after one anomalous token. Stores exit. |
+| M7 | Refuse to issue delivery token for valid request proof | ⊘ | [D] Serve endpoint detects non-response. Detectable at scale (request proof count vs delivery token count). | [C] Serve endpoint routes to other mints. Content at this mint becomes unreachable → stores exit → pool preserved but underserved. |
+| M8 | Issue delivery token with wrong epoch_hash | ⊘ | [D] Store verifies epoch_hash | [C] Store rejects token. Content not served. |
+
+**Boundary: MINT ← STORE (attestations)**
+
+| # | Action | Type | Detection | Consequence |
+|---|--------|------|-----------|-------------|
+| M9 | Include attestation in epoch summary honestly | ⊕ | — | Store earns. Epoch summary is correct. |
+| M10 | Omit valid attestation (punish/extort store) | ⊘ | [D] Store verifies own inclusion via attestation Merkle root in epoch summary | [C] Store detects omission. Reroutes to other mints (competitive exit). |
+| M11 | Include fake attestations (inflate store count) | ⊘ | [D] Fake stores must pass challenges. Settlers verify attestation detail against Merkle root. | [C] Phantom stores require real storage + compute. Not free — converges on honest operation. |
+
+**Boundary: MINT → STORE (challenges)**
+
+| # | Action | Type | Detection | Consequence |
+|---|--------|------|-----------|-------------|
+| M12 | Issue challenge with correct deterministic nonce | ⊕ | — | Store responds. Earnings if valid. |
+| M13 | Issue challenge with biased nonce (help colluding store) | ⊘ | [D] Nonce = hash(epoch_hash \|\| store_pubkey \|\| blob_id) — deterministic, independently verifiable. Anyone can check. | [C] Provable fraud. Stores exit. |
+| M14 | Skip challenge for colluding store | ⊘ | [D] Challenge results in epoch summary. Settlers and stores see challenge counts. Persistent non-challenge is statistical anomaly. | [C] Detectable over time. Stores exit on suspicion. |
+
+**Boundary: MINT → STORE (payouts)**
+
+| # | Action | Type | Detection | Consequence |
+|---|--------|------|-----------|-------------|
+| M15 | Issue correct Cashu payout matching deterministic settlement | ⊕ | — | Store receives expected tokens. |
+| M16 | Underpay store (skim) | ⊘ | [D] Store computes expected payout from public data (pool balance + S_s + tenure + formula). Compares against received Cashu amount. | [C] Detected within 1 epoch (~4h). Store reroutes. Aggregate departures visible in next epoch summary. |
+| M17 | Issue fake Cashu tokens (no backing) | ⊘ | [D] Store redeems/swaps tokens. Redemption fails at issuing mint. | [C] Store detects on first swap. Reroutes. |
+
+**Boundary: MINT → RELAYS (epoch summaries, coverage signals)**
+
+| # | Action | Type | Detection | Consequence |
+|---|--------|------|-----------|-------------|
+| M18 | Publish correct epoch summary (valid epoch_hash, honest attestation root, correct S_s) | ⊕ | — | Settlement proceeds. OP_RETURN chain extends. |
+| M19 | Publish epoch summary with wrong epoch_hash | ⊘ | [D] Settler recomputes epoch_hash from protocol_seed + BTC | [C] Rejected. Settlement skipped for this mint this epoch. |
+| M20 | Publish epoch summary with inflated S_s (fake store count) | ⊘ | [D] Settlers verify attestation detail against attestation Merkle root. Phantom stores must exist in the committed store_set_root. | [C] Inconsistency between root and claimed counts. Detectable. |
+| M21 | Publish conflicting epoch summaries (fork own chain) | ⊘ | [D] prev hash chain — conflicting summaries at same seq detectable by any observer | [C] Permanent inconsistency signal on relays. Stores and clients reroute. |
+| M22 | Withhold epoch summary (go silent) | ⊘ | [D] Missing seq in the prev chain. Stores detect after MAX_SILENT_EPOCHS. | [C] Stores reroute. Mint loses all future income from departed stores. |
+| M23 | Exit-scam (stop paying, disappear with remaining balances) | ⊘ | [D] Next epoch: stores receive no payout. Detected in ~4h. | [C] Store damage: 1 epoch of missed earnings (trivial). Funder damage: remaining pool balances at this mint (bounded by custody ceiling, split across DEPOSIT_SPLIT_MIN mints). Content: enters degraded mode. Self-heals as deposits reroute. |
+
+**Boundary: MINT ↔ MINT (gossip)**
+
+| # | Action | Type | Detection | Consequence |
+|---|--------|------|-----------|-------------|
+| M24 | Share correct mappings + M via authenticated gossip | ⊕ | — | Cross-mint discovery works. |
+| M25 | Share wrong mappings (poison gossip) | ⊘ | [D] Receiving mint verifies against relay-encrypted canonical mappings | [C] Gossip is best-effort. Canonical source is relay layer. Poisoned gossip degrades to relay fallback. |
+| M26 | Withhold mappings from gossip | ⊘ | [D] Other mints fall through to relay-encrypted mappings | [C] Self-harming — other mints serve discovery from relay data anyway. Withholding mint loses nothing. |
+
+### SETTLER
+
+**Boundary: SETTLER ← MINTS (epoch summaries) → RELAYS (settlement events) → BITCOIN (OP_RETURN)**
+
+| # | Action | Type | Detection | Consequence |
+|---|--------|------|-----------|-------------|
+| SE1 | Compute correct settlement from epoch summaries, publish, anchor on Bitcoin | ⊕ | — | Deterministic. Multiple settlers converge. OP_RETURN chain extends. |
+| SE2 | Compute wrong settlement (redirect remainder) | ⊘ | [D] Settlement is deterministic. Any other settler (or store, or auditor) recomputes and gets a different result. input_set convergence tag reveals inconsistency. | [C] Non-canonical settlement ignored. Stores compare against their own computation. |
+| SE3 | Anchor wrong state root on Bitcoin | ⊘ | [D] content_state_root is deterministic from protocol_seed + public data. Any recomputation catches the mismatch. | [C] Competing OP_RETURN with correct root appears. Wrong root is provably fraudulent. |
+| SE4 | Withhold settlement (don't compute) | ⊘ | [D] Any other settler can compute. | [C] Settler earns nothing anyway (public service). Other settlers fill the gap. |
+
+### RELAY (external, not a protocol role — included for completeness)
+
+| # | Action | Type | Detection | Consequence |
+|---|--------|------|-----------|-------------|
+| R1 | Persist and serve OCDN events | ⊕ | — | Ecosystem health. |
+| R2 | Censor specific events (drop fund confirmations, request proofs) | ⊘ | [D] Events also on serve endpoint relay archives (economically aligned) + other external relays | [C] Serve endpoint archives are the primary persistence layer. External relays are fallback. Single relay censorship is ineffective. |
+| R3 | Filter by genesis fingerprint (block an entire protocol instance) | ⊘ | [D] Other relays don't filter. | [C] Serve endpoint relay archives route around. |
+
+### CROSS-BOUNDARY: epoch_hash mutual authentication summary
+
+Every boundary above that involves epoch_hash creates a bilateral check. The full mesh:
+
+```
+CLIENT ──epoch_hash──→ SERVE ENDPOINT ──epoch_hash──→ MINT
+                                                       ↕ epoch_hash
+STORE ←──epoch_hash──→ MINT          STORE ←──epoch_hash──→ STORE (cross-verify)
+                                                       ↓ epoch_hash
+                                     SETTLER ←──epoch_hash── MINT (epoch summary)
+                                                       ↓ genesis_fingerprint
+                                     BITCOIN ←── SETTLER (OP_RETURN with genesis_fingerprint + state_root)
+```
+
+A participant with the wrong genesis pubkey fails at the FIRST boundary they touch. The failure is not "rejected by policy" — it is "computationally inert" (wrong hash, can't produce valid proofs, can't verify valid tokens).
+
+### COMPOUND ADVERSARY ANALYSIS
+
+Single-role attacks are bounded above. The remaining question: what if one entity controls MULTIPLE roles simultaneously?
+
+| Combination | What they can do | What they CANNOT do | Net effect |
+|-------------|-----------------|---------------------|------------|
+| **Mint + Store** (vertical integration) | Route delivery tokens to own stores (biased routing) | Bypass verifiable selection (epoch_hash-deterministic, provable) | Caught by any store that checks selection proof. Statistical detection within 1 epoch. |
+| **Mint + Store** (fake storage) | Attest without storing | Bypass cross-store verification (epoch_hash-assigned, block-hash-unpredictable) | Caught probabilistically. P(detection) = 1 - (C/S)^epochs. |
+| **Serve + Mint** (traffic analysis) | Correlate request timing with store contacts | Read content (encrypted), identify store operators (Tor), link payments (Cashu blind) | Intelligence only. No economic damage. Mitigated by competing serve endpoints (mixing). |
+| **Serve + Client** (compromised client) | Route deposits to attacker mint, show fake UI | Produce valid epoch_hash for honest network (unless they use the correct genesis pubkey — in which case they're paying genesis) | Binary choice: correct genesis → honest network (pays genesis). Wrong genesis → inert. |
+| **All roles except genesis** (nation-state) | Operate honest infrastructure, earn income, conduct surveillance | Redirect genesis income (settlement is deterministic, remainder → genesis_address is part of the formula, wrong remainder → wrong state root → detected). Suppress specific content (store-blind). | The adversary is a legitimate, well-resourced participant. They pay genesis. They can surveil within the limits of the privacy layers. They cannot subvert economics or suppress content. |
+
+### UNANALYZED / RESIDUAL
+
+| # | Gap | Status |
+|---|-----|--------|
+| G1 | Sybil stores (1 machine, N identities, 1 disk) are more cost-efficient than honest stores. Store-blind makes them harmless but doesn't make them unprofitable. Per-store unique wrapping (see earlier discussion) raises cost but disk is cheap. | Open — economic, not security-critical |
+| G2 | Bootstrap with 1 serve endpoint: traffic analysis is unmitigated. | Acknowledged (Unresolved #19). Closes as serve endpoint count grows. |
+| G3 | Compromised client can route deposits to attacker mint while using correct genesis pubkey for content delivery. User doesn't notice. | Mitigated by client-side mint verification against OP_RETURN chain. Residual: user must trust SOME verification code. |
+| G4 | Settler incentive: no income. At scale, settlement is expensive to compute. | Open (see discussion). Serve endpoints that need settlement data may run settlers as cost of business. |
+| G5 | Mint can learn content→store mapping for content it processes (intelligence). Anonymous transport hides operator identity; store-blindness hides content from store; but mint sees both sides. | By design — mint is the trusted bridge. Mitigation: competing mints, deposit splitting, relay-encrypted mappings as fallback. |
+| G6 | Epoch_hash depends on Bitcoin block hash. 51% miner can manipulate block hash to bias store selection / verification rings for one epoch. | Impractical — Bitcoin mining attack is astronomically expensive for one epoch of OCDN routing bias. |
