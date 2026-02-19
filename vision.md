@@ -49,7 +49,7 @@ Bootstrap reference (any N, at R=1): At S=1, coordination fraction = 50%. At S=3
 | **Pool** | Sats bound to a content hash. Credits accumulate from fund events; drains pay stores + coordination. |
 | **Drain** | Per-epoch outflow from a pool. `drain = floor(balance × DRAIN_RATE)`, divided equally across N shards. Balance-proportional: pool half-life is deterministic, store count doesn't affect drain speed. Gate-triggered: drain fires when any valid attestation exists this epoch; request proof volume doesn't change the amount. Effective drain is reduced by tenure recycling — immature stores earn less, and the unpaid portion credits back to the pool (see Glossary: Tenure recycling, §4). |
 | **Sweep** | Pool with no valid attestations AND no valid request proofs for SWEEP_EPOCHS (42 epochs, ~7 days) → entire balance to genesis. Dual condition prevents adversary-triggered sweep via mint takedown (popular content with broken attestation channel still has request proofs on relays). |
-| **Ghost** | Content whose pool is depleted. The economic fossil persists: metadata, economic history, edges, discussion on relays; content hash + cumulative economic state provable against Bitcoin-anchored content state tree (see Settlement §4). Bytes are gone from the storage market — stores evicted, no one paid to serve. M persists on relays (inert without shards; enables recovery from surviving offline copies). `[+] to restore`. |
+| **Ghost** | Content whose pool is depleted. The economic fossil persists: metadata, economic history, edges, discussion on relays; content hash + cumulative economic state provable against per-mint state roots on relays (Bitcoin-anchorable by any party for additional durability — see Settlement §4). Bytes are gone from the storage market — stores evicted, no one paid to serve. M persists on relays (inert without shards; enables recovery from surviving offline copies). `[+] to restore`. |
 | **Coverage signal** | Per-content shard store count, published by mints each COVERAGE_BLOCKS (~1h). No store identities. Used by stores for opportunity assessment. |
 
 ### Storage & Privacy
@@ -86,7 +86,7 @@ Bootstrap reference (any N, at R=1): At S=1, coordination fraction = 50%. At S=3
 | **Cashu payout** | Store earnings issued as Cashu ecash tokens (blind-signed bearer instruments) delivered via Tor. Mint cannot link issuance to redemption (Chaum blind signatures). Store redeems at any Cashu-compatible mint, any time. Closes the anonymity loop: anonymous transport hides the operator, blind signatures hide the payment. Eliminates Lightning payout failures and PAYOUT_THRESHOLD accumulation. |
 | **Dwell-based PoW** | Reference client pre-mines request proofs in background; submits on viewport dwell ≥2s. Reading feels instant. |
 | **Ephemeral message** | Free Nostr event. Relay-only, no protocol awareness, no pool, no rank influence. Visible as collapsed `+ n` counts. `[+]` upgrades to funded. |
-| **Economic moat** | Five layers, descending by durability: (a) **cryptographic binding** — genesis pubkey is the protocol seed; all derivations (content keys, Argon2 salts, epoch hashes, challenge nonces, store selection, state roots) are rooted in it. A fork that changes the genesis pubkey creates a mathematically incompatible protocol — can't decrypt existing content, can't discover existing stores, can't verify existing settlements. (b) **economic state** — accumulated deposits, settlement history, Bitcoin-anchored content state tree (state root includes protocol_seed). Unforkable without re-bootstrapping. (c) **Schelling point** — reference implementations set defaults; market converges. (d) **traffic** — reference client hardcodes the founder's via tag. (e) **deposit routing** — reference client defaults to founder-bonded mint. Layers (d) and (e) are speed bumps; layers (a)-(c) are structural. Layer (a) is cryptographic — not economically costly to break, but mathematically impossible. |
+| **Economic moat** | Five layers, descending by durability: (a) **cryptographic binding** — genesis pubkey is the protocol seed; all derivations (content keys, Argon2 salts, epoch hashes, challenge nonces, store selection, state roots) are rooted in it. A fork that changes the genesis pubkey creates a mathematically incompatible protocol — can't decrypt existing content, can't discover existing stores, can't verify existing settlements. (b) **economic state** — accumulated deposits, settlement history, per-mint content state trees on relays (state roots include protocol_seed; Bitcoin-anchorable by any party). Unforkable without re-bootstrapping. (c) **Schelling point** — reference implementations set defaults; market converges. (d) **traffic** — reference client hardcodes the founder's via tag. (e) **deposit routing** — reference client defaults to founder-bonded mint. Layers (d) and (e) are speed bumps; layers (a)-(c) are structural. Layer (a) is cryptographic — not economically costly to break, but mathematically impossible. |
 
 ---
 
@@ -96,7 +96,7 @@ Bootstrap reference (any N, at R=1): At S=1, coordination fraction = 50%. At S=3
 2. **Censorship is an availability market** — Replication funded by those who care.
 3. **Infrastructure is a commodity** — Borrow it. Nostr relays distribute events. Blossom servers store blobs. Lightning/Cashu handle payments. Nostr keys handle identity. All already deployed, already distributed, already resilient.
 4. **The protocol is a storage market; the index is the product** — The protocol clears payments between funders and stores. The importance index is a product built on the market's public data. The protocol is plumbing; the index is the shopfront. The two axes — commitment (pool balance) and demand (request proof velocity) — are independent measurements. Their divergence IS the signal. No other system produces both.
-5. **The hierarchy is append/promote-only** — Content, topics, and discussion form a graph. Nodes are added (append) or funded (promote). Nothing is edited, deleted, or hidden at the protocol level. Loss is an explicit, auditable state — the pool exists, the request proofs existed, the economic fossil is Bitcoin-anchored, the bytes may be gone. Every other information system makes loss silent. This one makes loss visible, attributable, economically actionable, and cryptographically provable against Bitcoin.
+5. **The hierarchy is append/promote-only** — Content, topics, and discussion form a graph. Nodes are added (append) or funded (promote). Nothing is edited, deleted, or hidden at the protocol level. Loss is an explicit, auditable state — the pool exists, the request proofs existed, the economic fossil is provable against per-mint state roots (relay-durable, Bitcoin-anchorable), the bytes may be gone. Every other information system makes loss silent. This one makes loss visible, attributable, economically actionable, and cryptographically provable.
 6. **Store-blind storage** — Three independent protections (see Glossary: Store-blind): content-blind (doubly-encrypted shards), operator-blind (anonymous transport), payment-blind (Cashu). Stores cannot determine what they hold; no adversary can determine who operates a store or where earnings flow.
 
    **Store posture**: Zero editorial decisions — software selects shards by economic signal, not by content. Encrypted blobs in, encrypted blobs out, behind an address no one can attribute. Store daemon holds blobs, responds to challenges, attests. No convergent encryption logic, no RS WASM.
@@ -109,8 +109,8 @@ Bootstrap reference (any N, at R=1): At S=1, coordination fraction = 50%. At S=3
 
    **Permissionless mints**: Bonded (on-chain UTXO), not genesis-delegated — anyone can become a mint by posting a verifiable bond.
 
-   **Fork resistance**: Forking the income requires changing the genesis pubkey — trivial at the code level, but creates a mathematically incompatible protocol. The fork can't decrypt existing content, can't discover existing stores, can't verify existing settlements, can't extend the existing OP_RETURN chain. The moat is cryptographic (derivation incompatibility) + economic (accumulated state) + social (Schelling point) — see Glossary: Economic moat.
-9. **Mutual authentication via epoch_hash at every boundary** — `epoch_hash = SHA256(protocol_seed || confirmed_block_hash || epoch_number)` is embedded in every protocol interaction: request proofs (client → serve endpoint), delivery tokens (mint → store), attestations (store → mint), epoch summaries (mint → settler), Bitcoin anchors (settler → chain). Every role verifies every adjacent role's epoch_hash against live Bitcoin data. Wrong genesis pubkey → wrong epoch_hash → rejected at first contact. The protocol's healthy operation is itself continuous proof that all participants share the same genesis pubkey. A false client can lie to its user but cannot produce valid interactions with the honest network — computational inertness, not social rejection.
+   **Fork resistance**: Forking the income requires changing the genesis pubkey — trivial at the code level, but creates a mathematically incompatible protocol. The fork can't decrypt existing content, can't discover existing stores, can't verify existing settlements, can't produce valid state roots against the existing genesis_fingerprint, can't extend any existing Bitcoin anchors. The moat is cryptographic (derivation incompatibility) + economic (accumulated state) + social (Schelling point) — see Glossary: Economic moat.
+9. **Mutual authentication via epoch_hash at every boundary** — `epoch_hash = SHA256(protocol_seed || confirmed_block_hash || epoch_number)` is embedded in every protocol interaction: request proofs (client → serve endpoint), delivery tokens (mint → store), attestations (store → mint), epoch summaries (mint → settler). Every role verifies every adjacent role's epoch_hash against live Bitcoin data. Wrong genesis pubkey → wrong epoch_hash → rejected at first contact. The protocol's healthy operation is itself continuous proof that all participants share the same genesis pubkey. A false client can lie to its user but cannot produce valid interactions with the honest network — computational inertness, not social rejection.
 10. **The founder's income is proportional to settlement dimensionality** — Each shard is an independent settlement unit. Cascading remainders across N shards × C content items produce genesis income that grows in absolute sats while shrinking as a percentage (see §4).
 
    **Passive by construction**: No fee. No rate. The income is the irreducible coordination cost of multi-party integer settlement. Documents produce higher genesis sweep income than text (larger N → larger residual at zero-drain floor).
@@ -150,7 +150,7 @@ Eight things no existing system provides:
 3. **Pool drain to proven stores** — stores earn from pools proportional to proven storage of consumed content
 4. **Participant parity** — coordination costs one participant's share at parity with storage labor (see Glossary)
 5. **The importance index** — the ranking derived from 1-3: commitment × demand × centrality
-6. **Accountable loss** — every node that ever existed leaves a permanent economic trace (pool events, request proofs, settlements). The settlement content state tree — a per-epoch Merkle root over all content economic states, rooted in `protocol_seed` — is Bitcoin-anchored (genesis-fingerprinted OP_RETURN, ~76 bytes/epoch). Loss is a first-class state: the evidence is permanent (Bitcoin), the bytes are market-sustained. No other system distinguishes "never existed" from "existed and was lost." The adversary cannot both destroy content and deny it existed — the Bitcoin anchor records the destruction, and any surviving copy verifies against the anchored hash
+6. **Accountable loss** — every node that ever existed leaves a permanent economic trace (pool events, request proofs, settlements). Per-mint content state trees (Merkle roots over `protocol_seed || per-content economic states`) are committed in settlement events on relays. Any party can anchor these roots on Bitcoin (genesis-fingerprinted OP_RETURN, ~48 bytes — a market activity, not a protocol function). Loss is a first-class state: the evidence is relay-durable (per-mint roots) and Bitcoin-anchorable (by any interested party). No other system distinguishes "never existed" from "existed and was lost." The adversary cannot both destroy content and deny it existed — per-mint state roots on relays record the destruction, Bitcoin anchors make the record permanent, and any surviving copy verifies against the committed hash
 7. **Multi-party request-attestation binding** — each participant signs their own part of the composite receipt (client signs request proof, store signs attestation direct to mint). No intermediary can redirect economic flows
 8. **Genesis-pubkey-as-protocol-seed with epoch_hash mutual authentication** — a single pubkey (discovered from a Bitcoin inscription) is the cryptographic root of every protocol derivation. `epoch_hash` (derived from protocol_seed + live Bitcoin block hash) is verified at every protocol boundary. A fork that changes the genesis pubkey creates a mathematically incompatible protocol; a participant with the wrong genesis pubkey is computationally inert at first contact. The protocol's healthy operation continuously proves all participants share the same genesis pubkey
 
@@ -456,7 +456,7 @@ tags:
   ["residual", "<sats>"]               # unclaimed → genesis address
   ["epoch_summary_refs", "<event_ids>"]
   ["input_set", "<hash>"]               # SHA256(sorted epoch_summary_event_ids) — settler convergence proof
-  ["content_state_root", "<hash>"]      # Merkle root over all per-content economic state tuples (content_hash, total_funded, fund_rounds, epochs_live, peak_stores, peak_demand, current_status). Bitcoin-anchored via OP_RETURN. Per-content proofs are Merkle paths against this root.
+  ["content_state_root", "<hash>"]      # Per-mint Merkle root over protocol_seed || this mint's per-content economic states (content_hash, balance_at_mint, attestation_count, drain_history, current_status). Closed per-mint computation — no cross-mint join. Per-content proofs are Merkle paths against this root. Global aggregation is an index-layer product (see Properties: Content state tree).
 content: JSON settlement details
 sig: settler signature
 ```
@@ -543,7 +543,7 @@ if no_valid_attestations(cid, last_SWEEP_EPOCHS) \
 - Deterministic: same epoch summary chain → same settlement. Anyone can verify. Tenure-weighted payout requires bounded lookback (~12 epochs at reference TENURE_DECAY) — deterministic from the same `prev`-chained epoch summaries settlers already consume.
 - Per-mint decomposition: no cross-mint join.
 - Epochs by block height (EPOCH_BLOCKS). Mint-canonical epoch assignment.
-- Content state tree: `content_state_root` is a Merkle root over `protocol_seed || per-content economic states` — rooted in genesis pubkey, instance-specific. Per-content proofs are Merkle paths against this root. Bitcoin-anchored via periodic OP_RETURN (~76 bytes: `"OCDN"(4B) || genesis_fingerprint(8B) || content_state_root(32B) || epoch(4B) || prev_anchor_hash(32B)`). Self-identifying on Bitcoin — genesis fingerprint enables chain-level discovery. Cost: ~2,500 sats/day from genesis remainder. Proves every funded content hash existed with specific economic properties at a specific block height. Per-content fossil proof: state tuple + Merkle path + Bitcoin txid (~500 bytes, self-contained, self-verifying). Multiple settlers produce identical roots from the same input (deterministic) — disagreement is a permanent on-chain inconsistency signal. The OP_RETURN chain is the deepest moat: unforgeable per-epoch economic history on Bitcoin, stretching back to genesis.
+- Content state tree (two tiers — protocol settles, product interprets): **Per-mint state root** (`content_state_root` in settlement events) is a Merkle root over `protocol_seed || this mint's per-content economic states` (content_hash, balance_at_mint, attestation_count, drain_history, current_status). Closed per-mint computation — no cross-mint join. Stores verify their content states against their mint's committed root; auditors verify custody. A natural extension of the epoch summary's existing commitments (attestation_root, store_set_root). **Global state root** is an index-layer product: the materializer aggregates per-mint settlement data across mints, produces a single global Merkle root. Deterministic from public data — multiple indexes produce the same root (or diverge detectably via `input_set` hash). This is the cross-mint aggregation the product layer already performs for rankings. **Bitcoin anchoring** is a market activity, not a protocol function. Parties who benefit from Bitcoin-grade durability anchor for their own reasons: serve endpoints selling `/verify/<hash>` proof URLs (business need), index operators differentiating their API (product need), institutions preserving evidence (legal/archival need), the founder at bootstrap (fork resistance, bounded seed cost). OP_RETURN format (~48 bytes): `"OCDN"(4B) || genesis_fingerprint(8B) || state_root(32B) || epoch(4B)`. Self-identifying via genesis fingerprint; no chain linkage (`prev_anchor_hash`) needed — each anchor is self-contained (epoch number + genesis fingerprint identifies it). Gap-tolerant: missed epochs don't enable fraud (state roots are deterministic and self-verifying from public relay data); late anchors for past epochs are always valid; the gap is visible. Multiple parties independently anchoring the same epoch produce identical roots — non-conflicting by construction. Per-content fossil proof: state tuple + Merkle path against any relay-published or Bitcoin-anchored root (~500 bytes, self-verifying). Ghost state (see Glossary) is provable against per-mint roots on relays even without any Bitcoin anchor — the anchor adds Bitcoin-grade durability, not the only proof path.
 - Multiple settlers cross-verify via `input_set` convergence tag.
 - Mint liveness: offline mints stop earning. Stores and clients reroute after MAX_SILENT_EPOCHS (~24h) of missing summaries. No death penalty — mint resumes on return; reputation reflects the gap.
 - All events carry `["v", "1"]` version tag.
@@ -582,7 +582,7 @@ Market-driven, no parameters:
 2. **Thinning**: Expensive stores evict first. Fewer replicas.
 3. **Mintless**: All mints down — stores still serve via degraded-mode PoW authorization. No settlement, no earnings, no demand signal. Content available; economics suspended. Stores tolerate this for short outages (blobs on disk = sunk cost). Prolonged outage → stores evict (no income) → thinning.
 4. **Last store**: Single point of failure. Index shows warning.
-5. **Fossil**: No stores. Bytes gone (see Glossary: Ghost). Economic fossil persists on relays + Bitcoin anchor. M persists — enables recovery from surviving offline copies. `[+] to restore`.
+5. **Fossil**: No stores. Bytes gone (see Glossary: Ghost). Economic fossil persists on relays (per-mint state roots); Bitcoin anchors by any interested party add permanent durability. M persists — enables recovery from surviving offline copies. `[+] to restore`.
 6. **Restored**: Re-fund → store mirrors shards → earning. The gap in the record is permanent and visible.
 
 ### Coverage Signal Frequency
@@ -1107,7 +1107,7 @@ Three tiers: the genesis inscription (one hardcoded constant — everything else
 |----------|--------|------|
 | genesis_pubkey / protocol_seed | Inscription sender | Root of all cryptographic derivations. The protocol's identity. |
 | genesis_address | Derived from genesis_pubkey | Settlement remainder + sweep destination. |
-| genesis_fingerprint | First 8 bytes of SHA256(genesis_pubkey) | Compact identifier in events + OP_RETURN. |
+| genesis_fingerprint | First 8 bytes of SHA256(genesis_pubkey) | Compact identifier in events + OP_RETURN anchors (product-layer). |
 | RS_K | Inscription body | 10. Reconstruction threshold. |
 | RS_N | Inscription body | 20. Total storage shards. |
 | RS_WASM_HASH | Inscription body | SHA256 of canonical WASM binary. New binary = content-fork. |
@@ -1196,7 +1196,7 @@ Economic parameters (DRAIN_RATE, SWEEP_EPOCHS, challenge intervals, etc.) are pe
 ### Moat Properties
 
 - **Genesis pubkey spans all versions and all parameter sets — cryptographically.** Content-fork from v1 to v2 uses the same protocol_seed. A mint with DRAIN_RATE=1/64 uses the same settlement formula with the same genesis remainder. A fork that changes the genesis pubkey creates a mathematically incompatible protocol (see Glossary: Economic moat, layer (a)).
-- **The OP_RETURN chain is monotonically accumulating.** Each epoch anchors a genesis-fingerprinted state root on Bitcoin. After N epochs, the honest protocol has N entries of unforgeable history. A fork starts at 0.
+- **The OP_RETURN chain is monotonically accumulating.** Any party can anchor genesis-fingerprinted state roots on Bitcoin for their own benefit (serve endpoints, index operators, institutions, founder at bootstrap). After N anchored epochs, the honest protocol has N entries of unforgeable history. A fork starts at 0. Multiple parties anchoring the same epoch produce identical roots — non-conflicting by construction, gap-tolerant by design.
 - **The Schelling point is harder to attack than an authority.** You can't "override" a default — you can only out-compete it by bootstrapping a whole alternative ecosystem.
 - **Encoding upgrades generate revenue.** Re-upload + re-fund under new version = new market activity = more settlement = more genesis income.
 
@@ -1517,7 +1517,7 @@ Every participant needs the block hash at `epoch_start_height - RING_CONFIRM_DEP
 
 ### 27. Genesis Key Irrevocability
 
-The genesis pubkey is rooted in every cryptographic derivation (content keys, Argon2 salts, epoch hashes, challenge nonces, store selection, state roots, Bitcoin anchors). **Key rotation = content-fork**: changing the genesis pubkey changes every derived parameter, making a new protocol instance that cannot decrypt existing content, discover existing stores, or extend the existing OP_RETURN chain. Key compromise means: attacker can spend accumulated income (the private key's only function). The protocol continues operating regardless (the public key is the parameter, irrevocably distributed to every participant). **Residual**: (i) Key management is non-negotiable from before the genesis inscription — the keypair generated for the inscription is the keypair forever. (ii) The genesis key is only for spending; it never signs protocol operations, never goes on a hot machine for protocol purposes. (iii) Protocol survives key seizure — income redirected but the swarm operates using the public key that exists in every binary and every Bitcoin anchor.
+The genesis pubkey is rooted in every cryptographic derivation (content keys, Argon2 salts, epoch hashes, challenge nonces, store selection, state roots). **Key rotation = content-fork**: changing the genesis pubkey changes every derived parameter, making a new protocol instance that cannot decrypt existing content, discover existing stores, or produce valid state roots matching existing Bitcoin anchors. Key compromise means: attacker can spend accumulated income (the private key's only function). The protocol continues operating regardless (the public key is the parameter, irrevocably distributed to every participant). **Residual**: (i) Key management is non-negotiable from before the genesis inscription — the keypair generated for the inscription is the keypair forever. (ii) The genesis key is only for spending; it never signs protocol operations, never goes on a hot machine for protocol purposes. (iii) Protocol survives key seizure — income redirected but the swarm operates using the public key that exists in every binary and every Bitcoin anchor.
 
 ---
 
@@ -1555,7 +1555,7 @@ Notation: `→` = sends to, `←` = receives from, `⊕` = honest action, `⊘` 
 | C9 | Deposit via HTLC-gated Cashu (honest) | ⊕ | — | Pool credited. Fund confirmation published. |
 | C10 | Deposit, mint doesn't publish confirmation | ⊘ (mint) | [D] HTLC timeout | [C] Funder reclaims. Atomic. |
 | C11 | Deposit garbage content (griefing) | ⊘ | [D] Mint verifies shard integrity (Step 1b): decrypt, reconstruct, SHA256 == content_hash | [C] Deposit rejected. |
-| C12 | Deposit to attacker-controlled mint (via compromised client) | ⊘ | [D] Client should verify mint's epoch summaries match Bitcoin-anchored state root chain | [C] If undetected: funder loses deposit to attacker mint. Bounded by deposit amount. |
+| C12 | Deposit to attacker-controlled mint (via compromised client) | ⊘ | [D] Client should verify mint's epoch summaries and per-mint state roots against other settlers' computations on relays | [C] If undetected: funder loses deposit to attacker mint. Bounded by deposit amount. |
 
 ### SERVE ENDPOINT
 
@@ -1662,7 +1662,7 @@ Notation: `→` = sends to, `←` = receives from, `⊕` = honest action, `⊘` 
 
 | # | Action | Type | Detection | Consequence |
 |---|--------|------|-----------|-------------|
-| M18 | Publish correct epoch summary (valid epoch_hash, honest attestation root, correct S_s) | ⊕ | — | Settlement proceeds. OP_RETURN chain extends. |
+| M18 | Publish correct epoch summary (valid epoch_hash, honest attestation root, correct S_s) | ⊕ | — | Settlement proceeds. Per-mint state root committed. |
 | M19 | Publish epoch summary with wrong epoch_hash | ⊘ | [D] Settler recomputes epoch_hash from protocol_seed + BTC | [C] Rejected. Settlement skipped for this mint this epoch. |
 | M20 | Publish epoch summary with inflated S_s (fake store count) | ⊘ | [D] Settlers verify attestation detail against attestation Merkle root. Phantom stores must exist in the committed store_set_root. | [C] Inconsistency between root and claimed counts. Detectable. |
 | M21 | Publish conflicting epoch summaries (fork own chain) | ⊘ | [D] prev hash chain — conflicting summaries at same seq detectable by any observer | [C] Permanent inconsistency signal on relays. Stores and clients reroute. |
@@ -1679,13 +1679,13 @@ Notation: `→` = sends to, `←` = receives from, `⊕` = honest action, `⊘` 
 
 ### SETTLER
 
-**Boundary: SETTLER ← MINTS (epoch summaries) → RELAYS (settlement events) → BITCOIN (OP_RETURN)**
+**Boundary: SETTLER ← MINTS (epoch summaries) → RELAYS (settlement events)**
 
 | # | Action | Type | Detection | Consequence |
 |---|--------|------|-----------|-------------|
-| SE1 | Compute correct settlement from epoch summaries, publish, anchor on Bitcoin | ⊕ | — | Deterministic. Multiple settlers converge. OP_RETURN chain extends. |
+| SE1 | Compute correct settlement from epoch summaries, publish to relays | ⊕ | — | Deterministic. Multiple settlers converge. Per-mint state roots committed. |
 | SE2 | Compute wrong settlement (redirect remainder) | ⊘ | [D] Settlement is deterministic. Any other settler (or store, or auditor) recomputes and gets a different result. input_set convergence tag reveals inconsistency. | [C] Non-canonical settlement ignored. Stores compare against their own computation. |
-| SE3 | Anchor wrong state root on Bitcoin | ⊘ | [D] content_state_root is deterministic from protocol_seed + public data. Any recomputation catches the mismatch. | [C] Competing OP_RETURN with correct root appears. Wrong root is provably fraudulent. |
+| SE3 | Publish wrong per-mint state root | ⊘ | [D] content_state_root is deterministic from protocol_seed + public per-mint data. Any recomputation catches the mismatch. | [C] Competing settlement with correct root appears. Wrong root is provably fraudulent. Stores verify against own state. |
 | SE4 | Withhold settlement (don't compute) | ⊘ | [D] Any other settler can compute. | [C] Settler earns nothing anyway (public service). Other settlers fill the gap. |
 
 ### RELAY (external, not a protocol role — included for completeness)
@@ -1706,8 +1706,8 @@ CLIENT ──epoch_hash──→ SERVE ENDPOINT ──epoch_hash──→ MINT
 STORE ←──epoch_hash──→ MINT          STORE ←──epoch_hash──→ STORE (cross-verify)
                                                        ↓ epoch_hash
                                      SETTLER ←──epoch_hash── MINT (epoch summary)
-                                                       ↓ genesis_fingerprint
-                                     BITCOIN ←── SETTLER (OP_RETURN with genesis_fingerprint + state_root)
+                                                       ↓ genesis_fingerprint (product layer, any party)
+                                     BITCOIN ←── ANY PARTY (OP_RETURN with genesis_fingerprint + state_root)
 ```
 
 A participant with the wrong genesis pubkey fails at the FIRST boundary they touch. The failure is not "rejected by policy" — it is "computationally inert" (wrong hash, can't produce valid proofs, can't verify valid tokens).
@@ -1730,7 +1730,7 @@ Single-role attacks are bounded above. The remaining question: what if one entit
 |---|-----|--------|
 | G1 | Sybil stores (1 machine, N identities, 1 disk) are more cost-efficient than honest stores. Store-blind makes them harmless but doesn't make them unprofitable. Per-store unique wrapping (see earlier discussion) raises cost but disk is cheap. | Open — economic, not security-critical |
 | G2 | Bootstrap with 1 serve endpoint: traffic analysis is unmitigated. | Acknowledged (Unresolved #19). Closes as serve endpoint count grows. |
-| G3 | Compromised client can route deposits to attacker mint while using correct genesis pubkey for content delivery. User doesn't notice. | Mitigated by client-side mint verification against OP_RETURN chain. Residual: user must trust SOME verification code. |
-| G4 | Settler incentive: no income. At scale, settlement is expensive to compute. | Open (see discussion). Serve endpoints that need settlement data may run settlers as cost of business. |
+| G3 | Compromised client can route deposits to attacker mint while using correct genesis pubkey for content delivery. User doesn't notice. | Mitigated by client-side mint verification against per-mint state roots on relays (and Bitcoin anchors where available). Residual: user must trust SOME verification code. |
+| G4 | Settler incentive: no income. At scale, settlement is expensive to compute. | Partially resolved: settlers no longer bear OP_RETURN costs (Bitcoin anchoring is product-layer, funded by parties who benefit — see Settlement §4). Compute cost remains. Serve endpoints that need settlement data may run settlers as cost of business. |
 | G5 | Mint can learn content→store mapping for content it processes (intelligence). Anonymous transport hides operator identity; store-blindness hides content from store; but mint sees both sides. | By design — mint is the trusted bridge. Mitigation: competing mints, deposit splitting, relay-encrypted mappings as fallback. |
 | G6 | Epoch_hash depends on Bitcoin block hash. 51% miner can manipulate block hash to bias store selection / verification rings for one epoch. | Impractical — Bitcoin mining attack is astronomically expensive for one epoch of OCDN routing bias. |
