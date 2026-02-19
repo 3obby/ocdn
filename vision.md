@@ -270,7 +270,7 @@ Mints are a discovery cache — the relay layer is the source of truth. Serve en
 | **Settlement event** | Protocol | Per-mint deterministic payout across P participants. See §4. |
 | **Storage challenge protocol** | Protocol | Permissionless — anyone can challenge (no bond needed). Random byte offsets + Merkle proofs, latency-tested. Failure → lose epoch earnings. Repeated failure → mint stops interacting. |
 | **Cross-store verification** | Protocol | Block-hash-assigned per-epoch peer verification. Earning requires proving own storage AND verifying a peer. |
-| **Attestation broadcast** | Protocol | Stores submit to ALL bonded mints (O(M), M small). Omission detectable via attestation Merkle root verification. |
+| **Attestation submission** | Protocol | Stores submit attestations to the delivery-token-issuing mint (direct channel). Omission detectable via attestation Merkle root in epoch summary → competitive exit. |
 | **Bonded mint registration** | Protocol | Time-locked on-chain UTXO (fidelity bond). Permissionless. Tenure-weighted custody ceiling. Enforcement: competitive exit — stores and clients reroute on misbehavior. |
 | **`ocdn-store` daemon** | Product | Commodity storage behind anonymous transport. Single required input: `--disk <budget>`. Bundles Tor, binds .onion address on first run (key persists in volume). **Autonomous rebalance loop** (every coverage signal, ~1h): ranks all shards (held + available) by `projected_value_per_byte` — projected lifetime earnings normalized by shard size, accounting for pool decay, tenure ramp-up curve, and modeled competitor entry. Desired portfolio = top shards fitting disk budget. Diff against current holdings → acquire (via replication tokens from existing stores) / evict automatically. Tenure is the implicit switching cost: held shards rank higher than equivalent new ones (earning at 99% weight vs starting at 33%), creating natural portfolio stickiness without a separate parameter. Shard acquisition via replication tokens (see Glossary); eviction by dropping lowest-value-per-byte shards when better opportunities exist. Local state is hash-blind: persists only `blob_id → encrypted bytes` and `blob_id → earnings_rate` (see Glossary: Store-blind). Zero editorial decisions. `docker run ocdn-store --disk 50GB` entry point. Operator identity never leaves the container. Earns Cashu ecash tokens (blind-signed, bearer, auto-diversified across mints). On restart: re-evaluates portfolio from fresh coverage signals before re-registering mappings (shards survive on disk; market conditions may have changed). **Degraded-mode behavior**: if all persistent mint connections are down for > MAX_SILENT_EPOCHS, daemon accepts direct PoW-authorized requests (blob_id + PoW proof, no delivery token). Serves blob, earns nothing. Resumes normal operation on any mint reconnection. No new trust surface — store already verifies PoW in challenge protocol; blob_id is already known locally. Store-blind preserved: requester presents blob_id (store's own identifier), not content_hash. Target resource budget: <512MB RAM, <100MB/day bandwidth at steady state, persistent Tor circuits to mints (O(M), M small). |
 | **Importance index** | Product | Rankings, feed, API, widget. Anyone operates. |
@@ -479,7 +479,9 @@ for each mint m:
     for each shard s in 0..N-1:
       stores_s = stores_with_valid_attestations_AND_storage_proofs(s, m, epoch)
       S_s = len(stores_s)
-      if S_s == 0: continue                                     # uncovered shard: no drain, pool preserved
+      if S_s == 0:
+        recycle(pool[m, cid]) += shard_drain                    # uncovered shard: drain returns to pool
+        continue
 
       # Level 1: per-shard parity — S_s stores + 1 coordination
       P_s = S_s + 1
@@ -537,7 +539,7 @@ if no_valid_attestations(cid, last_SWEEP_EPOCHS) \
 
 **Settlers query mints directly**: Settlers fetch epoch summaries from bonded mints' endpoints, not from relays. Mints are a bounded, enumerable set (bond registration includes endpoint). Relays carry epoch summaries for public auditability but are not on the settlement critical path. Each per-mint settlement event is independently final. Missing mints are filled in when their summaries become available. The `prev` hash chain on epoch summaries makes each mint's history self-proving — a new settler reconstructs any mint's complete history by following the chain backward from the latest summary.
 
-**Payout via Cashu**: Each epoch, settlement produces Cashu ecash tokens for each store's earnings, delivered via the existing persistent Tor circuit. Blind signatures (Chaum) make issuance and redemption unlinkable — the mint cannot correlate "issued tokens to `.onion:abc`" with "someone redeemed tokens." Tokens are bearer instruments: stores accumulate locally, redeem at any Cashu-compatible mint (including cross-mint swap for full separation from the issuing OCDN mint), at any time. Eliminates: PAYOUT_THRESHOLD (every epoch pays, even 1 sat), Lightning routing failures (no outbound Lightning at settlement), payment timing correlation (no observable mint-to-store payments). The OCDN mint is already custodial — Cashu token issuance is a natural extension, not a new trust assumption. **Counterparty risk**: tokens are claims on the issuing mint — if that mint exits, unswapped tokens are worthless. The daemon auto-diversifies: periodic cross-mint swap when any single-mint balance exceeds a threshold, spreading counterparty exposure. Multi-mint attestation (stores attest to all bonded mints) diversifies earning sources by construction. Optional Lightning sweep for operators who configure a receiving wallet. See Glossary: Cashu payout.
+**Payout via Cashu**: Each epoch, settlement produces Cashu ecash tokens for each store's earnings, delivered via the existing persistent Tor circuit. Blind signatures (Chaum) make issuance and redemption unlinkable — the mint cannot correlate "issued tokens to `.onion:abc`" with "someone redeemed tokens." Tokens are bearer instruments: stores accumulate locally, redeem at any Cashu-compatible mint (including cross-mint swap for full separation from the issuing OCDN mint), at any time. Eliminates: PAYOUT_THRESHOLD (every epoch pays, even 1 sat), Lightning routing failures (no outbound Lightning at settlement), payment timing correlation (no observable mint-to-store payments). The OCDN mint is already custodial — Cashu token issuance is a natural extension, not a new trust assumption. **Counterparty risk**: tokens are claims on the issuing mint — if that mint exits, unswapped tokens are worthless. The daemon auto-diversifies: periodic cross-mint swap when any single-mint balance exceeds a threshold, spreading counterparty exposure. Deposit splitting across mints (DEPOSIT_SPLIT_MIN) diversifies earning sources by construction. Optional Lightning sweep for operators who configure a receiving wallet. See Glossary: Cashu payout.
 
 **Properties**:
 - Deterministic: same epoch summary chain → same settlement. Anyone can verify. Tenure-weighted payout requires bounded lookback (~12 epochs at reference TENURE_DECAY) — deterministic from the same `prev`-chained epoch summaries settlers already consume.
@@ -1379,11 +1381,11 @@ Every event, request proof, body edge, graph computation, and threshold crossing
 
 ### 1. ~~Relay-Encrypted Mappings vs. Store-Blindness~~ RESOLVED
 
-Two-layer defense protecting different links (see Glossary: Store-blind, Mapping). Relay reveals content→address (Argon2-gated); anonymous transport hides address→operator. **Residual**: mapping staleness (periodic refresh needed), Argon2 parameter tuning for phone-browser WASM.
+Two-layer defense: relay reveals content→address (Argon2-gated), anonymous transport hides address→operator. **Residual**: mapping staleness, Argon2 WASM tuning.
 
 ### 2. ~~Bond Slash Enforcement~~ RESOLVED → Competitive Exit
 
-Fidelity bonds (see Glossary: Bond) + competitive exit (#13). **Residual**: sybil mint spam (mitigated by reference client routing limits), `tenure_factor` curve calibration, bootstrap window (single mint — ceiling is the only protection until ≥2 mints).
+Fidelity bonds + competitive exit (#13). **Residual**: sybil mint spam, `tenure_factor` calibration, bootstrap single-mint window.
 
 ### 3. Cross-Store Verification Ring at Low S
 
@@ -1391,23 +1393,23 @@ Verification ring requires S ≥ 3 for minimal independence. At S=1: no peer. At
 
 ### 4. ~~WASM Binary Governance~~ RESOLVED → Content-Fork
 
-New WASM binary = new CONTENT_KEY_DOMAIN = content-fork (see Upgrade Model). Parallel operation, natural sunset via sweep. **Residual**: get v1 right and freeze — content-forks should be extremely rare.
+New WASM binary = new CONTENT_KEY_DOMAIN = content-fork. Parallel operation, natural sunset via sweep. **Residual**: get v1 right and freeze.
 
 ### 5. ~~Epoch Summary Detail vs. Store Privacy~~ RESOLVED
 
-Delivery token model (see Glossary: Delivery token, §3). Attestations reference delivery token hashes, not content→store mappings. Settlers verify math without learning store-content associations. **Residual**: concrete schema for private epoch detail still needed.
+Attestations reference delivery_token_hash, not content→store mappings. **Residual**: concrete schema for private epoch detail.
 
 ### 6. ~~Lightning Payout Failure Handling~~ RESOLVED
 
-Cashu ecash payout (see Glossary: Cashu payout). Eliminates Lightning routing failures, payment timing correlation, and payment-layer deanonymization.
+Cashu ecash payout. Eliminates routing failures, timing correlation, payment-layer deanonymization.
 
 ### 7. ~~DRAIN_RATE Calibration~~ RESOLVED → Per-Mint Declared
 
-Per-mint declared parameter (see Constants, Upgrade Model: Economic Upgrades). Market converges via Schelling point. **Residual**: reference default 1/128 is a napkin estimate — but the market can correct it without a protocol upgrade.
+Per-mint declared parameter. Market converges via Schelling point. **Residual**: reference default 1/128 is a napkin estimate.
 
-### 8. ~~Sweep Trigger Calibration~~ RESOLVED
+### 8. ~~Sweep Trigger Calibration~~ RESOLVED → Binary Condition
 
-PoW-weighted sweep threshold: aggregate PoW must exceed `SWEEP_POW_THRESHOLD` within SWEEP_EPOCHS. Anti-griefing scales linearly. **Residual**: threshold calibration needs telemetry — too high = premature organic sweep; too low = cheap griefing.
+Binary condition: no valid attestations AND no valid request proofs for SWEEP_EPOCHS → sweep. PoW-weighted threshold dropped — keeping a pool alive via valid request proofs IS demand (costs ongoing PoW, benefits only content supporters). See Glossary: Sweep, §4 pseudocode.
 
 ### 9. M Key Lifecycle
 
@@ -1441,7 +1443,7 @@ Fraud proofs replaced by competitive exit + attestation Merkle root. The PoW ana
 
 **What was added**: (i) `attestation_root` in epoch summary — Merkle root over `hash(attestation)` leaves. Store verifies own inclusion; settlers verify detail consistency against committed root. Attestation signatures make leaves unpredictable to non-signers — sibling hashes in inclusion proofs reveal nothing about other stores. (ii) `shard_stores` in epoch summary — per-shard S_s counts. Stores compute exact expected payouts independently. Settlers verify S_s against attestation detail.
 
-**What was preserved**: Fidelity bonds + tenure-weighted ceiling (bounds custody risk by construction). Hash-chained epoch summaries (consistency detection, not prosecution). Storage challenges (self-proving work — fail = no payment). Cross-store verification ring. Deposit splitting. Multi-mint attestation broadcast.
+**What was preserved**: Fidelity bonds + tenure-weighted ceiling (bounds custody risk by construction). Hash-chained epoch summaries (consistency detection, not prosecution). Storage challenges (self-proving work — fail = no payment). Cross-store verification ring. Deposit splitting.
 
 **Enforcement model**: Store verifies Merkle inclusion + computes expected payout from public data (pool balance + S_s + formula) + compares against received Cashu token. Anomaly → stop attesting to that mint, reroute to alternatives. Aggregate departures are visible in subsequent epoch summaries — the store count trajectory IS the reputation signal. No reporting, no claims, no oracles.
 
@@ -1453,17 +1455,11 @@ Fraud proofs replaced by competitive exit + attestation Merkle root. The PoW ana
 
 ### 14. ~~Delivery Token Throughput Over Tor~~ RESOLVED → Degraded-Mode Retrieval
 
-**Throughput** (original concern): persistent Tor connections between serve endpoints and mints (batch RPC, not per-request circuits). Pre-issued delivery token batches on relays (encrypted to registered serve endpoint pubkeys) convert synchronous mint-contact into asynchronous relay-pull. Hot path never touches Tor latency.
+Throughput: persistent Tor connections + batch RPC. Availability: delivery token decomposes into authorization (PoW, redundant) + mediation (mint-liveness-dependent). Degraded mode: stores accept PoW-authorized direct requests when all mints down; discovery via relay-encrypted mappings + escrowed M. Structurally worse for all participants → no perverse incentive. **Residual**: degraded-mode abuse surface (PoW-only rate limiting), store eviction timeline during prolonged outage, serve endpoint M exposure in degraded mode.
 
-**Availability** (the deeper concern): delivery tokens made mints the retrieval critical path — mint takedown = content blackout despite data, mappings, and keys surviving on relays. **Resolution**: the delivery token bundles two functions — authorization (anti-abuse, redundant with PoW) and mediation (per-request privacy + routing, requires mint liveness). Decomposing the two enables degraded-mode retrieval: stores accept PoW-authorized direct requests (blob_id + PoW) when no mint is reachable for > MAX_SILENT_EPOCHS. Discovery via relay-encrypted mappings (Argon2-gated, already designed to survive mint death). Decryption via relay-escrowed M (same). Store-blind preserved: requester presents blob_id (store's own identifier), not content_hash. **Degradations**: no settlement (stores earn nothing), no per-request privacy (serve endpoint sees full store topology), no demand signal. **Perverse incentive analysis**: degraded mode is structurally worse for all participants — stores (no income), serve endpoints (no via income), readers (slower, reduced privacy). No pricing differential needed; the absence of settlement IS the differential. Degraded mode is a censorship-resistance property, not an alternative operating mode.
+### 15. ~~Deposit Atomicity~~ RESOLVED → HTLC-Gated Cashu
 
-**DDoS on mint .onion**: discoverable from relay registration events. Tor PoW-gated onion access (0.4.8+) helps. Multi-mint architecture is the primary defense. Degraded-mode retrieval is the last resort — DDoS suppresses economics but not content.
-
-**Residual**: (i) Degraded-mode abuse surface — PoW is the only rate limiter; sustained DDoS on stores via valid PoW is expensive but possible. (ii) Store eviction timeline during prolonged mint outage — daemon rebalance loop sees zero earnings, eventually evicts; the grace period before eviction is implicit (next coverage signal cycle, ~1h). (iii) Serve endpoint holding M in degraded mode is a temporary privacy reduction — M exposure to serve endpoints doesn't break store-blindness (serve endpoint already sees store addresses) but does collapse the key envelope abstraction.
-
-### 15. Deposit Atomicity (HTLC-Gated Cashu)
-
-Anonymous mints create a deposit trust gap: funder sends bearer ecash, mint doesn't publish confirmation. **Resolution**: HTLC-gated deposits. Ecash locked to a hash preimage; fund confirmation event on relays MUST contain the preimage for ecash to settle. Funder reclaims on timeout. Atomic — mint cannot take ecash without publishing, cannot forge the confirmation (preimage binds to content_hash + amount + mint pubkey). Cashu supports hash-time-locked tokens today. **Residual**: HTLC timeout must accommodate Tor latency + relay propagation (~30-60s); needs protocol-level specification of the preimage derivation scheme.
+HTLC-gated deposits: ecash locked to preimage; fund confirmation MUST contain preimage to settle; funder reclaims on timeout. Atomic. **Residual**: HTLC timeout (~30-60s for Tor + relay propagation), preimage derivation scheme specification.
 
 ### 16. Bond UTXO Chain Analysis
 
@@ -1483,7 +1479,7 @@ During bootstrap (1-2 serve endpoints), the mandatory proxy is a traffic analysi
 
 ### 20. ~~Store Selection Algorithm~~ RESOLVED → Verifiable Store Selection
 
-Delivery token store selection uses epoch_hash determinism (rooted in protocol_seed): `selected_index = hash(epoch_hash || content_hash || shard_index || request_proof_hash) mod S_s` against the previous epoch's committed `store_set_root` (Merkle root over sorted store pubkeys, published in epoch summary). Selection proof included in each delivery token. Stores verify every token; settlers audit selection correctness against committed sets. Mint cannot bias selection without rejecting valid request proofs (detectable by serve endpoints) or falsifying the committed store set (detectable via cross-store verification — phantom stores must pass challenges). **Why this matters**: without verifiable selection, a vertically integrated mint routing delivery tokens to its own sybil stores captures coordination share + all storage shares (~10× revenue) invisibly — the anonymity that protects legitimate stores also hides the collusion. Verifiable selection makes biased routing a provable fraud after a single anomalous delivery token. The mechanism generalizes the existing cross-store verification construction — same inputs (block hash, public data), same trust properties (unpredictable, independently verifiable), applied to routing instead of peer assignment. **Residual**: (i) serve endpoint observation of store selection patterns across many requests — deterministic selection means repeated requests for the same content in the same epoch hit the same stores (mitigated by including request_proof_hash, which varies per request via client PoW nonce). (ii) New stores joining mid-epoch receive delivery tokens starting next epoch (store_set_root frozen at epoch summary publication) — aligns with tenure ramp-up (first epoch = low weight anyway).
+`selected_index = hash(epoch_hash || content_hash || shard_index || request_proof_hash) mod S_s` against committed `store_set_root`. Selection proof in each delivery token. Biased routing = provable fraud after one anomalous token. Without this: vertically integrated mint captures ~10× revenue invisibly. **Residual**: serve endpoint selection pattern observation (mitigated by request_proof_hash variance), mid-epoch store joins (aligns with tenure ramp).
 
 ### 21. PoW Difficulty Adaptation
 
@@ -1518,6 +1514,14 @@ Every participant needs the block hash at `epoch_start_height - RING_CONFIRM_DEP
 ### 27. Genesis Key Irrevocability
 
 The genesis pubkey is rooted in every cryptographic derivation (content keys, Argon2 salts, epoch hashes, challenge nonces, store selection, state roots). **Key rotation = content-fork**: changing the genesis pubkey changes every derived parameter, making a new protocol instance that cannot decrypt existing content, discover existing stores, or produce valid state roots matching existing Bitcoin anchors. Key compromise means: attacker can spend accumulated income (the private key's only function). The protocol continues operating regardless (the public key is the parameter, irrevocably distributed to every participant). **Residual**: (i) Key management is non-negotiable from before the genesis inscription — the keypair generated for the inscription is the keypair forever. (ii) The genesis key is only for spending; it never signs protocol operations, never goes on a hot machine for protocol purposes. (iii) Protocol survives key seizure — income redirected but the swarm operates using the public key that exists in every binary and every Bitcoin anchor.
+
+### 28. Split-Deposit M Generation Race Condition
+
+When deposits split across 2+ mints (DEPOSIT_SPLIT_MIN), upload verification (Step 1b) and M generation must happen at exactly one mint — otherwise both mints independently generate different M values for the same content_hash, producing inconsistent outer encryption layers. Stores acquiring shards wrapped under M_A can't be served through Mint_B (which would issue key envelopes using M_B).
+
+**Likely fix**: client designates one "verifying mint" for upload (Step 1b + M generation). Secondary mints accept sats-only deposits. Secondary mint confirms only after detecting the verifying mint's fund confirmation on relays (proves verification passed, M exists in gossip/relay escrow). HTLC timeout accommodates propagation delay; if verifying mint fails, all mints reclaim via HTLC.
+
+**Open questions**: (i) Should secondary mints verify shards independently? Probably not — garbage content with no valid shards at secondary mints is self-correcting (no stores appear, pool sweeps). Upload verification at one mint is sufficient anti-griefing. (ii) Fund confirmation event should indicate verifying vs. secondary mint role (or at minimum, secondary mints should reference the verifying mint's confirmation event). (iii) If verifying mint goes down after generating M but before gossip completes, relay-escrowed M is the recovery path — but the escrow must happen atomically with (or before) the fund confirmation. (iv) The HTLC timeout chain: primary verification + relay propagation + secondary confirmation must fit within the funder's HTLC window — needs concrete timing analysis.
 
 ---
 
