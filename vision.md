@@ -674,7 +674,7 @@ The feedback loop: reads → visibility → funding → storage → reads. The m
 | Attack | Defense |
 |--------|---------|
 | Fake demand (sybil clients) | PoW cost per request proof. Ephemeral keys make sybil cheaper but only affect the index (display layer), not settlement (economic layer) — drain = DRAIN_RATE × balance (gate-triggered by attestation existence, not count-triggered by volume). Index weights commitment (sats) over demand (PoW). |
-| Flood requests | PoW difficulty scales with volume — exponential cost |
+| Flood requests | Static PoW cost floor per proof + per-mint rate limiting (`max_commitments_per_epoch`). Excess proofs dropped before commitment (see #21). |
 | Replay requests | Epoch-bound, single use |
 | Fake bytes served | response_hash in store attestation must match expected shard hash |
 | Forge store attestation | Requires store's private key (Ed25519) + valid bond |
@@ -1186,7 +1186,9 @@ Three tiers: the genesis inscription (one hardcoded constant — everything else
 | MIN_ATTESTATIONS | 1 | Minimum store attestations per shard for settlement validity. |
 | MIN_COVERAGE_K | RS_K (10) | Minimum covered shards for request proof acceptance. |
 | COVERAGE_BLOCKS | 6 | ~1h. Coverage signal frequency. |
-| POW_TARGET_BASE | 2^240 | Anti-spam for request proofs. ~200ms mobile. |
+| POW_TARGET_BASE | 2^240 | Anti-spam for request proofs. ~130ms expected / ~1.2s 99th-pct on low-end Android at 50% throttle. Per-mint declared. |
+| POW_TARGET_MIN | 2^236 | Protocol floor (hardest allowed). Prevents griefing via unreachable difficulty declarations. |
+| POW_TARGET_MAX | 2^244 | Protocol ceiling (easiest allowed). Below this, spam resistance is negligible. |
 | POW_SIZE_UNIT | 1048576 (1 MB) | PoW scales with content size. |
 | TOKEN_VALIDITY | 1 epoch | Delivery tokens expire at epoch boundary. Single-use, nonce-bound. |
 | SERVE_CREDENTIAL_POW | 2^236 | ~3s PoW to register as serve endpoint with this mint. |
@@ -1559,9 +1561,15 @@ During bootstrap (1-2 serve endpoints), the mandatory proxy is a traffic analysi
 
 **Residual**: (a) ~~selective dropping~~ RESOLVED — serve-blinded selection prevents routing-biased dropping (see #29). (b) ~~Tenure amplification~~ RESOLVED — challenge-based tenure decouples weight from routing frequency (see #30). (c) Serve endpoint selection pattern observation (mitigated by request_proof_hash × selection_nonce variance). (d) Mid-epoch store joins (aligns with tenure ramp). (e) Key envelope size (~6KB for K=10 at tree depth 20). (f) Nonce grinding by sybil "clients" — bounded by PoW cost per attempt (see #29 residual). (g) Serve+mint collusion pre-commitment at bootstrap — requires two colluding parties, bounded by seed budget (see #31 residual).
 
-### 21. PoW Difficulty Adaptation
+### 21. ~~PoW Difficulty Adaptation~~ RESOLVED → Static Per-Mint + Rate Limiting
 
-`POW_TARGET_BASE` is per-mint declared but static. As hardware improves, the spam boundary erodes. Under active sybil attack, no mechanism exists to raise difficulty reactively. Per-mint declaration means each mint adjusts independently — convergence via Schelling point may be too slow under attack. **Tension**: adaptive difficulty (mint adjusts based on request proof volume) creates gaming incentives — an attacker floods proofs to raise difficulty, pricing out legitimate mobile readers. Static difficulty is stable but brittle to hardware trends. Bitcoin's difficulty adjustment works because block production is bounded; request proof production is unbounded. Needs: whether per-mint declaration + reference default updates are sufficient, or whether an in-protocol adaptive mechanism is required, and if so, how to prevent attacker-induced difficulty manipulation.
+Static difficulty, per-mint declared, no in-protocol adaptive mechanism. Adaptive difficulty is rejected: an attacker flooding proofs to raise difficulty prices out mobile readers (the dwell window is a hard ceiling — proofs that can't complete in ~2s produce zero signal). The gaming vector is worse than the attack it prevents. Bitcoin's difficulty adjustment targets a production *rate* (blocks/time); OCDN has no target rate — request proof production is unbounded by design because demand IS the signal.
+
+**Resolution**: PoW sets a cost *floor* (anti-spam); per-mint rate limiting sets a capacity *ceiling* (operational). The two are orthogonal. Mints MAY declare `max_commitments_per_epoch` in capability advertisements. Excess proofs dropped before commitment issuance (no unfulfilled commitment, no accountability noise). Clients retry at other mints (deposit splitting ensures alternatives). Hardware trend erosion (~1 bit per ~4 years) addressed by reference default updates via constant evolution, not real-time adaptation.
+
+**Why this is low-stakes**: drain is gate-triggered, not count-triggered — PoW difficulty has zero effect on settlement. Demand is the sybilable index axis; the index already weights commitment (unsybilable) and centrality (unsybilable) over demand. At `2^240`, GPU attack cost for 1M fake proofs ≈ 270 sats — PoW makes sybil non-free, not prohibitive. The index filters residual noise via temporal distribution (dwell-paced vs. burst), epoch-over-epoch consistency, and cross-axis checks.
+
+**Mobile budget at `2^240`**: expected 65K hashes; 99th-percentile 302K hashes. Low-end Android 2022 (500K SHA256/s) at 50% throttle: 1.21s at 99th percentile. One bit harder (`2^239`) exceeds the 2s dwell window under throttle. Headroom reserved for battery saver, concurrent mining, thermal throttle — not spent on difficulty increase. Protocol bounds: `POW_TARGET_MIN = 2^236` (griefing floor), `POW_TARGET_MAX = 2^244` (spam-resistance floor).
 
 ### 22. Tenure-Weighted Payout Considerations
 

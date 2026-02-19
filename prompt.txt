@@ -1,0 +1,332 @@
+TASK: Resolve Unresolved Design Conflict #21 — PoW Difficulty Adaptation
+================================================================================
+
+You are resolving the most architecturally disruptive remaining design conflict
+in OCDN, a permissionless storage market protocol built on Nostr and Bitcoin.
+This conflict affects every read request (the most frequent protocol operation),
+the demand signal (foundation of the importance index — the product), the "free
+reading" thesis, mobile reader accessibility, and mint processing capacity.
+
+The current design has a tension it names but does not resolve:
+
+  "POW_TARGET_BASE is per-mint declared but static. As hardware improves, the
+  spam boundary erodes. Under active sybil attack, no mechanism exists to raise
+  difficulty reactively. Per-mint declaration means each mint adjusts
+  independently — convergence via Schelling point may be too slow under attack.
+  Tension: adaptive difficulty (mint adjusts based on request proof volume)
+  creates gaming incentives — an attacker floods proofs to raise difficulty,
+  pricing out legitimate mobile readers. Static difficulty is stable but brittle
+  to hardware trends. Bitcoin's difficulty adjustment works because block
+  production is bounded; request proof production is unbounded. Needs: whether
+  per-mint declaration + reference default updates are sufficient, or whether an
+  in-protocol adaptive mechanism is required, and if so, how to prevent
+  attacker-induced difficulty manipulation."
+
+================================================================================
+HOW POW WORKS TODAY
+================================================================================
+
+REQUEST PROOF (client-signed, one per read):
+
+  kind: NIP_RECEIPT_KIND
+  pubkey: client (ephemeral by default, unlinkable to main Nostr identity)
+  tags:
+    ["r", "<content_hash>"]          # what the client wants to consume
+    ["pow", "<nonce>", "<pow_hash>"] # anti-sybil
+    ["epoch", "<epoch_number>"]
+    ["epoch_hash", "<epoch_hash>"]   # mutual auth
+    ["via", "<referrer_pubkey>"]     # referrer (earns coordination sub-share)
+    ["blind", "<SHA256(selection_nonce)>"]  # serve-blinded selection
+  sig: client signature (NIP-07)
+
+  PoW requirement: SHA256(request_proof_serialized || nonce) < POW_TARGET_BASE.
+  POW_TARGET_BASE is per-mint declared. Reference default: 2^240.
+  Lower target = harder PoW. At 2^240: ~65,536 hash attempts expected.
+
+DWELL-BASED POW (reference client):
+  - Client pre-mines request proofs in a background Web Worker as content
+    enters the viewport.
+  - Text: proof submitted on dwell (visible and paused ≥2s).
+  - Documents: proof submitted on tap.
+  - Reading feels instant; PoW is invisible infrastructure.
+  - Pre-mined but unused proofs are discarded.
+  - The serve-blinded selection commitment phase (request proof with blind →
+    mint commits → commitment returned) executes during the same pre-dwell
+    period as PoW mining. The nonce reveal triggers on dwell.
+
+WHAT POW GATES:
+  1. Content delivery: mint verifies PoW before issuing delivery tokens.
+  2. Demand signal: request proofs are the demand signal for the importance
+     index. Published to relays (sampled at scale, full rate at bootstrap).
+  3. Processing commitment: each valid request proof triggers a signed
+     processing_commitment from the mint (serve-blinded selection). This
+     consumes mint CPU and storage.
+  4. Degraded mode: stores accept PoW-authorized direct requests (no
+     delivery token) when mints are unreachable.
+  5. Replication tokens: stores request replication authorization from mints
+     (PoW-gated).
+
+WHAT POW DOES NOT GATE:
+  - Settlement drain: drain = floor(balance × DRAIN_RATE). Gate-triggered by
+    the EXISTENCE of valid attestations, not count-triggered by request proof
+    volume. More proofs don't drain faster.
+  - Referrer income: the L2 coordination split is constant (3-way: mint /
+    referrer pool / genesis). R (referrer count) affects the internal
+    subdivision of the referrer pool, not the total coordination share.
+
+================================================================================
+WHY BITCOIN'S DIFFICULTY ADJUSTMENT DOESN'T APPLY
+================================================================================
+
+Bitcoin adjusts difficulty to maintain ~10 minute block intervals. The key
+property: block PRODUCTION is bounded (one block per interval regardless of
+hashrate). Difficulty adjusts so that total hashrate produces one block per
+interval. Supply is inelastic.
+
+OCDN request proofs have no production bound. There is no "one proof per
+interval." Any number of valid proofs can be produced per epoch. The protocol
+doesn't need to regulate production rate — it needs to regulate the COST per
+proof to make spam uneconomical while keeping legitimate reads cheap.
+
+The fundamental asymmetry:
+  - Bitcoin: difficulty regulates SUPPLY (blocks/time). Demand is external.
+  - OCDN: difficulty regulates COST (hashes/proof). Supply is unbounded.
+    Demand IS the signal — regulating it destroys information.
+
+This means any adaptive mechanism must avoid the following trap:
+  ATTACKER floods proofs → difficulty rises → legitimate mobile readers
+  can't mine fast enough → attacker has effectively censored mobile readers
+  by making PoW too expensive. The attacker pays the elevated PoW cost, but
+  they're willing to pay it — their goal is to either drown the signal or
+  price out mobile. Either outcome is a win for the attacker.
+
+================================================================================
+WHAT THE DEMAND SIGNAL IS USED FOR
+================================================================================
+
+The importance index is the product. It ranks content by:
+  importance = f(commitment, demand, centrality)
+
+Where:
+  - commitment = pool balance (sats, unsybilable)
+  - demand = request proof velocity (PoW-gated, sybilable at cost)
+  - centrality = citation graph position (PageRank variant)
+
+The divergence between commitment and demand IS the signal. Content with high
+commitment but low demand: over-funded (the market disagrees with funders).
+Content with high demand but low commitment: under-funded opportunity.
+
+Demand is the sybilable axis. The index CAN weight commitment over demand
+(thesis 17: "The index is the expendable layer. Settlement — where the money
+flows — is robust."). But the demand signal must be meaningful enough to
+distinguish "10 real readers" from "0 readers + noise." If PoW is too cheap,
+the noise floor rises and demand becomes meaningless. If PoW is too expensive,
+demand becomes sparse and the signal becomes noisy for a different reason
+(insufficient samples).
+
+The optimal PoW difficulty is the one where:
+  - A motivated attacker must spend X sats/hour to produce Y fake proofs
+  - Y fake proofs are detectable against the baseline of Z real proofs
+  - A mobile reader can mine one proof in <2 seconds (the dwell window)
+
+================================================================================
+THE PER-MINT DECLARATION MODEL
+================================================================================
+
+Currently, each mint declares its own POW_TARGET_BASE. Implications:
+
+1. A client submitting a request proof to mint A must mine to mint A's
+   difficulty. If mint A requires 2^238 (harder) and mint B requires 2^242
+   (easier), the client mines separate proofs for each. Deposit splitting
+   (DEPOSIT_SPLIT_MIN = 2+) means content is at multiple mints with
+   potentially different difficulties.
+
+2. Convergence via Schelling point: the reference client shows which mints
+   require what difficulty. Mints that set too-hard difficulty get fewer
+   request proofs (readers avoid them) → fewer attestations → less income.
+   Mints that set too-easy difficulty get spam-flooded → processing_commitment
+   overload → degraded service → stores reroute.
+
+3. The reference default (2^240) is declared in the genesis inscription
+   constant set. Mints are EXPECTED to use it. Deviation is permitted but
+   creates friction — the reference client highlights non-default difficulty.
+
+4. Under attack: an attacker floods proofs at one mint. That mint can raise
+   difficulty. But the raise affects ALL readers of content at that mint, not
+   just the attacker. Content funders may reroute deposits to a mint with
+   lower difficulty (competitive pressure against raising difficulty).
+
+================================================================================
+CONSTRAINTS
+================================================================================
+
+A. "READING FEELS INSTANT" (thesis, dwell-based PoW):
+   The reference client mines proofs in a Web Worker during the pre-dwell
+   period (content enters viewport but user hasn't dwelled). Mining must
+   complete within ~2 seconds on a mobile device. At current hardware:
+   - iPhone 15: ~5M SHA256/sec in WebAssembly
+   - Mid-range Android (2024): ~2M SHA256/sec
+   - Low-end Android (2022): ~500K SHA256/sec
+   At 2^240 target (~65K expected hashes): <0.2s on any device. Headroom.
+   At 2^232 target (~16M expected hashes): ~3s on iPhone, ~8s on mid-Android,
+   ~32s on low-end Android. Low-end is priced out.
+   The difficulty must accommodate the slowest target device class.
+
+B. DRAIN IS GATE-TRIGGERED, NOT COUNT-TRIGGERED:
+   Settlement fires when valid attestations exist, regardless of proof count.
+   More proofs don't drain faster. This is a critical design property — it
+   means PoW difficulty does NOT directly affect economics. It affects:
+   (i) the demand signal quality (index layer, soft),
+   (ii) mint processing load (operational, hard), and
+   (iii) relay event volume (network load, medium).
+
+C. EPHEMERAL KEYS:
+   Default: fresh key per session. Sybil risk from ephemeral keys affects
+   only the index, not settlement. The index CAN weight commitment over
+   demand. But ephemeral keys also mean the protocol can't rate-limit by
+   identity — only by PoW cost.
+
+D. PER-MINT SETTLEMENT INDEPENDENCE:
+   Each mint settles independently. If difficulty is per-mint, settlement
+   is unaffected. If difficulty becomes global or cross-mint, this could
+   introduce dependencies.
+
+E. SERVE-BLINDED SELECTION:
+   Each valid request proof triggers a processing_commitment from the mint.
+   The mint's commitment capacity is bounded. If the mint is flooded with
+   cheap proofs, it must either (a) process all (resource exhaustion) or
+   (b) drop some (unfulfilled commitments = evidence of misbehavior in the
+   commitment_count accountability signal).
+
+F. THE IMPORTANCE INDEX IS THE PRODUCT:
+   The demand axis must be meaningful. If PoW is so cheap that the noise
+   floor overwhelms real signal, the index becomes useless — and the index
+   is the PRODUCT that justifies the protocol's existence.
+
+================================================================================
+THE SPECIFIC DESIGN TENSIONS
+================================================================================
+
+1. STATIC DIFFICULTY vs. ADAPTIVE DIFFICULTY:
+   Static: stable, predictable, mobile-friendly, but erodes with hardware
+   trends and can't respond to attacks.
+   Adaptive: responsive to attacks, but creates a gaming vector (attacker
+   floods to raise difficulty, pricing out mobile).
+
+2. PER-MINT vs. GLOBAL vs. PER-CONTENT DIFFICULTY:
+   Per-mint: mints compete on difficulty (market), but fragmented (client
+   mines different PoW per mint). Under attack, only the targeted mint is
+   affected.
+   Global: uniform experience, but who sets it? No governance mechanism.
+   Convergence via Schelling point is slow.
+   Per-content: high-value content gets harder PoW (proportional to pool
+   balance?). Novel but complex — the client must know the difficulty per
+   content_hash before mining.
+
+3. DIFFICULTY AS SPAM DEFENSE vs. DIFFICULTY AS DEMAND SIGNAL QUALITY:
+   As spam defense: difficulty should be high enough that spam is expensive.
+   As demand signal: difficulty should be low enough that real reads produce
+   proofs, but high enough that fake reads are distinguishable.
+   These may have different optimal points.
+
+4. MINT PROCESSING CAPACITY:
+   Each proof triggers a processing_commitment (serve-blinded selection).
+   A mint processing 10K proofs/hour at easy difficulty needs different
+   capacity than 1M proofs/hour. The mint's difficulty declaration is
+   implicitly a capacity declaration. But the mint can't predict attack
+   volume — setting difficulty low attracts both readers AND attackers.
+
+5. MOBILE vs. DESKTOP vs. BOT:
+   Legitimate readers span 3 orders of magnitude in hash rate (500K to
+   500M SHA256/sec). Bots can use GPUs (10B+ SHA256/sec). Any fixed
+   difficulty that's feasible for low-end mobile is trivial for GPUs.
+   The attacker always has a hardware advantage. PoW can only raise the
+   COST, not equalize capability.
+
+6. THE 2-SECOND DWELL WINDOW:
+   The reference client mines during the pre-dwell period (~2s). If
+   difficulty requires >2s on the target device class, the proof isn't
+   ready when the user dwells, and the user perceives latency. The dwell
+   window is a hard constraint on difficulty.
+
+7. INTERACTION WITH THRESHOLD M (Phase 2b):
+   In Phase 2b, each valid request proof triggers T mint contacts (share
+   contributors). The cost to the serve endpoint scales with proof volume
+   × T. If PoW is too cheap, the serve endpoint is overwhelmed by Tor
+   circuit demands. This creates a new capacity constraint that didn't
+   exist in v1.
+
+================================================================================
+REFERENCE: EXISTING SYSTEMS
+================================================================================
+
+HASHCASH (email): static difficulty, per-recipient. No adaptation. Works
+because email is 1:1 and the cost per message is calibrated to "annoying
+for spammers, invisible for humans." OCDN's analog: PoW per request proof
+calibrated to "annoying for bots, invisible for readers."
+
+BITCOIN: adaptive difficulty, global. Adjusts every 2016 blocks to maintain
+10-minute intervals. Works because block production is bounded and difficulty
+targets a RATE, not a COST. Not directly applicable (see above).
+
+TOR: no PoW (uses onion routing for privacy, not PoW for spam). Recently
+introduced PoW for onion service DoS protection (equi-x puzzle, adaptive
+based on load). The Tor approach: service measures load, increases PoW
+difficulty when under stress, decreases when load drops. Clients that solve
+harder puzzles get priority. This is the closest analog to OCDN's problem.
+
+MONERO (RandomX): memory-hard PoW designed to equalize CPU and GPU
+performance. Reduces the attacker's hardware advantage. Relevant idea but
+adds significant complexity (WASM binary for RandomX, ~100KB).
+
+================================================================================
+WHAT YOUR ANSWER MUST CONTAIN
+================================================================================
+
+1. A clear recommendation: static, adaptive, or hybrid. If adaptive, specify
+   the adaptation mechanism precisely (what signal, what formula, what bounds).
+
+2. Resolution of the gaming vector: if adaptive, how do you prevent an
+   attacker from raising difficulty to price out mobile readers?
+
+3. Per-mint, global, or per-content difficulty — and the interaction with
+   per-mint settlement independence.
+
+4. The mobile constraint: what is the maximum acceptable difficulty for
+   a low-end Android (2022, ~500K SHA256/sec) to mine within the 2-second
+   dwell window? (Answer: ~1M hashes = 2^20. At 2^240 target, that's
+   ~65K hashes — well within budget. The headroom between 65K and 1M is
+   ~4 bits of difficulty. How should this headroom be used?)
+
+5. Mint processing capacity: how does difficulty interact with the mint's
+   ability to process commitments? Should mints be allowed to rate-limit
+   independently of PoW?
+
+6. Demand signal quality: at the recommended difficulty, what is the
+   cost in sats (via electricity) to produce 1000 fake request proofs?
+   Is this sufficient for the importance index to distinguish real demand
+   from sybil demand?
+
+7. Concrete parameter values: recommended POW_TARGET_BASE (or formula),
+   adaptation cadence (if adaptive), bounds (min/max difficulty), and
+   the reference default for the genesis inscription.
+
+8. An honest assessment: does PoW difficulty MATTER for OCDN's security
+   model, given that drain is gate-triggered (not count-triggered) and
+   the importance index is the "expendable layer"? Or is the current
+   design (static, per-mint, reference default in genesis inscription)
+   already sufficient, with the residual risk being index-layer noise
+   that the index itself can filter?
+
+================================================================================
+STYLE
+================================================================================
+
+Write in protocol specification style. Count hash operations. Measure
+time on target devices. Compute attack costs in sats. State tradeoffs
+explicitly. If the answer is "the current design is sufficient with minor
+refinements," say so and explain why the more complex alternatives aren't
+worth it. Prefer simplicity over cleverness. The protocol already has
+significant complexity from threshold M, PSS, serve-blinded selection,
+and challenge-based tenure. Adding another adaptive mechanism must clear
+a high bar of necessity.
