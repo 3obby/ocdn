@@ -1,4 +1,4 @@
-You are a protocol architect reasoning about a specific unresolved design challenge in a permissionless storage market protocol called OCDN. The protocol is Nostr-native, uses Bitcoin for bonding/anchoring, Cashu for payments, and Tor for anonymous transport. Your task is to explore the design space for the Store Selection Verification Under Store-Blindness problem (#20) — the single challenge most likely to require large-scale architecture re-organization, because it sits at the intersection of the protocol's most foundational invariant (store-blindness) and the basic economic contract with its most numerous participant class (stores).
+You are a protocol architect reasoning about a specific unresolved design challenge in a permissionless storage market protocol called OCDN. The protocol is Nostr-native, uses Bitcoin for bonding/anchoring, Cashu for payments, and Tor for anonymous transport. Your task is to explore the design space for the Sweep Condition and Per-Mint Independence problem (#32) — the single challenge most likely to require large-scale architecture re-organization, because it reveals a contradiction between two foundational properties: the per-mint independence of settlement (which makes the system modular, scalable, and auditable) and the sweep condition (which requires global, cross-mint demand data to decide whether content pools live or die).
 
 Read all context below carefully before responding. Then explore the design space systematically: identify the core tensions, enumerate alternative architectures (including ones not yet considered), evaluate tradeoffs, and propose a direction. Be rigorous. Challenge assumptions. Name things that don't work and say why.
 
@@ -8,220 +8,258 @@ Read all context below carefully before responding. Then explore the design spac
 
 OCDN is a permissionless storage market where sats bind to content hashes. Four separated roles:
 
-- **Store**: Unbonded, anonymous (Tor hidden service), holds convergent-encrypted shards under random blob_ids. Earns from pool drain via settlement. Three independent protections: (1) addressing-blind — stores hold shards under random blob IDs; the content_hash→blob_id mapping is mint-held. (2) operator-blind — anonymous transport (.onion default). (3) payment-blind — Cashu ecash (Chaum blind signatures). Daemon persists only `blob_id → encrypted bytes` + `blob_id → earnings_rate`. No content_hash on disk.
-- **Serve endpoint**: Untrusted clearnet delivery proxy + filtered OCDN relay. Earns referrer income via `via` tag. Mandatory intermediary between clients and stores. Sees partial store mappings (one random store per shard per request). Can derive convergent key (knows content_hash from request proof).
-- **Mint**: Fidelity-bonded (time-locked UTXO), anonymous (Tor). Holds pool balances, verifies request proofs, collects attestations, issues storage challenges, publishes epoch summaries. Identified by pubkey + bond. Custodial.
-- **Settler**: Deterministic payout computation from epoch summaries. Public service, no bond. Anyone can run.
+- **Store**: Unbonded, anonymous (Tor hidden service), holds convergent-encrypted shards under random blob_ids. Earns from pool drain via settlement. Three independent protections: addressing-blind, operator-blind, payment-blind. Daemon persists only `blob_id → encrypted bytes` + `blob_id → earnings_rate`. No content_hash on disk.
+- **Serve endpoint**: Untrusted clearnet delivery proxy + filtered OCDN relay. Earns referrer income via `via` tag. Mandatory intermediary between clients and stores. Publishes sampled request proofs and per-epoch referrer witness events to relays.
+- **Mint**: Fidelity-bonded (time-locked UTXO), anonymous (Tor). Holds pool balances, verifies request proofs, collects attestations, issues storage challenges, publishes epoch summaries. Custodial.
+- **Settler**: Deterministic payout computation from epoch summaries. Public service, no bond, no income. Anyone can run.
 
 **Genesis pubkey** = protocol seed. Discovered from a Bitcoin inscription. Root of ALL cryptographic derivations: content keys, Argon2 salts, epoch hashes, challenge nonces, store selection, state roots. Irrevocable.
 
 **Epoch**: ~4h (24 Bitcoin blocks). `epoch_hash = SHA256(protocol_seed || confirmed_block_hash || epoch_number)` — mutual authentication at every protocol boundary.
 
-**Content storage model**: Content → convergent encryption (deterministic: `key = SHA256(protocol_seed || CONTENT_KEY_DOMAIN || content_hash)`) → RS erasure coding (K=10, N=20 shards for documents; N=1 for text) → stored under random blob_ids at stores. No per-content secret key (M was removed from the protocol — convergent encryption + blind addressing + anonymous transport provide the security model).
+**Content storage model**: Content → convergent encryption → RS erasure coding (K=10, N=20 shards for documents; N=1 for text) → stored under random blob_ids at stores.
 
-**Settlement**: Per-mint, per-shard, participant parity. drain = floor(balance × DRAIN_RATE). Each shard's P_s = S_s + 1 participants (stores + coordination). Tenure-weighted (challenge-based: consecutive epochs passing storage challenges, NOT delivery token frequency). Remainders cascade to genesis address.
-
----
-
-## STORE-BLINDNESS: THE ARCHITECTURE
-
-Store-blindness is the protocol's central architectural commitment. It is described as "the architecture, not an upgrade." It provides the censorship resistance model: stores cannot be compelled to remove specific content because they cannot determine what they hold. It also provides operator liability isolation: seizure of a store reveals encrypted blobs under random IDs with no link to content hashes or operator identity.
-
-Store-blindness rests on two independent layers:
-1. **Addressing-blind** — blob_ids are random; the content_hash→blob_id mapping is mint-held. An adversary needs to compromise a mint to learn the mapping.
-2. **Operator-blind** — anonymous transport hides who operates the store; an adversary needs to compromise Tor to identify operators.
-
-Neither gives the other. This is strictly stronger than BitTorrent (plaintext, identifiable peers, no encryption, 20+ years of legal survival).
-
-**Store posture**: Zero editorial decisions — software selects shards by economic signal, not by content. Encrypted blobs in, encrypted blobs out, behind an address no one can attribute. The store daemon holds blobs, responds to challenges, attests. Hash-blind local state.
+**Settlement**: Per-mint, per-shard, participant parity with cascading remainders. `drain = floor(balance × DRAIN_RATE)`. Each shard's participants = S_s stores + 1 coordination. Tenure-weighted (challenge-based: consecutive epochs passing storage challenges). Remainders cascade to genesis address.
 
 ---
 
-## THE STORE SELECTION MECHANISM
+## THE PER-MINT INDEPENDENCE CLAIM
 
-When a client requests content, the consumption flow works as follows:
+Per-mint independence is stated as a foundational architectural property throughout the design. Here is what the protocol claims:
 
-1. Client mines PoW, generates `selection_nonce`, includes `blind = SHA256(nonce)` in request proof, signs via NIP-07.
-2. Client → serve endpoint → mint (request proof WITHOUT nonce). Serve endpoint verifies epoch_hash.
-3. Mint verifies epoch_hash + PoW + signature + coverage ≥ K. Mint cannot compute routing outcome (nonce unknown). Signs `processing_commitment`.
-4. Client reveals `selection_nonce` → serve endpoint → mint. Mint verifies `SHA256(nonce) == blind`.
-5. Mint selects K shards + one store per shard via deterministic formula:
-   `selected_index = hash(epoch_hash || content_hash || shard_index || request_proof_hash || selection_nonce) mod S_s`
-   against committed `store_set_root` (Merkle root over sorted store pubkeys per shard, committed in previous epoch's summary).
-6. Mint issues delivery tokens (blob_id + store address, no content_hash) + selection proofs (selected_store_pubkey, position, Merkle path against committed store_set_root).
-7. Serve endpoint fetches convergent-encrypted blobs from stores using delivery tokens. Stores verify epoch_hash + mint signature, serve blobs, attest to mint directly.
-8. Client verifies selection proofs, decrypts, reconstructs.
+> "Each mint settles independently — no cross-mint join. Each shard settles independently — no cross-shard coupling."
 
-**Serve-blinded selection** prevents the mint from biasing routing: the mint commits to processing BEFORE learning the selection_nonce, so it cannot compute which stores would be selected before it's cryptographically bound.
+> "Each pool-CID-mint triple tracks its own balance. The mint that confirmed the deposit handles claims against that balance. No cross-mint coordination needed. Each mint's settlement is a closed computation — a settler needs only that mint's epoch summary to produce a deterministic result."
 
-**Earning requires BOTH demand AND proven storage**: A store earns for a shard only if (1) it submitted a valid attestation for a valid request proof this epoch AND (2) it passed the mint's storage challenge for that shard this epoch. Tenure is challenge-based: consecutive epochs passing storage challenges, decoupled from delivery token frequency. This prevents routing bias from degrading honest stores' tenure.
+> "Settlers query mints directly: Settlers fetch epoch summaries from bonded mints' endpoints, not from relays. Mints are a bounded, enumerable set. Each per-mint settlement event is independently final."
 
----
+The property is deeply embedded:
+- The `content_state_root` in settlement events is a "closed per-mint computation — no cross-mint join"
+- Per-mint state roots are the basis of auditability and Bitcoin-anchorability
+- Economic parameters (DRAIN_RATE, SWEEP_EPOCHS, challenge intervals) are per-mint declared
+- The settlement pseudocode's `for each mint m:` outer loop has no cross-mint references inside the payout computation
 
-## THE CORE PROBLEM: UNRESOLVED #20
-
-**Stores cannot verify selection correctness.** This is an information-theoretic constraint: the property that protects stores (content-hash blindness) prevents them from verifying routing fairness.
-
-The selection formula requires `content_hash` as an input:
-```
-selected_index = hash(epoch_hash || content_hash || shard_index || request_proof_hash || selection_nonce) mod S_s
-```
-
-Stores don't know `content_hash`. Therefore stores cannot independently recompute the selection to verify they were fairly chosen (or fairly excluded).
-
-### The current three-layer mitigation
-
-Three mechanisms compensate:
-
-**(1) Client verification (real-time, all inputs known)**
-The client knows content_hash, epoch_hash, shard_index, request_proof_hash, and selection_nonce. The client can fully verify each selection proof against the deterministic formula + committed store_set_root. Incorrect selection is publishable evidence (Merkle proofs over public values). The client is the party with the strongest adversarial incentive — they want their content delivered correctly.
-
-Limitation: Client verification proves the selection was correct FOR THAT REQUEST. It does not prove the mint is being fair IN AGGREGATE across all requests. A client sees only its own traffic. Publishing evidence requires the client to notice, care, and act.
-
-**(2) Settler audit (ex-post, cross-references public data)**
-Settlers can cross-reference attestation store pubkeys against expected selection from public data (epoch summaries, request proofs on relays). Settlers have the data to detect systematic routing bias.
-
-Limitation: Settlers are a public service (no income). Settlement computation is already expensive. Adding routing audit increases compute. The audit is ex-post (after the epoch), not real-time. Settler findings have no enforcement mechanism — they publish, but recourse is competitive exit.
-
-**(3) Store aggregate detection via routing_root**
-Each epoch summary includes `routing_root`: a Merkle root over (group_id, delivery_token_count) pairs. Stores can verify their observed delivery token count against the mint's committed demand data. Over multiple epochs, stores detect aggregate mint-level bias (delivery token frequency vs epoch summary totals) and temporal per-blob anomalies.
-
-Limitation: **The routing_root is mint-committed.** The mint reports its own fairness. A dishonest mint can commit a routing_root that matches its biased behavior. The store compares its experience against the mint's self-report — this is circular verification. The store can detect inconsistency between routing_root and its own delivery token count, but if the mint adjusts both consistently, the store sees nothing.
-
-### What store-blind demand detection actually gives stores
-
-Stores can detect:
-- *Aggregate* mint-level bias: delivery token frequency vs epoch summary totals (requires trusting the epoch summary)
-- *Temporal* per-blob anomalies: sudden drops in delivery token frequency for specific blob_ids
-
-Neither requires content_hash. Both require multiple epochs. Both depend on the mint's own committed data.
-
-### Residuals that feed into this problem
-
-- **Nonce grinding (#29 residual)**: At PoW cost per attempt, a mint can grind selection_nonces before the client commits. The serve-blinded selection prevents this for honest protocol execution, but a colluding serve+mint pair could pre-compute selections before the client's blind is committed.
-- **Serve+mint collusion at bootstrap (#31 residual)**: With 1 mint and 1 serve endpoint, the two parties that see both sides of the selection can collude freely. Bounded by seed budget.
-- **Store daemon economic model**: The autonomous rebalance algorithm ranks shards by `projected_value_per_byte` based on delivery token frequency and coverage signals. If the mint systematically under-routes a store, the daemon will correctly identify those shards as underperforming and evict them — which is the correct autonomous response but also means the mint can indirectly evict honest stores by under-routing them. Challenge-based tenure mitigates this (tenure stays, so the expected value per shard doesn't crash), but the daemon still uses delivery token frequency as an economic signal.
-
-### The fundamental asymmetry
-
-Stores are the most numerous, most important non-custodial role in the protocol — they hold the actual data. Yet they are the ONLY role that cannot independently verify fair treatment:
-
-| Role | Verification capability |
-|------|------------------------|
-| Client | Full: knows all selection inputs, verifies in real time |
-| Serve endpoint | Partial: sees one store per shard per request, can cross-reference |
-| Settler | Full: deterministic recomputation from public data |
-| Store | **Statistical, delayed, depends on mint's self-reported data** |
-
-The question is whether this asymmetry is tolerable, addressable, or fatal.
+This property is what makes the system modular and scalable. A settler can compute one mint's settlement without knowing anything about other mints. A store can verify its payout from one mint without reference to other mints. Auditors can verify one mint at a time. New mints can join without coordinating with existing mints.
 
 ---
 
-## EPOCH SUMMARY (the mint's public commitment)
+## THE SWEEP CONDITION
 
-Each epoch, the mint publishes a signed summary including:
+Sweep is the mechanism that reclaims abandoned pool balances to the genesis address. The condition is:
 
 ```
-["store_set_root", "<merkle_root>"]     # per-shard Merkle root over sorted store pubkeys
-                                         # commits store ordering for verifiable selection next epoch
-["routing_root", "<merkle_root>"]        # Merkle root over (group_id, delivery_token_count) pairs
-                                         # stores verify demand share, settlers cross-check
-["commitment_root", "<merkle_root>"]     # Merkle root over signed processing_commitments
-                                         # anyone with a commitment can verify inclusion
-["commitment_count", "<n>"]              # processing_commitments signed this epoch
-                                         # fulfillment ratio = delivery_tokens / commitments
-["attestation_root", "<merkle_root>"]    # Merkle root over hash(attestation) leaves
-                                         # stores verify own inclusion privately
-["challenge_root", "<merkle_root>"]      # (store_pubkey, shard_index, challenge_passed) triples
-                                         # tenure = consecutive challenge-passed epochs
-["demand_root", "<merkle_root>"]         # (content_hash, request_count, unique_clients)
-["proof_root", "<merkle_root>"]          # Merkle root over sorted hash(request_proof)
-["referrer_root", "<merkle_root>"]       # (content_hash || via_pubkey || proof_count)
+for each mint m:
+  for each content_hash cid where m holds balance:
+    if no_valid_attestations(cid, m, last_SWEEP_EPOCHS) \
+       AND no_valid_request_proofs(cid, last_SWEEP_EPOCHS):  # GLOBAL
+        sweep(pool[m, cid]) → GENESIS_ADDRESS
 ```
 
-The epoch summary is the mint's public commitment. Merkle roots allow selective disclosure and independent verification — but only for parties that know the leaf data. Stores know their own pubkey and blob_ids but NOT content_hash, which limits which roots they can meaningfully audit.
+The sweep condition is a dual condition:
+1. `no_valid_attestations(cid, m, last_SWEEP_EPOCHS)` — **per-mint**: no stores at THIS mint proved they stored and served this content
+2. `no_valid_request_proofs(cid, last_SWEEP_EPOCHS)` — **GLOBAL**: no demand signal for this content EXISTS ANYWHERE
+
+"Valid request proofs exist" is satisfied by ANY of three sources:
+  (a) **any mint's** epoch summary `demand_root` includes this content with `request_count > 0`
+  (b) sampled request proofs on relays for this content (client- or serve-endpoint-published)
+  (c) serve endpoint referrer witnesses listing this content
+
+In degraded mode (no mint reachable), clients publish all proofs (RELAY_SAMPLE_RATE = 1), ensuring relay evidence for actively-read content even without epoch summaries.
+
+SWEEP_EPOCHS = 42 epochs (~7 days). Per-mint declared parameter.
 
 ---
 
-## STORE CONFIDENCE VOTING (the bottom-up accountability check)
+## THE CONTRADICTION
 
-Stores audit mints and publish epoch-bound confidence votes. Each epoch, each store is randomly assigned one bonded mint to evaluate (block-hash-deterministic). Vote weight = number of self-attestation challenges passed (publicly verifiable). Sybil stores with no actual storage have zero vote weight.
+The payout computation is strictly per-mint — no cross-mint join. But the sweep rule requires GLOBAL demand data. This means:
 
-Mint reputation = cumulative confidence ratio over a rolling window. Affects deposit routing and store acquisition decisions. Competitive exit pressure.
+### 1. Settlement is not a closed per-mint computation
 
-This is the current answer to "what recourse do stores have?" — they can downvote mints and leave. The enforcement mechanism is economic (loss of stores → loss of income), not cryptographic (fraud proof).
+To compute sweep for Mint A, a settler must check whether valid request proofs exist for content X ANYWHERE — across all mints' demand_roots, across relay-published request proofs, across serve endpoint referrer witnesses. A settler cannot settle Mint A from Mint A's epoch summary alone.
+
+The document acknowledges this:
+> "The 'per-mint independence' claim applies to settlement payouts, not to sweep activation."
+
+But this distinction is architecturally significant. "Settlement" in the protocol means the full per-epoch resolution of pool states: who gets paid, how much, and which pools continue to exist. Sweep is part of settlement — it determines pool lifecycle. If payouts are per-mint but sweep is global, then "settlement" as a whole is NOT per-mint independent.
+
+### 2. A mint's pool lifecycle depends on activity at other mints
+
+If content X is deposited at Mint A and Mint B:
+- Mint A has zero attestations for content X (no stores serving it at Mint A)
+- Mint B has active attestations (stores serving it)
+- Request proofs exist (readers are consuming content X)
+
+Under the current rule: Mint A does NOT sweep, because request proofs exist globally. Mint A's pool persists, waiting for future store recruitment.
+
+Under a purely per-mint rule: Mint A WOULD sweep, because Mint A has no attestations AND no way to see demand data without cross-mint reference.
+
+### 3. Settlers need more than mint epoch summaries
+
+The document states: "Settlers fetch epoch summaries from bonded mints' endpoints, not from relays. Relays carry epoch summaries for public auditability but are not on the settlement critical path."
+
+But for sweep, relays ARE on the critical path — sampled request proofs and referrer witnesses on relays are one of the three sources of "valid request proofs exist." If settlers cannot consult relays, they cannot determine sweep correctly.
+
+### 4. The degraded mode dependency
+
+In degraded mode (all mints down), clients publish all request proofs to relays at RELAY_SAMPLE_RATE = 1. This is specifically designed to ensure relay evidence prevents sweep of actively-read content. But this means sweep correctness in degraded mode depends entirely on relay data — a liveness dependency on a role that is "external, not a protocol role."
+
+### 5. SWEEP_EPOCHS is per-mint declared, but the condition it gates is global
+
+Mint A declares SWEEP_EPOCHS = 42. Mint B declares SWEEP_EPOCHS = 84. Content X has deposits at both. When evaluating Mint A's sweep, the settler uses Mint A's SWEEP_EPOCHS (42) as the lookback window — but the demand check within that window crosses to Mint B's demand_root. Two mints with different SWEEP_EPOCHS parameters create different sweep windows that share the same global demand data.
+
+---
+
+## WHY SWEEP NEEDS GLOBAL DATA (THE DESIGN INTENT)
+
+The sweep rule was carefully designed. The dual condition (no attestations AND no request proofs) exists for a specific reason:
+
+**Preventing adversary-triggered sweep via mint takedown.** If sweep required only `no_valid_attestations` (per-mint), an adversary could trigger sweep by taking down a single mint. The mint goes offline → no attestations this epoch → SWEEP_EPOCHS epochs later, pools sweep to genesis. This makes mint liveness the critical path for pool survival, which contradicts the protocol's "mint takedown suspends settlement, not content delivery" property.
+
+The request-proof gate prevents this: even if ALL mints for content X go down, as long as readers still demand it (producing request proofs via degraded-mode PoW), pools are preserved. The dual condition ensures that sweep requires BOTH supply-side abandonment (no stores serving) AND demand-side abandonment (nobody reading). Content that is read but unserved preserves its pools for future supply.
+
+This is a good design. But it comes at the cost of per-mint independence.
+
+---
+
+## THE SETTLEMENT PSEUDOCODE AND DATA DEPENDENCIES
+
+The canonical settlement (§4) has two distinct sections:
+
+**Section 1: Payout computation**
+```
+for each mint m:
+  for each content_hash cid where m holds balance AND has valid attestations this epoch:
+    [per-mint, per-shard payout math — no cross-mint reference]
+```
+Data required: Only mint m's epoch summary + bounded lookback of m's prev-chain for tenure.
+
+**Section 2: Sweep**
+```
+for each mint m:
+  for each content_hash cid where m holds balance:
+    if no_valid_attestations(cid, m, last_SWEEP_EPOCHS) \
+       AND no_valid_request_proofs(cid, last_SWEEP_EPOCHS):  # GLOBAL
+        sweep(pool[m, cid]) → GENESIS_ADDRESS
+```
+Data required: Mint m's epoch summary chain (for attestation history) + GLOBAL demand data (other mints' demand_roots, relay request proofs, serve endpoint referrer witnesses).
+
+The payout section is cleanly per-mint. The sweep section is not. This creates two different data dependency graphs for what is presented as a single settlement computation.
+
+---
+
+## THE EPOCH SUMMARY (the mint's public commitment)
+
+Each epoch, the mint publishes a signed summary including (relevant fields):
+
+```
+["demand_root", "<merkle_root>"]       # Merkle root over sorted (content_hash, request_count, unique_clients)
+["proof_root", "<merkle_root>"]        # Merkle root over sorted hash(request_proof)
+["referrer_root", "<merkle_root>"]     # Merkle root over sorted (content_hash || via_pubkey || proof_count)
+["attestation_root", "<merkle_root>"]  # Merkle root over hash(attestation) leaves
+["challenge_root", "<merkle_root>"]    # (store_pubkey, shard_index, challenge_passed) triples
+["store_set_root", "<merkle_root>"]    # per-shard Merkle root over sorted store pubkeys
+["seq", "<monotonic_sequence>"]        # per-mint sequence number
+["prev", "<prev_epoch_summary_event_id>"]  # hash chain
+```
+
+The `demand_root` contains per-content demand data FOR THIS MINT ONLY (request proofs that were verified by this mint). It does NOT contain global demand. A settler checking sweep for Mint A by looking only at Mint A's `demand_root` would miss demand flowing through Mint B.
 
 ---
 
 ## RELATED RESOLVED ISSUES (for context)
 
-- **#29 (Serve-Blinded Selection)**: RESOLVED. Commitment-reveal protocol prevents mint from computing routing outcome before committing. Residual: nonce grinding at PoW cost, serve+mint collusion pre-commitment at bootstrap.
-- **#30 (Tenure Amplification of Biased Routing)**: RESOLVED. Challenge-based tenure replaces attestation-based tenure. Breaks the amplification loop where biased routing degrades honest stores' tenure.
-- **#31 (Bootstrap Routing Vulnerability)**: RESOLVED. Three interlocking mechanisms (serve-blinded selection + challenge-based tenure + processing accountability). Residual: serve+mint collusion at bootstrap requires two colluding parties, bounded by seed budget.
-- **#13 (Competitive Exit Model)**: RESOLVED. Fraud proofs replaced by competitive exit + attestation Merkle root. Don't punish bad miners, reward good ones.
+- **#8 (Sweep Trigger Calibration)**: RESOLVED → Binary condition. PoW-weighted threshold dropped. Binary: no valid attestations AND no valid request proofs for SWEEP_EPOCHS → sweep.
+- **#13 (Competitive Exit)**: RESOLVED. Fraud proofs replaced by competitive exit + attestation Merkle root.
+- **#18 (Request Proof Relay Volume at Scale)**: RESOLVED → Epoch Proof Digests + Sampled Relay Anchoring. At scale, `RELAY_SAMPLE_RATE = 100`: 10M reads/day → ~100K relay events/day. At bootstrap: RELAY_SAMPLE_RATE = 1.
 
-These resolutions address the MINT's ability to bias routing (prevention via blinding + commitment) and the STORE's ability to survive biased routing (challenge-based tenure preserves weight). They do NOT address the store's ability to DETECT and VERIFY fair routing — that remains #20.
+The resolution of #18 is relevant: at scale, only a SAMPLE of request proofs appears on relays. The settler checking sweep must work with sampled demand data, not complete demand data. This has implications for sweep accuracy at scale.
+
+---
+
+## THE BROADER IMPLICATIONS
+
+### For settlers
+Settlers currently have a clean job: query each bonded mint's endpoint, compute deterministic payouts from epoch summaries. Per-mint independence means each settlement is independently final. Adding a global demand check to sweep means settlers must also:
+- Query ALL bonded mints' demand_roots (not just the mint they're settling)
+- Monitor relay-published request proofs
+- Monitor serve endpoint referrer witnesses
+- Handle the case where some demand sources are temporarily unavailable
+
+This transforms the settler from "per-mint deterministic computer" to "global demand aggregator + per-mint computer." The `input_set` convergence tag (how settlers prove they computed from the same inputs) becomes more complex: it must now include not just the epoch_summary_event_ids but also the demand data sources consulted for sweep.
+
+### For stores
+Stores don't directly compute sweep — but sweep affects their earnings. If a pool sweeps prematurely (because global demand data was unavailable to the settler), the store loses future earnings. If a pool fails to sweep (because stale demand data keeps it alive), genesis income is delayed. Stores have no visibility into the global demand data that determines whether their pools survive.
+
+### For funders
+A funder who deposits to Mint A expects their pool to survive as long as content is demanded. The dual sweep condition delivers on this promise — but only if the global demand data is reliably available. If relays drop request proofs, or if all mints for content X are down and clients aren't publishing degraded-mode proofs, the funder's pool could sweep despite ongoing demand that simply wasn't recorded.
+
+### For the "four event types and one rule" simplicity claim
+The "one rule" is described as: "unclaimed drain → genesis; pools with no attestations AND no request proofs for SWEEP_EPOCHS → sweep." The rule is simple to state but complex to evaluate — it requires a global data query that contradicts the otherwise per-mint settlement architecture.
+
+### For Bitcoin anchoring
+Per-mint state roots are "closed per-mint computation — no cross-mint join." But if sweep is part of the state that's committed, and sweep depends on global data, then the state root is no longer a closed per-mint computation. Either (a) sweep state must be excluded from the per-mint root, or (b) the root must include the global demand evidence that justified the sweep/no-sweep decision, or (c) the root is technically wrong whenever sweep status could have changed based on unobserved global data.
 
 ---
 
 ## ARCHITECTURAL CONSTRAINTS
 
-1. **Store-blindness is non-negotiable.** Any solution that requires stores to learn content_hash is rejected outright. The censorship resistance model depends on stores not knowing what they hold.
-2. **No persistent shared state** beyond Nostr relays and Bitcoin. No blockchain, no consensus protocol.
+1. **Per-mint independence for payouts is non-negotiable.** Weakening payout computation to require cross-mint joins would break the scalability and auditability of settlement.
+2. **No persistent shared state** beyond Nostr relays and Bitcoin. No blockchain, no consensus protocol among mints.
 3. **All infrastructure communication over Tor** (~1-3s per connection).
-4. **Per-mint independence** for settlement — no cross-mint join in payout computation.
-5. **Serve-blinded selection must be preserved** — mints cannot learn the routing outcome before committing to process.
-6. **Genesis pubkey permanence** — all derivations rooted in it.
-7. **The store daemon must make correct autonomous economic decisions** — the daemon's shard portfolio management depends on accurate economic signals from the mint.
-8. **No identity beyond pubkeys** — stores are anonymous, identified only by ephemeral pubkeys. No reputation that carries across key rotation.
+4. **Store-blindness is non-negotiable.**
+5. **Genesis pubkey permanence** — all derivations rooted in it.
+6. **Sweep must resist adversary-triggered sweep via mint takedown** — this is the reason the dual condition exists. Any solution that makes sweep dependent solely on per-mint data must address the mint-takedown attack.
+7. **Degraded-mode content availability must be preserved** — content should remain available when all mints are down, and actively-read content should be protected from sweep during degraded mode.
+8. **Economic parameters are per-mint declared** — SWEEP_EPOCHS, DRAIN_RATE, etc.
+9. **Settlers should converge deterministically** — multiple settlers computing the same settlement must produce identical results.
+10. **At scale, demand data is sampled** (RELAY_SAMPLE_RATE = 100) — sweep must work correctly with incomplete demand data.
 
 ---
 
 ## WHAT I WANT YOU TO EXPLORE
 
-The current design acknowledges #20 as an information-theoretic constraint and compensates with three layers of indirect verification. The question is: is this sufficient, and if not, what structural changes would improve it without breaking store-blindness?
+The protocol has a clean per-mint settlement architecture — except for sweep, which requires global demand data. The current design acknowledges this as a scope limitation (#32: "The document should be precise about the scope of per-mint independence"). The question is: is acknowledgment sufficient, or does this require structural resolution?
 
 ### Questions to drive exploration:
 
-1. **Is the information-theoretic constraint absolute?** The claim is that content-hash blindness prevents routing verification. But the selection formula is a hash — could there be a zero-knowledge construction where the mint proves "the selection I computed is correct for SOME content_hash that maps to YOUR blob_id" without revealing the content_hash? What would such a proof look like? What are the costs (proof size, verification time, Tor latency)? Would it require changes to the delivery token, the epoch summary, the store's local state?
+1. **Can sweep be made purely per-mint without reintroducing the mint-takedown vulnerability?** The dual condition exists to prevent adversary-triggered sweep. Is there a per-mint-only condition that achieves the same protection? For example: could a mint track demand internally (delivery tokens it issued for this content) as sufficient evidence of demand, without needing global relay data? What are the failure modes?
 
-2. **Verifiable routing without content_hash — alternative approaches:**
-   - **Blind selection proofs**: The mint computes the selection and provides a ZK proof that the output is correct with respect to the committed store_set_root. The store verifies the proof without learning content_hash. Is this feasible with current ZK systems (Groth16, PLONK, STARKs)?
-   - **Commit-then-reveal aggregate fairness**: Instead of per-request verification, the mint commits to an aggregate routing distribution at epoch start (before requests arrive), then at epoch end the actual distribution is compared. Deviation = evidence. Stores see only their own slice of the distribution.
-   - **Cross-mint routing witnesses**: If content is deposited across multiple mints, could stores cross-reference delivery token patterns across mints to detect mint-specific bias?
-   - **Verifiable random functions (VRFs)**: Could the selection use a VRF where the mint's output is verifiable without revealing the input? The mint computes `VRF(mint_sk, content_hash || epoch_hash || ...)` and provides a proof. Store verifies the VRF proof. But: VRF reveals that the same input produces the same output — does this leak content_hash to the store over multiple epochs?
+2. **The "per-mint demand" alternative**: Instead of checking global request proofs, each mint checks only ITS OWN demand data — did this mint issue any delivery tokens for this content in the last SWEEP_EPOCHS? This makes sweep purely per-mint. But: (a) if a mint goes down, it issues no delivery tokens → sweep at that mint triggers despite active demand elsewhere. This IS the mint-takedown attack. (b) Content deposited at a mint that happens to have zero traffic (no serve endpoint routes to it) would sweep despite being actively consumed via other mints. Does this matter? Is this actually the correct economic outcome?
 
-3. **The circular verification problem**: The routing_root is the mint's self-report of its own routing behavior. How do you break this circularity? Can the routing_root be structured so that stores can detect inconsistencies WITHOUT trusting the mint's aggregate data? For example: could stores contribute their own signed attestation of delivery token receipt, and an independent party (settler? serve endpoint?) aggregates and cross-checks against the mint's claim?
+3. **The "demand escrow" approach**: Could demand data be committed in a way that makes it verifiable without cross-mint queries? For instance: each mint commits a `demand_root` in its epoch summary. A settler checking sweep for Mint A could check only Mint A's `demand_root` chain (per-mint) PLUS a separate "demand escrow" event type that aggregates cross-mint demand and is independently verifiable. Who publishes this event? How is it made trustworthy?
 
-4. **Store-side statistical detection — how powerful is it really?** A store holds many blob_ids across potentially many mints. Over many epochs, it accumulates delivery token frequency data per blob_id. What is the statistical power of this data? How many epochs does a store need to detect, say, 20% routing bias for a specific blob_id with 95% confidence? Does the answer depend on S_s (store count per shard)? At what S_s does detection become impractically slow?
+4. **The "sweep is not settlement" decomposition**: Should sweep be formally separated from settlement into a distinct protocol phase with distinct data dependencies? Settlement (payouts) = per-mint, deterministic, from epoch summaries only. Sweep (pool lifecycle) = global, probabilistic, from demand aggregation. Different roles, different convergence properties, different timing. What would this look like? Does separating them resolve the tension or just move it?
 
-5. **The store daemon problem**: The daemon's autonomous rebalance uses delivery token frequency as an economic signal. If the mint under-routes a store by 20%, the daemon sees 20% less income for those shards and may evict them in favor of higher-yielding alternatives. Challenge-based tenure mitigates the eviction cascade (tenure stays), but the daemon's economic model still responds to delivery token frequency. Is there a way to decouple the daemon's economic decisions from mint-reported signals? What signals COULD the daemon use that are independently verifiable?
+5. **The settler role expansion problem**: If sweep requires global data, settlers become demand aggregators. Is this tolerable? Settlers have no income — adding complexity to an unpaid role is risky. Could the global demand check be structured so that the DEFAULT (no demand data found) is conservative (no sweep), and sweep only triggers when a settler has POSITIVE evidence of abandonment? This inverts the burden of proof.
 
-6. **The bootstrap problem specifically**: At bootstrap (1 mint, 1 serve endpoint, few stores), the three-layer mitigation is weakest: client verification exists but has no alternative mint to compare against, settler audit has no independent data source, store detection has no statistical power (too few epochs, too few requests). What specific protections exist at bootstrap, and are they sufficient for the seed content?
+6. **The sampling problem at scale**: At RELAY_SAMPLE_RATE = 100, only 1% of request proofs reach relays. A settler checking sweep must determine whether demand exists from a 1% sample. How confident can a settler be? If content has 100 reads/day, that's ~1 relay proof/day. Over SWEEP_EPOCHS (42 epochs, ~7 days), that's ~7 proofs — enough to conclude demand exists. If content has 1 read/day, that's ~0.07 proofs/week — statistically invisible on relays. Does the mint's `demand_root` cover this gap? (Yes, if the mint is online. No, if the mint is down — which is exactly when you need the relay fallback.)
 
-7. **Serve endpoint as routing witness**: The serve endpoint sees both sides of the selection (it forwards the request proof to the mint AND fetches from the selected store). Could serve endpoints publish routing witness events that stores can cross-reference? This introduces a new trust relationship (store trusts serve endpoint's report), but many competing serve endpoints would create a de facto audit layer. What are the privacy implications? Does this leak information to stores about which content they hold?
+7. **The per-mint SWEEP_EPOCHS parameter problem**: If Mint A has SWEEP_EPOCHS=42 and Mint B has SWEEP_EPOCHS=84, and both hold pools for content X: the sweep lookback windows differ, but the demand data they query is global. Content that was read within Mint B's window but outside Mint A's window creates an asymmetry. Is this a real problem or an acceptable consequence of per-mint parameter diversity?
 
-8. **The tolerance question**: Is this problem actually fatal, or is it tolerable? The protocol already assumes adversarial participants and relies on economic incentives. If a mint biases routing by 10-20%, the damage is: some honest stores earn 10-20% less per shard than they should, some favored stores earn more. Challenge-based tenure means honest stores don't lose weight. Competitive exit means stores leave bad mints. Is the equilibrium stable — does the mint lose more (departing stores → lost income → lost deposits) than it gains (biased routing → favored stores → ?)? At what level of bias does the equilibrium break?
+8. **Content state root integrity**: The per-mint `content_state_root` is committed as `Merkle root over protocol_seed || per-content economic states (content_hash, balance_at_mint, attestation_count, drain_history, current_status)`. The `current_status` includes sweep state. If sweep depends on global data, the state root depends on global data. How should this be handled? Options: (a) commit sweep evidence alongside the state root, (b) make the state root cover only payout-relevant state (exclude sweep), (c) accept that the root has an implicit global dependency and document it.
 
-9. **Comparison to analogous systems**: Bitcoin mining pools can theoretically withhold blocks. Filecoin storage providers can game WindowPoSt. How do comparable systems handle the "verifier can't fully verify" problem? What lessons transfer?
+9. **The degraded-mode paradox**: In degraded mode, all mints are down. Clients publish all request proofs to relays (RELAY_SAMPLE_RATE = 1). No epoch summaries are produced. Settlement is suspended. Who evaluates sweep? If no settler can query mints, and no mint is producing epoch summaries, does the sweep clock pause? Or does the SWEEP_EPOCHS timer continue counting against a frozen chain? If a mint comes back after 50 epochs of downtime, does it immediately sweep everything that had no attestations during the outage, or does it check relay data from the outage period?
 
-10. **Novel architectures**: Is there a fundamentally different store-mint relationship that preserves store-blindness while giving stores stronger verification? For example:
-    - **Store-initiated selection**: Instead of the mint selecting stores, could the store "claim" delivery tokens for blob_ids it holds, with the mint verifying the claim is correct? This inverts the flow but may leak information.
-    - **Ring-based selection witness**: Could the cross-store verification ring (already used for storage challenges) also witness routing? Peer stores could attest to seeing each other selected at expected rates.
-    - **Encrypted routing proofs**: Could the mint encrypt routing proofs that are only decryptable by the settler, who then publishes aggregate fairness scores per mint without revealing per-store details?
-    - **Delivery token receipts on relays**: Could stores publish anonymized delivery token receipts (stripped of blob_id) that settlers aggregate to verify total routing volume matches the mint's committed totals?
+10. **Novel architectures**:
+    - **Demand anchoring**: Could mints (or serve endpoints, or any party) periodically anchor demand digests on Bitcoin — a compact proof that content X was demanded in epoch E? This would give sweep a durable, cross-mint demand signal that doesn't depend on relay liveness.
+    - **Demand gossip**: Could mints gossip demand data to each other, so each mint's `demand_root` includes demand it learned about from other mints? This keeps sweep evaluation per-mint (check only your own demand_root) while incorporating global data. But: mints are anonymous, over Tor, and may not cooperate.
+    - **Store-side demand signal**: Stores see delivery tokens. A store that receives delivery tokens for a blob_id is direct evidence of demand for whatever content that blob maps to. Could stores publish demand attestations (without knowing content_hash) that settlers use for sweep decisions? The store knows "blob_id X was requested" — is this usable?
+    - **Conservative default**: Sweep only when the settler has seen ZERO demand evidence from ALL sources over the window. If any source is unavailable or uncertain, the default is NO SWEEP. Stale pools accumulate but are economically inert (no drain without attestations). Genesis income is delayed but not lost.
+    - **Lazy sweep**: Instead of evaluating sweep every epoch, evaluate sweep only when triggered — e.g., when a settler observes that a pool has had zero drain for N consecutive epochs and then queries global demand. This reduces the frequency of the global query.
 
 ### Output format:
 
 Structure your response as:
-A. **Information-theoretic analysis** — Is the constraint truly absolute? What exactly can and can't be proven to stores without breaking blindness? Map the boundary precisely.
-B. **ZK/cryptographic approaches** — Evaluate specific constructions (ZK selection proofs, VRFs, commit-reveal schemes). Honest assessment of feasibility given Tor latency, store compute constraints (<512MB RAM), and proof sizes.
-C. **Non-cryptographic approaches** — Structural/economic/statistical mechanisms that improve store verification without new cryptographic primitives.
-D. **The circular verification problem** — Specific proposals for breaking the routing_root self-report circularity.
-E. **Statistical power analysis** — How effective is the current store-side detection? Under what conditions does it work / fail?
-F. **Bootstrap-specific analysis** — What protections exist at 1 mint, 1 serve endpoint? Are they sufficient?
-G. **Equilibrium analysis** — At what bias level does the economic equilibrium break? Is the current design stable under realistic adversarial assumptions?
-H. **Recommended direction** — Your best judgment on whether this is tolerable (document the limit), addressable (specific changes), or requires architecture re-org.
-I. **If architecture re-org: scope the change** — What exactly changes, what breaks, what's the migration path?
+A. **The core tension** — State precisely what is in conflict and why. What exactly does per-mint independence buy, and what exactly does global sweep buy? Are these truly in conflict, or is the conflict a documentation/formalization gap?
+B. **Can sweep be per-mint?** — Evaluate every approach to making sweep purely per-mint. For each, identify the specific failure mode it reintroduces.
+C. **Can the global dependency be bounded?** — If sweep must be global, can the global data query be made minimal, deterministic, and fault-tolerant?
+D. **The "sweep is not settlement" decomposition** — Evaluate formally separating sweep from payout settlement. What are the consequences for state roots, settler convergence, and protocol simplicity?
+E. **The sampling/statistical problem** — At what content demand levels does sampled relay data fail to signal demand? What's the false-positive (premature sweep) rate as a function of demand and sample rate?
+F. **Degraded mode analysis** — Walk through the sweep evaluation when mints are down. Identify every assumption and failure mode.
+G. **The conservative default** — Analyze the "no sweep when uncertain" approach. What is the worst case? How much genesis income is delayed? Is the accumulation of stale pools a real problem?
+H. **Equilibrium analysis** — Is premature sweep (content swept despite demand) or delayed sweep (content persists without demand) the more dangerous failure? Which should the protocol's error mode favor?
+I. **Recommended direction** — Your best judgment on whether this is: (a) a documentation gap (acknowledge scope, formalize the global dependency, done), (b) addressable with bounded changes (specific modifications to sweep evaluation, settler protocol, or epoch summary structure), or (c) requires architecture re-org (sweep must be decomposed from settlement, new event types, new roles).
+J. **If architecture changes: scope the change** — What exactly changes in the protocol, what breaks, what's the migration path? Be concrete about event types, data flows, and settler behavior.
 
-Be honest about what you don't know. Name assumptions. If the current three-layer mitigation is actually sufficient despite its indirectness, say so and say why — that would be a meaningful result.
+Be honest about what you don't know. Name assumptions. If the current design is actually fine and the tension is a documentation issue rather than a structural one, say so and say why — that would be a meaningful result.

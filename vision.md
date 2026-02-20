@@ -48,7 +48,7 @@ Bootstrap reference (any N, at R=1): At S=1, coordination fraction = 50%. At S=3
 |------|-----------|
 | **Pool** | Sats bound to a content hash. Credits accumulate from fund events; drains pay stores + coordination. |
 | **Drain** | Per-epoch outflow from a pool. `drain = floor(balance × DRAIN_RATE)`, divided equally across N shards. Balance-proportional: pool half-life is deterministic, store count doesn't affect drain speed. Gate-triggered: drain fires when any valid attestation exists this epoch; request proof volume doesn't change the amount. Effective drain is reduced by tenure recycling — immature stores earn less, and the unpaid portion credits back to the pool (see Glossary: Tenure recycling, §4). |
-| **Sweep** | Pool with no valid attestations AND no valid request proofs for SWEEP_EPOCHS (42 epochs, ~7 days) → entire balance to genesis. Dual condition prevents adversary-triggered sweep via mint takedown. "Valid request proofs exist" is satisfied by any of: (a) any mint's epoch summary `demand_root` includes this content, (b) sampled proofs on relays, (c) serve endpoint referrer witnesses. In degraded mode, clients publish all proofs (RELAY_SAMPLE_RATE = 1). |
+| **Sweep** | Pool with no valid attestations for SWEEP_EPOCHS consecutive entries in the mint's epoch chain → entire balance to genesis. Chain-relative counting: SWEEP_EPOCHS is measured against the mint's `seq`, not wall-clock epochs. Mint offline → chain frozen → sweep clock frozen → mint takedown cannot trigger sweep. Purely per-mint — no cross-mint demand check, no relay dependency. A storeless mint receives zero routed demand (serve endpoints route around S_s=0), so its pools are economically inert; sweeping them is the correct market signal. |
 | **Ghost** | Content whose pool is depleted. The economic fossil persists: metadata, economic history, edges, discussion on relays; content hash + cumulative economic state provable against per-mint state roots on relays (Bitcoin-anchorable by any party for additional durability — see Settlement §4). Bytes are gone from the storage market — stores evicted, no one paid to serve. Recovery: anyone with the original file can re-encrypt (convergent encryption is deterministic), re-upload, re-fund. `[+] to restore`. |
 | **Coverage signal** | Per-content shard store count, published by mints each COVERAGE_BLOCKS (~1h). No store identities. Used by stores for opportunity assessment. |
 
@@ -121,7 +121,7 @@ Bootstrap reference (any N, at R=1): At S=1, coordination fraction = 50%. At S=3
 12. **The moat is compound: five layers, three structural** — See Glossary: Economic moat. Layers (a) economic state and (b) Schelling point are structural; (c) traffic and (d) deposits are speed bumps that buy time for (a) and (b) to compound.
 13. **Funding is advertising** — Funders pay for availability and visibility. Readers consume for free. This is advertising economics: the person who wants attention pays, the person who has attention consumes for free. Free distribution maximizes the audience that makes funding valuable. Conviction spending is the revenue. Free reading is the amplifier.
 14. **The system optimizes for contested content** — Uncontested content is funded once. Contested content is funded repeatedly by competing sides. Competitive dynamics drive repeat funding — the highest-velocity economic behavior in the system. The founder earns from the froth of disagreement, not from any position. Free reading amplifies this: everyone sees the scoreboard, everyone can take a side.
-15. **The protocol is four event types and one rule** — Fund confirmation, request proof, store attestation, settlement (see Glossary: Events). Rule: unclaimed drain → genesis; pools with no attestations AND no request proofs for SWEEP_EPOCHS → sweep. Everything else is a product concern or emergent market property.
+15. **The protocol is four event types and one rule** — Fund confirmation, request proof, store attestation, settlement (see Glossary: Events). Rule: unclaimed drain → genesis; pools with no attestations for SWEEP_EPOCHS consecutive chain entries → sweep. Chain-relative counting (mint offline → clock frozen) eliminates the mint-takedown attack without any global demand check. Everything else is a product concern or emergent market property.
 16. **The network metabolizes failed attention bids** — Self-promoters fund their own content. If nobody reads it, sats sweep to genesis. Contested content produces remainder income (active market). Ignored content produces sweep income (failed attention bid). Both modes pay genesis. The total addressable revenue is all inflow.
 17. **The protocol settles; the product interprets** — Settlement is narrow, deterministic, and hard to game (requires real sats, real storage, real bonds). The importance index is broad, interpretive, and soft-gameable — but also forkable, competitive, and improvable without protocol changes. Most attacks target the index. The index is the expendable layer. Settlement — where the money flows — is robust. Attacks on interpretation don't corrupt settlement. Attacks on settlement require real capital at risk.
 18. **All funded content is stored; text bootstraps, documents sustain** — All funded content is stored as encrypted shards. Unfunded ephemeral messages live on relays only (see thesis 19).
@@ -542,22 +542,17 @@ for each mint m:
 
     payout(genesis) += remainder_L0
 
-# Abandoned pools sweep to genesis (requires BOTH no attestations AND no request proofs)
-# Request-proof gate prevents adversary-triggered sweep via mint takedown
-# Note: no_valid_attestations is per-mint; no_valid_request_proofs is GLOBAL.
-# Sweep is per-mint balance, but the request-proof check crosses mint boundaries.
-# See Unresolved #32 for per-mint independence implications.
-#
-# "Valid request proofs exist" is satisfied by ANY of three sources:
-#   (a) any mint's epoch summary demand_root includes this content with request_count > 0
-#   (b) sampled request proofs on relays for this content (client- or serve-endpoint-published)
-#   (c) serve endpoint referrer witnesses listing this content
-# In degraded mode (no mint reachable), clients publish all proofs (RELAY_SAMPLE_RATE = 1),
-# ensuring relay evidence for actively-read content even without epoch summaries.
+# Abandoned pools sweep to genesis.
+# Chain-relative counting: SWEEP_EPOCHS measured against m.seq, not wall-clock epochs.
+# Mint offline → chain frozen → sweep clock frozen → mint takedown cannot trigger sweep.
+# No global demand check — sweep is purely per-mint, preserving settlement independence.
+# A storeless mint receives zero routed demand (serve endpoints route around S_s=0),
+# so its pools are economically inert; sweeping them is the correct market signal.
+# See Unresolved #33 for genesis address incentive alignment implications.
 for each mint m:
   for each content_hash cid where m holds balance:
-    if no_valid_attestations(cid, m, last_SWEEP_EPOCHS) \
-       AND no_valid_request_proofs(cid, last_SWEEP_EPOCHS):  # global — any source above
+    let recent_window = last SWEEP_EPOCHS entries in m.epoch_chain (by seq)
+    if no_valid_attestations(cid, m, recent_window):
         sweep(pool[m, cid]) → GENESIS_ADDRESS
 ```
 
@@ -575,7 +570,7 @@ for each mint m:
 
 **Drain rate**: `DRAIN_RATE × balance`. DRAIN_RATE is per-mint declared (see Constants); settlers use the declaring mint's value. Pool half-life = ln(2)/DRAIN_RATE. Store count doesn't affect drain speed — it affects how the drain is divided. Funders can calculate expected duration at deposit time from the mint's declared rate. Minimum viable pool ≈ N/DRAIN_RATE sats (below this, per-shard drain rounds to 0, stores stop earning, sweep timer starts).
 
-**Per-mint independence**: Each pool-CID-mint triple tracks its own balance. The mint that confirmed the deposit handles claims against that balance. No cross-mint coordination needed. Each mint's settlement is a closed computation — a settler needs only that mint's epoch summary to produce a deterministic result.
+**Per-mint independence**: Each pool-CID-mint triple tracks its own balance. The mint that confirmed the deposit handles claims against that balance. No cross-mint coordination needed. Each mint's settlement — including sweep — is a closed computation. A settler needs only that mint's epoch summary chain (bounded SWEEP_EPOCHS lookback) to produce a deterministic result. Sweep is chain-relative (counted against `seq`), so a settler never consults relays, other mints, or any global data source.
 
 **Settlers query mints directly**: Settlers fetch epoch summaries from bonded mints' endpoints, not from relays. Mints are a bounded, enumerable set (bond registration includes endpoint). Relays carry epoch summaries for public auditability but are not on the settlement critical path. Each per-mint settlement event is independently final. Missing mints are filled in when their summaries become available. The `prev` hash chain on epoch summaries makes each mint's history self-proving — a new settler reconstructs any mint's complete history by following the chain backward from the latest summary.
 
@@ -1613,11 +1608,17 @@ Commitment-reveal protocol: client withholds `selection_nonce` (only `blind = SH
 
 Three interlocking mechanisms work at bootstrap with 1 mint: (i) serve-blinded selection (#29) — local to each mint, no cross-mint dependency; (ii) challenge-based tenure (#30) — local per store-shard-mint; (iii) processing accountability at RELAY_SAMPLE_RATE=1 — `commitment_count` vs relay proof count, fulfillment ratio, serve endpoint cross-verification. **Residual**: serve+mint collusion pre-commitment requires two colluding parties, bounded by seed budget (~200K sats). Analogous to Bitcoin bootstrap — centralizable early, robust as participants distribute.
 
-### 32. Sweep Condition and Per-Mint Independence
+### 32. ~~Sweep Condition and Per-Mint Independence~~ RESOLVED → Chain-Relative Per-Mint Sweep
 
-The sweep condition (`no valid attestations AND no valid request proofs for SWEEP_EPOCHS → sweep`) uses request proofs from relays — global, cross-mint data. A request proof for content X exists regardless of which mint is being evaluated. This means Mint A's sweep decision depends on activity at other mints (mediated through public relay data): if Mint B has attestations for content X, request proofs exist, and Mint A doesn't sweep even though Mint A has no attestations.
+The global demand check (request proofs from relays) is removed from the sweep condition. Sweep is now purely per-mint: `no_valid_attestations(cid, m, last SWEEP_EPOCHS entries in m.epoch_chain)`. SWEEP_EPOCHS counted against `m.seq`, not wall-clock epochs. Mint offline → chain frozen → sweep clock frozen → mint takedown cannot trigger sweep. The global check's original purpose (preventing adversary-triggered sweep via mint takedown) is fully addressed by chain-relative counting.
 
-The payout computation (§4 pseudocode for-loop) is per-mint with no cross-mint join. The sweep rule is not purely per-mint — it depends on global demand signals. **The "per-mint independence" claim applies to settlement payouts, not to sweep activation.** This is by design: global request proofs prove content is still demanded, preserving pools at under-served mints for future store recruitment. But the document should be precise about the scope of per-mint independence.
+**Why the global demand check was unnecessary**: a mint with zero stores receives zero routed demand — serve endpoints route around S_s=0 coverage. Such a pool is economically inert (zero drain, zero service). Preserving it via global demand data preserves dead state at the cost of breaking per-mint settlement independence. Sweeping it is the correct market signal.
+
+**Residual**: genesis address is the standing beneficiary of sweep, creating an incentive to maximize sweep. See #33. **Residual**: post-outage grace period — a mint returning after prolonged downtime may trigger immediate sweep for pools that were inactive before the outage. Stores rushing to re-attest on return naturally mitigate this; an explicit grace period of G epochs after chain resumption is an optional refinement.
+
+### 33. Genesis Address Incentive Alignment
+
+The genesis address receives all sweep income and all cascading remainders. The genesis key holder has a standing incentive to maximize sweep — the only protocol participant whose income grows when pools die. Three attack surfaces: (i) **Passive storeless mint**: operate a bonded mint, attract deposits, ensure no stores engage, collect sweep after SWEEP_EPOCHS. Low yield in a mature market (funders check store coverage), minor concern at bootstrap. (ii) **Rug-pull**: operate stores to attract deposits, withdraw stores, collect sweep. Mitigated by replacement stores filling profitable gaps within the SWEEP_EPOCHS window. Viable against niche low-demand content. (iii) **Coordination refusal**: operate a bonded mint, accept deposits, produce valid epoch summaries, but never distribute shard data to stores. Stores can't attest → sweep triggers. No competitive-exit evidence (no attestation was excluded; none existed). Hardest to detect. **Design space**: (a) provably unspendable genesis address (NUMS point) — eliminates incentive, eliminates protocol self-funding; (b) genesis address as covenant/timelocked distribution — reduces concentration; (c) bond must scale with deposits held (bond ≥ α×deposits) — bounds attack ROI to 1/α minus opportunity cost; (d) coordination-commitment mechanism — mint proves it distributed shard data, absence of proof is evidence. The founder's counter-argument: the genesis key holder is incentivized to maximize *volume* (total inflow), not *sweep* (failed pools) — sweep income from sabotaged pools is bounded, while referrer + remainder income from a thriving market compounds indefinitely.
 
 ---
 
@@ -1834,3 +1835,4 @@ Single-role attacks are bounded above. The remaining question: what if one entit
 | G4 | Settler incentive: no income. At scale, settlement is expensive to compute. | Partially resolved: settlers no longer bear OP_RETURN costs (Bitcoin anchoring is product-layer, funded by parties who benefit — see Settlement §4). Compute cost remains. Serve endpoints that need settlement data may run settlers as cost of business. |
 | G5 | Mint can learn content→store mapping for content it processes (intelligence). Anonymous transport hides operator identity; store-blindness hides content from store; but mint sees both sides. | By design — mint is the trusted bridge. Mitigation: competing mints, deposit splitting, relay-encrypted mappings as fallback. |
 | G6 | Epoch_hash depends on Bitcoin block hash. 51% miner can manipulate block hash to bias store selection / verification rings for one epoch. | Impractical — Bitcoin mining attack is astronomically expensive for one epoch of OCDN routing bias. |
+| G7 | Coordination refusal: a bonded mint that accepts deposits but never distributes shard data to stores produces a valid chain with zero attestations → sweep. No competitive-exit evidence (no attestation excluded; none existed). Hardest genesis-key-holder attack to detect. | Open — see Unresolved #33. Bounded by bond cost, SWEEP_EPOCHS window, and replacement store dynamics. |
