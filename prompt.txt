@@ -1,4 +1,4 @@
-You are a protocol architect reasoning about a specific unresolved design challenge in a permissionless storage market protocol called OCDN. The protocol is Nostr-native, uses Bitcoin for bonding/anchoring, Cashu for payments, and Tor for anonymous transport. Your task is to explore the design space for the M Key Lifecycle problem (#9) — the single challenge most likely to require large-scale architecture re-organization.
+You are a protocol architect reasoning about a specific unresolved design challenge in a permissionless storage market protocol called OCDN. The protocol is Nostr-native, uses Bitcoin for bonding/anchoring, Cashu for payments, and Tor for anonymous transport. Your task is to explore the design space for the Store Selection Verification Under Store-Blindness problem (#20) — the single challenge most likely to require large-scale architecture re-organization, because it sits at the intersection of the protocol's most foundational invariant (store-blindness) and the basic economic contract with its most numerous participant class (stores).
 
 Read all context below carefully before responding. Then explore the design space systematically: identify the core tensions, enumerate alternative architectures (including ones not yet considered), evaluate tradeoffs, and propose a direction. Be rigorous. Challenge assumptions. Name things that don't work and say why.
 
@@ -8,195 +8,220 @@ Read all context below carefully before responding. Then explore the design spac
 
 OCDN is a permissionless storage market where sats bind to content hashes. Four separated roles:
 
-- **Store**: Unbonded, anonymous (Tor hidden service), holds doubly-encrypted shards. Earns from pool drain. Content-blind, operator-blind, payment-blind (Cashu). Hash-blind local state (only blob_id → encrypted bytes on disk).
-- **Serve endpoint**: Untrusted clearnet delivery proxy + filtered OCDN relay. Earns referrer income via `via` tag. Mandatory intermediary between clients and stores.
-- **Mint**: Fidelity-bonded (time-locked UTXO), anonymous (Tor). Holds pool balances, verifies request proofs, collects attestations, issues storage challenges, publishes epoch summaries. Identified by pubkey + bond.
-- **Settler**: Deterministic payout computation from epoch summaries. Public service, no bond.
+- **Store**: Unbonded, anonymous (Tor hidden service), holds convergent-encrypted shards under random blob_ids. Earns from pool drain via settlement. Three independent protections: (1) addressing-blind — stores hold shards under random blob IDs; the content_hash→blob_id mapping is mint-held. (2) operator-blind — anonymous transport (.onion default). (3) payment-blind — Cashu ecash (Chaum blind signatures). Daemon persists only `blob_id → encrypted bytes` + `blob_id → earnings_rate`. No content_hash on disk.
+- **Serve endpoint**: Untrusted clearnet delivery proxy + filtered OCDN relay. Earns referrer income via `via` tag. Mandatory intermediary between clients and stores. Sees partial store mappings (one random store per shard per request). Can derive convergent key (knows content_hash from request proof).
+- **Mint**: Fidelity-bonded (time-locked UTXO), anonymous (Tor). Holds pool balances, verifies request proofs, collects attestations, issues storage challenges, publishes epoch summaries. Identified by pubkey + bond. Custodial.
+- **Settler**: Deterministic payout computation from epoch summaries. Public service, no bond. Anyone can run.
 
-**Genesis pubkey** = protocol seed. Discovered from a Bitcoin inscription. Root of ALL cryptographic derivations: content keys, Argon2 salts, epoch hashes, challenge nonces, store selection, state roots. Irrevocable — changing it creates a mathematically incompatible protocol.
+**Genesis pubkey** = protocol seed. Discovered from a Bitcoin inscription. Root of ALL cryptographic derivations: content keys, Argon2 salts, epoch hashes, challenge nonces, store selection, state roots. Irrevocable.
 
 **Epoch**: ~4h (24 Bitcoin blocks). `epoch_hash = SHA256(protocol_seed || confirmed_block_hash || epoch_number)` — mutual authentication at every protocol boundary.
 
-**Content storage model**: Content → convergent encryption (deterministic: `key = SHA256(protocol_seed || CONTENT_KEY_DOMAIN || content_hash)`) → RS erasure coding (K=10, N=20 shards for documents; N=1 for text) → **mint encryption layer** wraps each shard with per-content random key M: `stored_shard_i = AES(convergent_shard_i, KDF(M, shard_index))`. Stores hold doubly-encrypted shards under random blob_ids. Stores never learn M or any shard key.
+**Content storage model**: Content → convergent encryption (deterministic: `key = SHA256(protocol_seed || CONTENT_KEY_DOMAIN || content_hash)`) → RS erasure coding (K=10, N=20 shards for documents; N=1 for text) → stored under random blob_ids at stores. No per-content secret key (M was removed from the protocol — convergent encryption + blind addressing + anonymous transport provide the security model).
 
-**Settlement**: Per-mint, per-shard, participant parity. drain = floor(balance × DRAIN_RATE). Each shard's P_s = S_s + 1 participants (stores + coordination) earn equal shares. Tenure-weighted (challenge-based). Remainders cascade to genesis address.
-
----
-
-## THE M KEY: WHAT IT IS AND WHY IT MATTERS
-
-M is a per-content random key generated by the mint at upload time. It is the outer encryption layer that makes stores content-blind:
-
-- `K_shard_i = KDF(M, shard_index)` — per-shard key derived from M
-- Without M, a store's doubly-encrypted blob is opaque — the store cannot determine what content it holds
-- Without M, nobody can reconstruct content even if they have all N convergent-encrypted shards
-- M is generated once per content_hash by exactly one mint (the "verifying mint" or VM)
-- M must be available for every content retrieval (the serving mint needs K_shard values for the key envelope sent to clients)
-- M must survive mint crashes, exits, and coordinated takedowns
-- M must be recoverable in degraded mode (no mint reachable)
-
-**The fundamental tension**: M must be (a) available for every read, (b) durable across mint failures, (c) secret enough that a single compromised mint doesn't reveal content identity for all stored blobs — yet the protocol has no persistent shared state beyond relays and Bitcoin.
+**Settlement**: Per-mint, per-shard, participant parity. drain = floor(balance × DRAIN_RATE). Each shard's P_s = S_s + 1 participants (stores + coordination). Tenure-weighted (challenge-based: consecutive epochs passing storage challenges, NOT delivery token frequency). Remainders cascade to genesis address.
 
 ---
 
-## CURRENT DESIGN: TWO PHASES
+## STORE-BLINDNESS: THE ARCHITECTURE
 
-### v1 (ship first, deprecated at threshold activation)
+Store-blindness is the protocol's central architectural commitment. It is described as "the architecture, not an upgrade." It provides the censorship resistance model: stores cannot be compelled to remove specific content because they cannot determine what they hold. It also provides operator liability isolation: seizure of a store reveals encrypted blobs under random IDs with no link to content hashes or operator identity.
 
-- M distributed to all bonded mints via authenticated gossip
-- M also relay-escrowed: `encrypt(M, key=Argon2id(content_hash || protocol_seed || "ocdn-key-v1", ARGON2_PARAMS))` — any party with the correct genesis pubkey can recover M with ~1-3s compute per item
-- Fund confirmations include `["m_escrow", event_id]` referencing the relay escrow event
-- **Security property**: any single compromised mint reveals M for content it knows about. The Argon2 gate on relay escrow is a speed bump, not a wall.
-- **Availability property**: excellent — any mint, any relay reader, can recover M
+Store-blindness rests on two independent layers:
+1. **Addressing-blind** — blob_ids are random; the content_hash→blob_id mapping is mint-held. An adversary needs to compromise a mint to learn the mapping.
+2. **Operator-blind** — anonymous transport hides who operates the store; an adversary needs to compromise Tor to identify operators.
 
-### Phase 2a (the target — threshold M)
+Neither gives the other. This is strictly stronger than BitTorrent (plaintext, identifiable peers, no encryption, 20+ years of legal survival).
 
-- **Shamir T-of-N threshold sharing with Feldman VSS over secp256k1**
-- Activated when bonded mint set reaches N ≥ 3
-- Per-content committees of N_MAX (15) mints selected deterministically: `top N_MAX by H(content_hash || mint_pubkey || "ocdn-committee-v1")`
-- T = max(2, ceil((N+1)/2)) — simple majority. With 3 mints: T=2. With 100 mints: N=15, T=8.
-- Evaluation points: `x_i = H(mint_pubkey_i || content_hash || "ocdn-share-eval-v1") mod q`
-- VSS commitments `C_j = a_j * G` (public, C_0 = M*G) enable share verification without revealing M
-
-**Phase 2a serving behavior**:
-- Shares on disk, M ephemeral in RAM only
-- Serving mint reconstructs M from T peer shares on demand (first request per epoch per content: ~1-2s Tor latency for share collection)
-- Derives K_shard_i = KDF(M, shard_index) for K selected shards
-- Discards M immediately, caches only derived K_shard_i values
-- Subsequent requests reuse cached K_shard_i; uncached shard selections trigger re-reconstruction
-- M exposure window: microseconds (KDF evaluation time)
-
-**Proactive Secret Sharing (PSS) — leaderless**:
-- Every epoch, committee members refresh the polynomial (random degree-(T-1) with zero constant term, distribute sub-shares, accumulate)
-- M invariant (zero constant term preserves a_0)
-- Old shares incompatible with new shares — compromising different mints in different epochs reveals nothing (information-theoretic for k < T)
-- Collusion window bounded to one epoch (~4h)
-- PSS convergence: VERIFY messages as signed Nostr events on relays. Divergent commitment sets resolve via deterministic tiebreaker (lower H(commitment_set) wins). Convergence is eventual (1-2 epochs), not synchronous.
-- Refresh cost at 1M content, 100 mints: ~5-10 min, ~550 MB outbound per mint per epoch
-
-**Relay escrow (v2)**: Write-once. Contains:
-- Epoch-0 VSS commitments
-- Per-mint encrypted shares (NIP-44 sealed)
-- Mandatory emergency blob: `AES-256-GCM(M, key=Argon2id(content_hash || protocol_seed || "ocdn-key-v2-emergency", HARD_ARGON2_PARAMS))` where HARD_ARGON2_PARAMS = 4 GiB memory, 10 iterations (~30-60s per item, bulk recovery prohibitive)
-- Not updated by PSS
-
-**No retroactive migration**: v1 content retains its m_escrow format. Full M already exposed in gossip history. v1 and threshold content coexist indefinitely — escrow tag discriminates version.
-
-**Universal polynomial rejected**: M = KDF(S, content_hash) from shared master secret would be O(1) PSS but: (a) all-or-nothing risk, (b) forward secrecy failure, (c) threshold interaction on upload hot path.
-
-### Phase 2b (closed — impossibility triangle)
-
-Three properties form an impossible triangle: (a) mint ignorance (mint never learns K_shard_i in cleartext), (b) epoch caching (first request pays committee cost, subsequent are local), (c) no per-request committee interaction. Any two achievable; all three not.
-
-Explored and failed: proxy re-encryption (ephemeral client keys force per-request re-encryption), MPC for KDF (SHA-256 circuit depth × Tor latency ≈ minutes), homomorphic encryption over Shamir shares (requires per-request committee interaction), full per-shard sharing (20× PSS cost, same information exposure).
-
-Resolution: ephemeral-M caching within Phase 2a is the correct realization.
+**Store posture**: Zero editorial decisions — software selects shards by economic signal, not by content. Encrypted blobs in, encrypted blobs out, behind an address no one can attribute. The store daemon holds blobs, responds to challenges, attests. Hash-blind local state.
 
 ---
 
-## KEY INTERACTIONS WITH OTHER PROTOCOL AREAS
+## THE STORE SELECTION MECHANISM
 
-### Upload flow (Fund Confirmation §1)
-- Client designates exactly one **verifying mint** (VM) per deposit
-- VM receives K shards, verifies integrity (decrypt, reconstruct, SHA256 == content_hash)
-- VM generates M (or reuses from relay escrow if re-funding), encrypts shards, escrows M to relays BEFORE publishing fund confirmation
-- Secondary mints (SM) accept sats-only deposits, confirm after observing VM's confirmation
-- Re-funding (`role=additional`) reuses existing M from relay escrow
+When a client requests content, the consumption flow works as follows:
 
-### Serving flow (Consumption §3)
-- Serve-blinded selection: client withholds selection_nonce until mint commits (processing_commitment)
-- Mint selects K shards + one store per shard, issues delivery tokens + sealed key envelope
-- Key envelope contains K_shard_i values encrypted to client pubkey — serve endpoint can't read
-- Under Phase 2a: first request per epoch per content triggers M reconstruction from committee (1-2s latency over Tor)
+1. Client mines PoW, generates `selection_nonce`, includes `blind = SHA256(nonce)` in request proof, signs via NIP-07.
+2. Client → serve endpoint → mint (request proof WITHOUT nonce). Serve endpoint verifies epoch_hash.
+3. Mint verifies epoch_hash + PoW + signature + coverage ≥ K. Mint cannot compute routing outcome (nonce unknown). Signs `processing_commitment`.
+4. Client reveals `selection_nonce` → serve endpoint → mint. Mint verifies `SHA256(nonce) == blind`.
+5. Mint selects K shards + one store per shard via deterministic formula:
+   `selected_index = hash(epoch_hash || content_hash || shard_index || request_proof_hash || selection_nonce) mod S_s`
+   against committed `store_set_root` (Merkle root over sorted store pubkeys per shard, committed in previous epoch's summary).
+6. Mint issues delivery tokens (blob_id + store address, no content_hash) + selection proofs (selected_store_pubkey, position, Merkle path against committed store_set_root).
+7. Serve endpoint fetches convergent-encrypted blobs from stores using delivery tokens. Stores verify epoch_hash + mint signature, serve blobs, attest to mint directly.
+8. Client verifies selection proofs, decrypts, reconstructs.
 
-### Degraded mode (no mint reachable)
-- Stores accept PoW-authorized direct requests
-- Serve endpoints recover M from relay escrow:
-  - v1: standard Argon2 (~1-3s)
-  - v2: emergency blob via hard Argon2 (~30-60s per item)
-- Privacy degrades severely: serve endpoint has M AND can compute convergent key → full plaintext access
+**Serve-blinded selection** prevents the mint from biasing routing: the mint commits to processing BEFORE learning the selection_nonce, so it cannot compute which stores would be selected before it's cryptographically bound.
 
-### Key rotation (#17)
-- Share evaluation points bind to mint_pubkey
-- Key rotation invalidates all shares — rotating mint re-onboards under new key
-- Re-onboarding is lazy (on first request per content) via catch-up from T existing committee members
-- At 100 mints, a rotating mint re-onboards ~22,500 content hashes
-
-### Settlement
-- Epoch summary includes `vss_root`: Merkle root over per-content VSS commitment tuples
-- Enables external verification and new-mint share onboarding
+**Earning requires BOTH demand AND proven storage**: A store earns for a shard only if (1) it submitted a valid attestation for a valid request proof this epoch AND (2) it passed the mint's storage challenge for that shard this epoch. Tenure is challenge-based: consecutive epochs passing storage challenges, decoupled from delivery token frequency. This prevents routing bias from degrading honest stores' tenure.
 
 ---
 
-## ENUMERATED RESIDUAL CONCERNS (from the vision document)
+## THE CORE PROBLEM: UNRESOLVED #20
 
-(i) **Relay pruning** of escrowed M events — periodic heartbeat re-publication proposed (idempotent)
-(ii) **PSS split rate at bootstrap** — founder's serve endpoint relay is de facto coordination substrate; dilutes as more serve endpoints launch
-(iii) **Emergency blob Argon2 params** — 4 GiB may exceed low-end VPS RAM
-(iv) **Store-blindness anchors on anonymous transport**, not M secrecy — threshold M is defense-in-depth, not the fundamental security model
-(v) **Text content (N=1)** has no multiplicative sub-linearity — single committee, single shard
-(vi) **Dome milestone** (founder removal): requires N-1 ≥ T excluding founder AND founder's relay not sole PSS coordination substrate
-(vii) **Write-once relay escrow** creates unbounded window for private-key-accumulation attacks — adversary collecting T mint identity keys over time can reconstruct from epoch-0 shares regardless of PSS. Acceptable because compromising T independent keys is catastrophic regardless.
+**Stores cannot verify selection correctness.** This is an information-theoretic constraint: the property that protects stores (content-hash blindness) prevents them from verifying routing fairness.
+
+The selection formula requires `content_hash` as an input:
+```
+selected_index = hash(epoch_hash || content_hash || shard_index || request_proof_hash || selection_nonce) mod S_s
+```
+
+Stores don't know `content_hash`. Therefore stores cannot independently recompute the selection to verify they were fairly chosen (or fairly excluded).
+
+### The current three-layer mitigation
+
+Three mechanisms compensate:
+
+**(1) Client verification (real-time, all inputs known)**
+The client knows content_hash, epoch_hash, shard_index, request_proof_hash, and selection_nonce. The client can fully verify each selection proof against the deterministic formula + committed store_set_root. Incorrect selection is publishable evidence (Merkle proofs over public values). The client is the party with the strongest adversarial incentive — they want their content delivered correctly.
+
+Limitation: Client verification proves the selection was correct FOR THAT REQUEST. It does not prove the mint is being fair IN AGGREGATE across all requests. A client sees only its own traffic. Publishing evidence requires the client to notice, care, and act.
+
+**(2) Settler audit (ex-post, cross-references public data)**
+Settlers can cross-reference attestation store pubkeys against expected selection from public data (epoch summaries, request proofs on relays). Settlers have the data to detect systematic routing bias.
+
+Limitation: Settlers are a public service (no income). Settlement computation is already expensive. Adding routing audit increases compute. The audit is ex-post (after the epoch), not real-time. Settler findings have no enforcement mechanism — they publish, but recourse is competitive exit.
+
+**(3) Store aggregate detection via routing_root**
+Each epoch summary includes `routing_root`: a Merkle root over (group_id, delivery_token_count) pairs. Stores can verify their observed delivery token count against the mint's committed demand data. Over multiple epochs, stores detect aggregate mint-level bias (delivery token frequency vs epoch summary totals) and temporal per-blob anomalies.
+
+Limitation: **The routing_root is mint-committed.** The mint reports its own fairness. A dishonest mint can commit a routing_root that matches its biased behavior. The store compares its experience against the mint's self-report — this is circular verification. The store can detect inconsistency between routing_root and its own delivery token count, but if the mint adjusts both consistently, the store sees nothing.
+
+### What store-blind demand detection actually gives stores
+
+Stores can detect:
+- *Aggregate* mint-level bias: delivery token frequency vs epoch summary totals (requires trusting the epoch summary)
+- *Temporal* per-blob anomalies: sudden drops in delivery token frequency for specific blob_ids
+
+Neither requires content_hash. Both require multiple epochs. Both depend on the mint's own committed data.
+
+### Residuals that feed into this problem
+
+- **Nonce grinding (#29 residual)**: At PoW cost per attempt, a mint can grind selection_nonces before the client commits. The serve-blinded selection prevents this for honest protocol execution, but a colluding serve+mint pair could pre-compute selections before the client's blind is committed.
+- **Serve+mint collusion at bootstrap (#31 residual)**: With 1 mint and 1 serve endpoint, the two parties that see both sides of the selection can collude freely. Bounded by seed budget.
+- **Store daemon economic model**: The autonomous rebalance algorithm ranks shards by `projected_value_per_byte` based on delivery token frequency and coverage signals. If the mint systematically under-routes a store, the daemon will correctly identify those shards as underperforming and evict them — which is the correct autonomous response but also means the mint can indirectly evict honest stores by under-routing them. Challenge-based tenure mitigates this (tenure stays, so the expected value per shard doesn't crash), but the daemon still uses delivery token frequency as an economic signal.
+
+### The fundamental asymmetry
+
+Stores are the most numerous, most important non-custodial role in the protocol — they hold the actual data. Yet they are the ONLY role that cannot independently verify fair treatment:
+
+| Role | Verification capability |
+|------|------------------------|
+| Client | Full: knows all selection inputs, verifies in real time |
+| Serve endpoint | Partial: sees one store per shard per request, can cross-reference |
+| Settler | Full: deterministic recomputation from public data |
+| Store | **Statistical, delayed, depends on mint's self-reported data** |
+
+The question is whether this asymmetry is tolerable, addressable, or fatal.
+
+---
+
+## EPOCH SUMMARY (the mint's public commitment)
+
+Each epoch, the mint publishes a signed summary including:
+
+```
+["store_set_root", "<merkle_root>"]     # per-shard Merkle root over sorted store pubkeys
+                                         # commits store ordering for verifiable selection next epoch
+["routing_root", "<merkle_root>"]        # Merkle root over (group_id, delivery_token_count) pairs
+                                         # stores verify demand share, settlers cross-check
+["commitment_root", "<merkle_root>"]     # Merkle root over signed processing_commitments
+                                         # anyone with a commitment can verify inclusion
+["commitment_count", "<n>"]              # processing_commitments signed this epoch
+                                         # fulfillment ratio = delivery_tokens / commitments
+["attestation_root", "<merkle_root>"]    # Merkle root over hash(attestation) leaves
+                                         # stores verify own inclusion privately
+["challenge_root", "<merkle_root>"]      # (store_pubkey, shard_index, challenge_passed) triples
+                                         # tenure = consecutive challenge-passed epochs
+["demand_root", "<merkle_root>"]         # (content_hash, request_count, unique_clients)
+["proof_root", "<merkle_root>"]          # Merkle root over sorted hash(request_proof)
+["referrer_root", "<merkle_root>"]       # (content_hash || via_pubkey || proof_count)
+```
+
+The epoch summary is the mint's public commitment. Merkle roots allow selective disclosure and independent verification — but only for parties that know the leaf data. Stores know their own pubkey and blob_ids but NOT content_hash, which limits which roots they can meaningfully audit.
+
+---
+
+## STORE CONFIDENCE VOTING (the bottom-up accountability check)
+
+Stores audit mints and publish epoch-bound confidence votes. Each epoch, each store is randomly assigned one bonded mint to evaluate (block-hash-deterministic). Vote weight = number of self-attestation challenges passed (publicly verifiable). Sybil stores with no actual storage have zero vote weight.
+
+Mint reputation = cumulative confidence ratio over a rolling window. Affects deposit routing and store acquisition decisions. Competitive exit pressure.
+
+This is the current answer to "what recourse do stores have?" — they can downvote mints and leave. The enforcement mechanism is economic (loss of stores → loss of income), not cryptographic (fraud proof).
+
+---
+
+## RELATED RESOLVED ISSUES (for context)
+
+- **#29 (Serve-Blinded Selection)**: RESOLVED. Commitment-reveal protocol prevents mint from computing routing outcome before committing. Residual: nonce grinding at PoW cost, serve+mint collusion pre-commitment at bootstrap.
+- **#30 (Tenure Amplification of Biased Routing)**: RESOLVED. Challenge-based tenure replaces attestation-based tenure. Breaks the amplification loop where biased routing degrades honest stores' tenure.
+- **#31 (Bootstrap Routing Vulnerability)**: RESOLVED. Three interlocking mechanisms (serve-blinded selection + challenge-based tenure + processing accountability). Residual: serve+mint collusion at bootstrap requires two colluding parties, bounded by seed budget.
+- **#13 (Competitive Exit Model)**: RESOLVED. Fraud proofs replaced by competitive exit + attestation Merkle root. Don't punish bad miners, reward good ones.
+
+These resolutions address the MINT's ability to bias routing (prevention via blinding + commitment) and the STORE's ability to survive biased routing (challenge-based tenure preserves weight). They do NOT address the store's ability to DETECT and VERIFY fair routing — that remains #20.
 
 ---
 
 ## ARCHITECTURAL CONSTRAINTS
 
-1. **No persistent shared state** beyond Nostr relays and Bitcoin. No blockchain, no consensus protocol, no leader election.
-2. **All infrastructure communication over Tor** (anonymous transport). ~1-3s per connection.
-3. **Relay eventual consistency** — relays are the coordination substrate, not a consensus layer.
+1. **Store-blindness is non-negotiable.** Any solution that requires stores to learn content_hash is rejected outright. The censorship resistance model depends on stores not knowing what they hold.
+2. **No persistent shared state** beyond Nostr relays and Bitcoin. No blockchain, no consensus protocol.
+3. **All infrastructure communication over Tor** (~1-3s per connection).
 4. **Per-mint independence** for settlement — no cross-mint join in payout computation.
-5. **Store-blindness must be preserved** — stores cannot learn content_hash from their blob_id or shard data.
-6. **Degraded-mode availability** — content must remain accessible (with degraded privacy) when all mints are down.
-7. **Genesis pubkey permanence** — cannot be changed; all derivations are rooted in it.
-8. **Content-fork is the only structural upgrade path** — new CONTENT_KEY_DOMAIN for incompatible changes.
-9. **v1 must ship first** — Phase 2a activates when mint count reaches threshold. No flag day.
+5. **Serve-blinded selection must be preserved** — mints cannot learn the routing outcome before committing to process.
+6. **Genesis pubkey permanence** — all derivations rooted in it.
+7. **The store daemon must make correct autonomous economic decisions** — the daemon's shard portfolio management depends on accurate economic signals from the mint.
+8. **No identity beyond pubkeys** — stores are anonymous, identified only by ephemeral pubkeys. No reputation that carries across key rotation.
 
 ---
 
 ## WHAT I WANT YOU TO EXPLORE
 
-The current Phase 2a design is detailed but imposes enormous complexity:
-- Per-content committees of up to 15 mints
-- Shamir + Feldman VSS (non-trivial cryptography)
-- Leaderless PSS convergence via relay events (distributed systems hard problem)
-- ~550 MB outbound per mint per epoch for PSS at 1M content items
-- First-request-per-epoch latency of 1-2s for committee share reconstruction over Tor
-- Write-once relay escrow with accumulation attack window
-- Emergency blob with 4 GiB Argon2 (excludes low-end hardware)
-- Lazy re-onboarding on key rotation touching potentially tens of thousands of content items
-- The impossibility of Phase 2b (mint ignorance) already proven
+The current design acknowledges #20 as an information-theoretic constraint and compensates with three layers of indirect verification. The question is: is this sufficient, and if not, what structural changes would improve it without breaking store-blindness?
 
 ### Questions to drive exploration:
 
-1. **Is the threat model for M correctly calibrated?** The document acknowledges (residual iv) that store-blindness anchors on anonymous transport, not M secrecy. If Tor is the real defense, is threshold M buying enough security to justify its complexity? What's the actual attack surface reduction from v1 → Phase 2a? Quantify: how many additional steps does an adversary need?
+1. **Is the information-theoretic constraint absolute?** The claim is that content-hash blindness prevents routing verification. But the selection formula is a hash — could there be a zero-knowledge construction where the mint proves "the selection I computed is correct for SOME content_hash that maps to YOUR blob_id" without revealing the content_hash? What would such a proof look like? What are the costs (proof size, verification time, Tor latency)? Would it require changes to the delivery token, the epoch summary, the store's local state?
 
-2. **Alternative: encrypted M relay escrow without threshold sharing.** What if M is never held by mints at all? Could M be relay-escrowed (Argon2-gated) and reconstructed by the serving mint on every request? This eliminates committees, PSS, VSS, gossip — but adds Argon2 cost per request. What are the latency/compute tradeoffs? Is there a caching strategy that preserves the security improvement while eliminating the coordination layer?
+2. **Verifiable routing without content_hash — alternative approaches:**
+   - **Blind selection proofs**: The mint computes the selection and provides a ZK proof that the output is correct with respect to the committed store_set_root. The store verifies the proof without learning content_hash. Is this feasible with current ZK systems (Groth16, PLONK, STARKs)?
+   - **Commit-then-reveal aggregate fairness**: Instead of per-request verification, the mint commits to an aggregate routing distribution at epoch start (before requests arrive), then at epoch end the actual distribution is compared. Deviation = evidence. Stores see only their own slice of the distribution.
+   - **Cross-mint routing witnesses**: If content is deposited across multiple mints, could stores cross-reference delivery token patterns across mints to detect mint-specific bias?
+   - **Verifiable random functions (VRFs)**: Could the selection use a VRF where the mint's output is verifiable without revealing the input? The mint computes `VRF(mint_sk, content_hash || epoch_hash || ...)` and provides a proof. Store verifies the VRF proof. But: VRF reveals that the same input produces the same output — does this leak content_hash to the store over multiple epochs?
 
-3. **Alternative: client-side M.** What if the client holds M (or derives it deterministically) and the mint never sees it? The convergent encryption key is already deterministic — could M also be deterministic from a secret the client controls? What breaks? (Hint: the document mentions VM verification requires M to encrypt shards. But does it?)
+3. **The circular verification problem**: The routing_root is the mint's self-report of its own routing behavior. How do you break this circularity? Can the routing_root be structured so that stores can detect inconsistencies WITHOUT trusting the mint's aggregate data? For example: could stores contribute their own signed attestation of delivery token receipt, and an independent party (settler? serve endpoint?) aggregates and cross-checks against the mint's claim?
 
-4. **Alternative: simpler threshold — T-of-N without PSS.** What if shares are static (no proactive refresh)? The collusion window becomes unbounded (not epoch-scoped), but the accumulation attack via relay escrow already exists (residual vii). Does PSS buy meaningful security given the emergency blob already trades absolute secrecy for recoverability?
+4. **Store-side statistical detection — how powerful is it really?** A store holds many blob_ids across potentially many mints. Over many epochs, it accumulates delivery token frequency data per blob_id. What is the statistical power of this data? How many epochs does a store need to detect, say, 20% routing bias for a specific blob_id with 95% confidence? Does the answer depend on S_s (store count per shard)? At what S_s does detection become impractically slow?
 
-5. **Alternative: M derived from a mint-committee-signed nonce.** Instead of Shamir sharing M, what if M = KDF(committee_signature, content_hash) where the committee signature is a threshold BLS signature? This would make M reconstructible without share storage. What are the tradeoffs?
+5. **The store daemon problem**: The daemon's autonomous rebalance uses delivery token frequency as an economic signal. If the mint under-routes a store by 20%, the daemon sees 20% less income for those shards and may evict them in favor of higher-yielding alternatives. Challenge-based tenure mitigates the eviction cascade (tenure stays), but the daemon's economic model still responds to delivery token frequency. Is there a way to decouple the daemon's economic decisions from mint-reported signals? What signals COULD the daemon use that are independently verifiable?
 
-6. **The PSS convergence problem**: The current design uses relay eventual consistency as the coordination substrate for PSS VERIFY messages. This is a distributed consensus problem disguised as eventual consistency. How brittle is this in practice? What happens with relay partitions, delayed propagation, or adversarial relay operators? Is the deterministic tiebreaker (lower H(commitment_set) wins) sufficient or does it create liveness issues?
+6. **The bootstrap problem specifically**: At bootstrap (1 mint, 1 serve endpoint, few stores), the three-layer mitigation is weakest: client verification exists but has no alternative mint to compare against, settler audit has no independent data source, store detection has no statistical power (too few epochs, too few requests). What specific protections exist at bootstrap, and are they sufficient for the seed content?
 
-7. **The upload hot path**: VM generates M, encrypts, escrows to relay, publishes fund confirmation — strict ordering. How does this interact with threshold sharing? Who distributes shares? When? The document says VM distributes — but the VM is a single mint. If it crashes between escrow and share distribution, what happens?
+7. **Serve endpoint as routing witness**: The serve endpoint sees both sides of the selection (it forwards the request proof to the mint AND fetches from the selected store). Could serve endpoints publish routing witness events that stores can cross-reference? This introduces a new trust relationship (store trusts serve endpoint's report), but many competing serve endpoints would create a de facto audit layer. What are the privacy implications? Does this leak information to stores about which content they hold?
 
-8. **Scaling**: At 10M content items and 100 mints, each mint is on ~1.5M committees. PSS refresh touches all of them every epoch. Is this fundamentally sustainable? What's the scaling ceiling? Is there a design where M management cost is O(1) per mint per epoch instead of O(content_count)?
+8. **The tolerance question**: Is this problem actually fatal, or is it tolerable? The protocol already assumes adversarial participants and relies on economic incentives. If a mint biases routing by 10-20%, the damage is: some honest stores earn 10-20% less per shard than they should, some favored stores earn more. Challenge-based tenure means honest stores don't lose weight. Competitive exit means stores leave bad mints. Is the equilibrium stable — does the mint lose more (departing stores → lost income → lost deposits) than it gains (biased routing → favored stores → ?)? At what level of bias does the equilibrium break?
 
-9. **The v1 → Phase 2a transition**: The document says "no retroactive migration" — v1 content retains its escrow format. This means the protocol permanently carries two M management regimes. Is there a cleaner transition path? What if v1 M is re-escrowed under v2 format as a background process?
+9. **Comparison to analogous systems**: Bitcoin mining pools can theoretically withhold blocks. Filecoin storage providers can game WindowPoSt. How do comparable systems handle the "verifier can't fully verify" problem? What lessons transfer?
 
-10. **Simplification direction**: What is the minimal change from v1 that meaningfully improves the security property? The jump from "any mint knows M" to "threshold T-of-N with PSS and committees" is a 10× complexity increase. Is there a 2× complexity increase that captures 80% of the security benefit?
+10. **Novel architectures**: Is there a fundamentally different store-mint relationship that preserves store-blindness while giving stores stronger verification? For example:
+    - **Store-initiated selection**: Instead of the mint selecting stores, could the store "claim" delivery tokens for blob_ids it holds, with the mint verifying the claim is correct? This inverts the flow but may leak information.
+    - **Ring-based selection witness**: Could the cross-store verification ring (already used for storage challenges) also witness routing? Peer stores could attest to seeing each other selected at expected rates.
+    - **Encrypted routing proofs**: Could the mint encrypt routing proofs that are only decryptable by the settler, who then publishes aggregate fairness scores per mint without revealing per-store details?
+    - **Delivery token receipts on relays**: Could stores publish anonymized delivery token receipts (stripped of blob_id) that settlers aggregate to verify total routing volume matches the mint's committed totals?
 
 ### Output format:
 
 Structure your response as:
-A. **Threat model audit** — What exactly does Phase 2a defend against that v1 doesn't, given the emergency blob exists?
-B. **Alternative architectures** — At least 3 substantially different approaches, with honest tradeoff analysis
-C. **PSS necessity analysis** — Is proactive refresh essential or gold-plating given the constraints?
-D. **Scaling analysis** — Where does the current design break and what's the ceiling?
-E. **Recommended direction** — Your best judgment on the right architecture, with justification
-F. **Migration strategy** — How to get from v1 to the target without a flag day
+A. **Information-theoretic analysis** — Is the constraint truly absolute? What exactly can and can't be proven to stores without breaking blindness? Map the boundary precisely.
+B. **ZK/cryptographic approaches** — Evaluate specific constructions (ZK selection proofs, VRFs, commit-reveal schemes). Honest assessment of feasibility given Tor latency, store compute constraints (<512MB RAM), and proof sizes.
+C. **Non-cryptographic approaches** — Structural/economic/statistical mechanisms that improve store verification without new cryptographic primitives.
+D. **The circular verification problem** — Specific proposals for breaking the routing_root self-report circularity.
+E. **Statistical power analysis** — How effective is the current store-side detection? Under what conditions does it work / fail?
+F. **Bootstrap-specific analysis** — What protections exist at 1 mint, 1 serve endpoint? Are they sufficient?
+G. **Equilibrium analysis** — At what bias level does the economic equilibrium break? Is the current design stable under realistic adversarial assumptions?
+H. **Recommended direction** — Your best judgment on whether this is tolerable (document the limit), addressable (specific changes), or requires architecture re-org.
+I. **If architecture re-org: scope the change** — What exactly changes, what breaks, what's the migration path?
 
-Be honest about what you don't know. Name assumptions. If the current design is actually correct despite its complexity, say so and say why no simpler alternative works.
+Be honest about what you don't know. Name assumptions. If the current three-layer mitigation is actually sufficient despite its indirectness, say so and say why — that would be a meaningful result.
