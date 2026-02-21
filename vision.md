@@ -1,6 +1,6 @@
 # Permissionless Storage Market — Nostr-Native
 
-**Purpose**: A permissionless conviction scoreboard. Sats bind to hashes. Reading is free. Funding is advertising. Four separated roles (store, serve, mint, genesis) ensure no intermediary can redirect economic flows. Settlement divides each mint's pool drain among P participants at parity — coordination earns what one store-shard pair earns. The importance index is the product. The dimensional friction of a deep storage market is the income. The economic moat deepens with every upload.
+**Purpose**: A permissionless conviction scoreboard. Sats bind to hashes. Reading is free. Funding is advertising. Four separated roles (store, serve, mint, genesis) ensure no intermediary can redirect economic flows. Settlement divides each mint's pool drain among P participants at parity — coordination earns what one store-shard pair earns. The importance index is the product. The dimensional friction of a deep storage market is the income. The economic moat deepens with every upload. **The protocol's primary output is a Bitcoin-anchored evidence record** — existence, demand, funding, and suppression of every content item, verifiable with only Bitcoin headers and SHA-256. The storage market is the engine; the evidence chain is the permanent exhaust. Content is mortal. The accusation is not.
 
 ---
 
@@ -15,7 +15,7 @@ Terms are defined here once; the rest of the document uses them by reference.
 | **Store** | Unbonded operator holding encrypted shards behind anonymous transport (Tor hidden service by default). Earns from pool drain via settlement. Challenge protocol is the sole enforcement. Reachable by opaque address — protocol is transport-agnostic. |
 | **Serve endpoint** | Untrusted delivery pipe (front-end, CDN, proxy) + filtered Nostr relay for OCDN event kinds. Earns referrer income via `via` tag. No bond required. Event persistence is a natural extension of the serve role — serve endpoints already consume relay data to function; persisting it aligns incentives (better event availability → more traffic → more via income). Signed events make persistence trustless. **Demand witness**: publishes sampled request proofs and per-epoch referrer witness events to its relay — serve endpoints see every forwarded proof, have via-tag income incentive for correct referrer accounting, and operate the relay infrastructure. Multiple competing serve endpoints cross-verify. **Commitment witness**: relays processing_commitments between client and mint during serve-blinded selection (see §3 Consumption flow). Publishes its observed `commitment_count` per epoch in referrer witness events — cross-verifiable against the mint's committed `commitment_count`. |
 | **Mint** | Fidelity-bonded operator (time-locked UTXO) behind anonymous transport (Tor hidden service default, like stores): holds pool balances, verifies request proofs, collects attestations, issues storage challenges, publishes epoch summaries. Tenure-weighted custody ceiling. Identified by pubkey + on-chain bond UTXO, not by operator identity. Deposits via HTLC-gated Cashu-over-Tor (atomic, zero-trust — see §1). |
-| **Settler** | Anyone who computes deterministic payouts from epoch summaries. Public service, no bond. |
+| **Settler** | Anyone who computes deterministic payouts from epoch summaries AND publishes the mandatory Bitcoin evidence anchor (~56-byte OP_RETURN per epoch). First valid anchor per epoch is canonical. Public service, no bond. Anchor cost is trivial (~56 sats/epoch); any participant can publish. |
 | **Genesis pubkey** | The protocol seed. Discovered from the genesis inscription sender on Bitcoin (`GENESIS_INSCRIPTION` is the one hardcoded constant). All cryptographic derivations (content keys, Argon2 salts, epoch hashes, challenge nonces, store selection, state roots) are rooted in this pubkey — changing it creates a mathematically incompatible protocol. The corresponding address receives settlement remainders + sweep. The private key controls spending, not protocol operations. The pubkey is the protocol's identity: irrevocable, permanent across all versions and parameter sets. |
 | **Genesis inscription** | Bitcoin inscription whose sender defines the genesis pubkey and whose body contains the protocol constant set (RS_K, RS_N, ARGON2_PARAMS, EPOCH_BLOCKS, etc.). The ONE hardcoded value in the codebase. Everything else is derived from it or declared per-mint. |
 | **Protocol seed** | `protocol_seed = genesis_pubkey`. The 32-byte root from which all protocol-level cryptographic parameters are derived. |
@@ -49,7 +49,7 @@ Bootstrap reference (any N, at R=1): At S=1, coordination fraction = 50%. At S=3
 | **Pool** | Sats bound to a content hash. Credits accumulate from fund events; drains pay stores + coordination. |
 | **Drain** | Per-epoch outflow from a pool. `drain = floor(balance × DRAIN_RATE)`, divided equally across N shards. Balance-proportional: pool half-life is deterministic, store count doesn't affect drain speed. Gate-triggered: drain fires when any valid attestation exists this epoch; request proof volume doesn't change the amount. Effective drain is reduced by tenure recycling — immature stores earn less, and the unpaid portion credits back to the pool (see Glossary: Tenure recycling, §4). |
 | **Sweep** | Pool with no valid attestations for SWEEP_EPOCHS consecutive entries in the mint's epoch chain → entire balance to genesis. Chain-relative counting: SWEEP_EPOCHS is measured against the mint's `seq`, not wall-clock epochs. Mint offline → chain frozen → sweep clock frozen → mint takedown cannot trigger sweep. Purely per-mint — no cross-mint demand check, no relay dependency. A storeless mint receives zero routed demand (serve endpoints route around S_s=0), so its pools are economically inert; sweeping them is the correct market signal. |
-| **Ghost** | Content whose pool is depleted. The economic fossil persists: metadata, economic history, edges, discussion on relays; content hash provable via the hash-chained epoch log — `funding_root` proof (deposit), `balance_root` proofs (active life), `sweep_root` proof (exit). Bitcoin-anchorable by any party for additional durability (see Settlement §4, State Commitments: Ghost State). Bytes are gone from the storage market — stores evicted, no one paid to serve. Recovery: anyone with the original file can re-encrypt (convergent encryption is deterministic), re-upload, re-fund. `[+] to restore`. |
+| **Ghost** | Content whose pool is depleted — the protocol's **completed evidence cycle**. The economic fossil persists as a **ghost dossier**: metadata, economic biography (total funded, total drained, peak balance, lifetime, unique funders, total demand proofs, unique consumers), Bitcoin anchor references, and portable existence proofs (see Glossary: Existence proof). Content hash provable via the hash-chained epoch log — `funding_root` proof (deposit), `balance_root` proofs (active life), `sweep_root` proof (exit) — all verifiable against mandatory Bitcoin anchors with only block headers + SHA-256. Bytes are gone from the storage market — stores evicted, no one paid to serve. The content hash is a **standing warrant**: anyone possessing the original file can prove it matches the Bitcoin-anchored record. Recovery: anyone with the original file can re-encrypt (convergent encryption is deterministic), re-upload, re-fund. `[+] to restore`. |
 | **Coverage signal** | Per-content shard store count, published by mints each COVERAGE_BLOCKS (~1h). No store identities. Used by stores for opportunity assessment. |
 
 ### Storage & Privacy
@@ -81,6 +81,10 @@ Bootstrap reference (any N, at R=1): At S=1, coordination fraction = 50%. At S=3
 | **Processing commitment** | Mint signs `(request_proof_hash, blind, epoch_hash)` before learning `selection_nonce` — cryptographic commitment to process a request before the routing outcome is computable. Part of serve-blinded selection (see §3 Consumption flow). Not relayed; committed via `commitment_root` in epoch summary. |
 | **Fulfillment evidence** | Client-published event when a processing_commitment exists but no delivery tokens were received. Contains: request_proof_hash, processing_commitment (mint-signed), selection_nonce, epoch, mint_pubkey. Anyone can verify: mint's signature on commitment, `SHA256(selection_nonce) == blind`, request proof validity. Self-contained cryptographic evidence — no trusted verifier needed. |
 | **Settlement event** | Settler publishes deterministic payout computation from epoch summaries. |
+| **Funding receipt** | Funder-controlled evidence, independent of mint. Contains content_hash, amount, mint_pubkey, HTLC preimage (cryptographic proof the mint accepted the deposit). Published to relays; optionally inscribed on Bitcoin (~120 bytes) for permanent evidence. Creates a record independent of the mint's balance_root — if the mint omits the content, the receipt + absence is irrefutable one-sided fraud proof. Committed via `receipt_root` in epoch summary. |
+| **Pre-commitment** | Content_hash timestamped before funding or storage. Zero cost beyond relay publication. Enters epoch summary's `precommit_root`. Expires after PRECOMMIT_TTL epochs if never funded; any Bitcoin anchor during the TTL has already timestamped it permanently. Use cases: whistleblower commitment device, scientific priority, dead man's switch, proving prior knowledge before publication. |
+| **Existence proof** | Portable, self-contained proof that a content_hash was in a specific Merkle root at a specific Bitcoin-anchored epoch. ~744 bytes (content_hash + sub-root + Merkle paths + evidence_root + anchor txid + block height). Verifiable with only Bitcoin block headers and SHA-256 — no relay, no mint, no internet beyond a Bitcoin node. Can be printed as a QR code, broadcast by radio, stored on paper. The protocol's most durable artifact. See State Commitments: Evidence Layer. |
+| **Ghost dossier** | Complete evidence summary for dead content. Economic biography (lifetime, funding, demand, cause of death), Bitcoin anchor references, pre-computed existence proofs, verification instructions. The protocol's finished product for a content item — live content is work in progress; a ghost is a completed evidence cycle. Anyone can produce from public data. |
 
 ### Economic Terms
 
@@ -123,7 +127,7 @@ Bootstrap reference (any N, at R=1): At S=1, coordination fraction = 50%. At S=3
 12. **The moat is compound: five layers, three structural** — See Glossary: Economic moat. Layers (a) economic state and (b) Schelling point are structural; (c) traffic and (d) deposits are speed bumps that buy time for (a) and (b) to compound.
 13. **Funding is advertising** — Funders pay for availability and visibility. Readers consume for free. This is advertising economics: the person who wants attention pays, the person who has attention consumes for free. Free distribution maximizes the audience that makes funding valuable. Conviction spending is the revenue. Free reading is the amplifier.
 14. **The system optimizes for contested content** — Uncontested content is funded once. Contested content is funded repeatedly by competing sides. Competitive dynamics drive repeat funding — the highest-velocity economic behavior in the system. The founder earns from the froth of disagreement, not from any position. Free reading amplifies this: everyone sees the scoreboard, everyone can take a side.
-15. **The protocol is four event types and one rule** — Fund confirmation, request proof, store attestation, settlement (see Glossary: Events). Rule: unclaimed drain → genesis; pools with no attestations for SWEEP_EPOCHS consecutive chain entries → sweep. Chain-relative counting (mint offline → clock frozen) eliminates the mint-takedown attack without any global demand check. Everything else is a product concern or emergent market property.
+15. **The protocol is four settlement event types, four evidence event types, and one rule** — Settlement: fund confirmation, request proof, store attestation, settlement. Evidence: funding receipt, pre-commitment, existence proof, ghost dossier (see Glossary: Events). Rule: unclaimed drain → genesis; pools with no attestations for SWEEP_EPOCHS consecutive chain entries → sweep. Chain-relative counting (mint offline → clock frozen) eliminates the mint-takedown attack without any global demand check. Everything else is a product concern or emergent market property.
 16. **The network metabolizes failed attention bids** — Self-promoters fund their own content. If nobody reads it, sats sweep to genesis. Contested content produces remainder income (active market). Ignored content produces sweep income (failed attention bid). Both modes pay genesis. The total addressable revenue is all inflow.
 17. **The protocol settles; the product interprets** — Settlement is narrow, deterministic, and hard to game (requires real sats, real storage, real bonds). The importance index is broad, interpretive, and soft-gameable — but also forkable, competitive, and improvable without protocol changes. Most attacks target the index. The index is the expendable layer. Settlement — where the money flows — is robust. Attacks on interpretation don't corrupt settlement. Attacks on settlement require real capital at risk.
 18. **All funded content is stored; text bootstraps, documents sustain** — All funded content is stored as encrypted shards. Unfunded ephemeral messages live on relays only (see thesis 19).
@@ -143,21 +147,26 @@ Bootstrap reference (any N, at R=1): At S=1, coordination fraction = 50%. At S=3
     **Thresholds**: One honest serve endpoint = events discoverable. One honest store per shard = available. One honest mint = deposits accepted. **Zero honest mints = content still available** (degraded-mode retrieval — see §3, Degraded-Mode Retrieval). Total failure requires ALL roles to fail simultaneously. Mint takedown suspends settlement (economic damage), not content delivery (censorship failure).
 
     **Attestation integrity**: Epoch summaries commit via Merkle root (see §3) — omission triggers competitive exit.
+21. **The evidence layer is the primary output; the storage market is the engine** — The protocol produces two outputs: an ephemeral availability window (content retrievable while funded) and a permanent Bitcoin-anchored evidence record (existence, demand, funding, suppression — verifiable with only block headers and SHA-256). The storage market generates rich, economically meaningful evidence as a byproduct of its operation. Content is mortal; evidence is not. A bare hash inscribed on Bitcoin proves existence. The protocol adds demand proof (PoW-verified consumption — hardest signal to fabricate at scale), funding proof (multi-party economic conviction), and suppression proof (funded + consumed + dead = unnatural death). The evidence record outlives the protocol, the infrastructure, and the participants. **The censor's dilemma**: suppressing content creates a permanent, irrefutable, Bitcoin-timestamped accusation. There is no "suppress quietly" option once any single participant anchors an epoch. The cost of preventing evidence (~56-sat OP_RETURN from any participant) is equivalent to censoring Bitcoin itself.
+22. **Funding receipts make mint omission provable** — The funder's HTLC preimage is cryptographic proof the mint accepted a deposit. Published independently of the mint's epoch summary, it creates a second Bitcoin-anchorable record. If the mint's `balance_root` excludes funded content, the receipt + absence is one-sided fraud evidence — self-proving, no adjudicator needed (see Glossary: Funding receipt).
+23. **Pre-commitment extends evidence backward in time** — A content hash timestamped before funding proves prior existence. The Bitcoin anchor of a pre-commitment epoch proves the content predates publication. Enables commitment devices, scientific priority claims, and dead man's switches from protocol primitives (see Glossary: Pre-commitment).
 
 ---
 
 ## What This System Invented
 
-Eight things no existing system provides:
+Nine things no existing system provides:
 
 1. **A pool attached to a hash** — money bound to content identity, not to an author or server
 2. **Request proofs as demand signal** — PoW-gated request proofs gate content delivery, ensuring every read produces a verifiable demand signal. The `via` tag attributes distribution to the front-end that facilitated the request
 3. **Pool drain to proven stores** — stores earn from pools proportional to proven storage of consumed content
 4. **Participant parity** — coordination costs one participant's share at parity with storage labor (see Glossary)
 5. **The importance index** — the ranking derived from 1-3: commitment × demand × centrality
-6. **Accountable loss** — every node that ever existed leaves a permanent economic trace (pool events, request proofs, settlements). Each mint's `balance_root` commits per-content economic states every epoch; `funding_root` records deposits; `sweep_root` records exits. The hash-chained epoch log preserves the complete history. Any party can anchor epoch summaries on Bitcoin (genesis-fingerprinted OP_RETURN, ~48 bytes — a market activity, not a protocol function). Loss is a first-class state: the evidence is relay-durable (epoch log) and Bitcoin-anchorable (by any interested party). No other system distinguishes "never existed" from "existed and was lost." The adversary cannot both destroy content and deny it existed — the epoch log records the destruction, Bitcoin anchors make the record permanent, and any surviving copy verifies against the committed hash
+6. **Accountable loss via mandatory Bitcoin evidence** — every node that ever existed leaves a permanent economic trace. Each mint's `balance_root` commits per-content economic states every epoch; `funding_root` records deposits; `sweep_root` records exits. The hash-chained epoch log preserves the complete history. **Mandatory Bitcoin anchoring**: each epoch's `evidence_root` (committing balance, funding, sweep, demand, receipt, and pre-commitment sub-roots) is anchored via OP_RETURN (~56 bytes). Any participant can publish the anchor; first valid anchor per epoch is canonical. Funder-controlled funding receipts (HTLC preimage proof) create a second, independent Bitcoin-anchorable record — mint omission is provably one-sided fraud. Portable existence proofs (~744 bytes, self-contained) are verifiable with only Bitcoin headers + SHA-256 — no relay, no mint, no infrastructure. Loss is a first-class state: the evidence is Bitcoin-permanent (mandatory anchors), not just relay-durable. No other system distinguishes "never existed" from "existed and was lost." The adversary cannot both destroy content and deny it existed — the evidence chain records the destruction on Bitcoin, and any surviving copy verifies against the committed hash
 7. **Multi-party request-attestation binding** — each participant signs their own part of the composite receipt (client signs request proof, store signs attestation direct to mint). No serve endpoint can redirect economic flows. Mint-level routing bias is addressed by four-layer selection verification: client verifies selection_input commitment + formula, store verifies ZK selection proof per delivery token, settler audits routing ex-post, store detects aggregate demand anomalies (see Glossary: Delivery token, ZK selection proof, #20)
 8. **Genesis-pubkey-as-protocol-seed with epoch_hash mutual authentication** — a single pubkey (discovered from a Bitcoin inscription) is the cryptographic root of every protocol derivation. `epoch_hash` (derived from protocol_seed + live Bitcoin block hash) is verified at every protocol boundary. A fork that changes the genesis pubkey creates a mathematically incompatible protocol; a participant with the wrong genesis pubkey is computationally inert at first contact. The protocol's healthy operation continuously proves all participants share the same genesis pubkey
+
+9. **Bitcoin-anchored evidence chain with portable proofs** — mandatory epoch anchoring (~56 bytes OP_RETURN) creates a permanent evidence record verifiable without any protocol infrastructure. Funder-controlled funding receipts (independent of mint) make deposit omission provably fraudulent. Pre-commitments extend evidence backward in time. Existence proofs (~744 bytes) are self-contained, offline-verifiable artifacts — the protocol's most durable output. Ghost dossiers summarize completed evidence cycles. The storage market is the engine; the evidence chain is the permanent exhaust
 
 Everything else is borrowed infrastructure.
 
@@ -165,30 +174,39 @@ Everything else is borrowed infrastructure.
 
 ## Architecture
 
-### Four Layers
+### Five Layers
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  INDEX (the product)                                            │
-│  Materializer reads market data from relays, computes rankings, │
-│  serves feed/API/widget. Anyone operates. Forkable.             │
+│  Materializer reads evidence + market data, computes rankings.  │
+│  Ghost dossiers are first-class index content. Anyone operates. │
 ├─────────────────────────────────────────────────────────────────┤
-│  STORAGE (borrowed — Blossom) + SERVING (untrusted, separated)  │
-│  Stores hold shards behind anonymous transport (.onion default), │
+│  AVAILABILITY (ephemeral, market-driven)                        │
+│  Stores hold shards behind anonymous transport (.onion default),│
 │  prove possession to mints, earn from pools.                    │
 │  Serve endpoints deliver bytes to users (clearnet). Any CDN.    │
-│  Stores are unbonded + anonymous. Serve endpoints permissionless.│
+│  Content available while funded. All infrastructure combustible.│
+│  Primary function: generate economic activity → evidence.       │
 ├─────────────────────────────────────────────────────────────────┤
-│  EVENTS (serve endpoint relay archives + external Nostr relays) │
-│  All market activity is public signed events.                   │
+│  EVENTS (ephemeral cache — explicitly NOT source of truth)      │
+│  All market activity is public signed events on relays.         │
 │  Serve endpoints run filtered relays for OCDN kinds (aligned).  │
 │  External Nostr relays are belt-and-suspenders fallback.        │
-│  Store attestations go direct to mint (not relayed publicly).   │
+│  Convenience layer — all evidence verifiable without relays.    │
 ├─────────────────────────────────────────────────────────────────┤
 │  MONEY (bonded mints — genesis address as protocol constant)    │
 │  Mints hold pool balances, verify request proofs + attestations,│
 │  issue storage challenges, execute payouts. Permissionless      │
 │  entry via on-chain bond. Multi-jurisdiction. Custodial.        │
+├─────────────────────────────────────────────────────────────────┤
+│  EVIDENCE (permanent — the protocol's primary output)           │
+│  Epoch evidence_root anchored on Bitcoin (mandatory, ~56 bytes).│
+│  Funding receipts (funder-controlled, HTLC preimage proof).    │
+│  Existence proofs (portable, self-contained, ~744 bytes).      │
+│  Pre-commitments (timestamp-only, zero cost).                  │
+│  Ghost dossiers (completed evidence cycles).                   │
+│  Only dependency: Bitcoin. Only trust assumption: SHA-256.      │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -235,6 +253,15 @@ STORES ─────────────────→ RELAYS           s
 SERVE ENDPOINT ─────────→ RELAYS           decrypts relay-escrowed mappings (Argon2-gated)
 SERVE ENDPOINT ←──[Tor]──→ STORES          fetches blobs using PoW authorization (blob_id + PoW, no delivery token)
 SERVE ENDPOINT ─────────→ CLIENT           returns convergent-encrypted blobs (client derives decryption key)
+
+[EVIDENCE LAYER — Bitcoin-anchored, any participant]
+FUNDER ─────────────────→ RELAYS           funding receipt (HTLC preimage proof, independent of mint)
+FUNDER ─────────────────→ BITCOIN          funding receipt inscription (optional, ~120 bytes)
+ANY PARTY ──────────────→ RELAYS           pre-commitment (content_hash timestamp, zero cost)
+SETTLER ────────────────→ BITCOIN          epoch evidence_root anchor (mandatory, ~56 bytes OP_RETURN)
+ANY PARTY ──────────────→ BITCOIN          duplicate/independent anchor (non-conflicting by construction)
+ANY PARTY ──────────────→ RELAYS/BLOSSOM   existence proofs (portable, ~744 bytes)
+ANY PARTY ──────────────→ RELAYS           ghost dossier (completed evidence cycle)
 ```
 
 **Anonymous transport boundary**: All infrastructure communication routes through anonymous transport (Tor by default). The user-facing path (client ↔ serve endpoint) is clearnet. The infrastructure path (serve endpoint ↔ stores, serve endpoint ↔ mints, mint ↔ stores, mint ↔ mint) is anonymous. Serve endpoints bridge the two — the only component connecting clearnet clients to anonymous infrastructure. **Tor is connectivity-first, anonymity-second**: hidden services enable stores on laptops and home networks to accept inbound connections without port forwarding, static IP, or DNS. If Tor's anonymity is compromised, the protocol loses operator-identity protection but retains: store-blindness (encryption-based, not transport-based), payment blindness (Chaum signatures), hash-blind local state, and all settlement/challenge/attestation mechanics. The protocol is Tor-anonymous when Tor is anonymous, and Tor-connected when it isn't.
@@ -286,6 +313,11 @@ Mints are a discovery cache — the relay layer is the source of truth. Serve en
 | **`ocdn-pack`** | Product | Deterministic tar (`--sort=name --mtime=0 --owner=0 --group=0`). Same tree → same hash → convergent encryption composes. Any file tree becomes one funded document (N=RS_N). 10× efficiency vs individual small files. |
 | **Filtered OCDN relay** | Product (serve layer) | Nostr relay accepting only OCDN event kinds. Bundled with serve endpoint reference implementation. Serve endpoints already speak WebSocket to clients; adding relay protocol for OCDN kinds is ~200 lines. Persistence is structurally incentivized: serve endpoints that retain more events serve users better → more traffic → more via income. Signed events prevent forgery — persistence is a commodity trustless function. |
 | **HTTP gateway** | Product (serve layer) | HTTP ↔ OCDN. Reconstructs archives, serves files. Earns via via tag. Vanity domains via DNS TXT or Nostr kind. Enables self-hosting. ~500 lines. |
+| **Funding receipt event** | Protocol (evidence layer) | Funder-controlled HTLC preimage proof of deposit. Independent of mint's balance_root. Committed via `receipt_root` in epoch summary. ~120 bytes on Bitcoin for permanent evidence. See Glossary: Funding receipt. |
+| **Pre-commitment event** | Protocol (evidence layer) | Content_hash timestamp before funding. Committed via `precommit_root`. Zero cost. See Glossary: Pre-commitment. |
+| **Existence proof format** | Protocol (evidence layer) | Portable Borsh-serialized Merkle inclusion proof, ~744 bytes. Self-contained, offline-verifiable against Bitcoin headers. See State Commitments: Evidence Layer. |
+| **Ghost dossier event** | Protocol (evidence layer) | Complete evidence summary for dead content. Economic biography + Bitcoin anchor refs + portable proofs. See Glossary: Ghost dossier. |
+| **`ocdn-proof` CLI** | Product | Takes content_hash + epoch + Bitcoin RPC endpoint. Outputs self-contained ExistenceProof. Verifies ExistenceProof against Bitcoin headers. ~200 lines. Ships alongside `ocdn-settle`. |
 
 ### Trust Assumptions
 
@@ -474,6 +506,12 @@ tags:
   ["commitment_root", "<merkle_root>"]   # Merkle root over signed processing_commitments this epoch
   ["commitment_count", "<n>"]            # processing_commitments signed this epoch — fulfillment ratio is a public accountability signal
 
+  # --- evidence layer (Bitcoin-anchored) ---
+  ["evidence_root", "<merkle_root>"]     # root over (balance_root, funding_root, sweep_root, demand_root, receipt_root, precommit_root). This is the value anchored on Bitcoin via OP_RETURN each epoch.
+  ["receipt_root", "<merkle_root>"]      # Merkle root over funding receipt hashes observed this epoch. Cross-verifiable against funder-published receipts on relays. Receipt + absence from balance_root = one-sided mint fraud proof.
+  ["precommit_root", "<merkle_root>"]    # Merkle root over active pre-commitment hashes. Expires after PRECOMMIT_TTL epochs if never funded; Bitcoin anchor during TTL = permanent timestamp.
+  ["prev_anchor", "<bitcoin_txid>"]      # Bitcoin txid of previous epoch's evidence anchor. Creates a Bitcoin-native chain link — consecutive anchors verifiable entirely on Bitcoin, no relays needed for ordering.
+
   # --- aggregate + leaf data ---
   ["totals", "<total_balance>", "<total_live_content>", "<total_stores>"]  # mint-wide aggregates — enables heartbeat monitoring without any blob downloads
   ["leaf_data", "<sha256_of_blob>"]      # SHA256 of Blossom-hosted leaf data blob (balance leaves, funding leaves, referrer leaves). Inline at bootstrap; chunked by content_hash prefix at scale. See State Commitments: Leaf Data Publication.
@@ -581,6 +619,46 @@ The `balance_root` contains only live content. When content is swept:
 - Path D: Bitcoin anchor of any epoch summary in the chain
 
 Each path is independent. Losing one doesn't eliminate the others. The information degrades gracefully, not catastrophically.
+
+#### Evidence Layer (Bitcoin-anchored)
+
+The evidence layer is the protocol's primary output — permanent, verifiable with only Bitcoin headers and SHA-256.
+
+**Mandatory epoch anchoring**: Each epoch, the `evidence_root` is anchored on Bitcoin via OP_RETURN:
+
+```
+OP_RETURN (56 bytes):
+  "OCDN"                    4B    magic
+  genesis_fingerprint       8B    instance identity
+  epoch_number              4B
+  evidence_root             32B   Merkle root over (balance_root, funding_root, sweep_root,
+                                    demand_root, receipt_root, precommit_root)
+  prev_anchor_txid_prefix   8B    first 8 bytes of previous anchor's txid (Bitcoin-native chain link)
+```
+
+Any participant can publish. First valid anchor per epoch is canonical. Duplicate anchors are non-conflicting by construction (same inputs → same root). Cost: ~56 sats/epoch, ~168 sats/day. The cost of preventing evidence (blocking all OP_RETURN transactions from all OCDN participants) is equivalent to censoring Bitcoin itself.
+
+**Portable existence proof** (canonical Borsh-serialized format, ~744 bytes):
+
+```
+ExistenceProof {
+    version:            u8          # 0x01
+    content_hash:       [u8; 32]
+    epoch_number:       u32
+    proof_type:         u8          # 0x01=balance, 0x02=funding, 0x03=sweep,
+                                    # 0x04=demand, 0x05=precommit
+    sub_root:           [u8; 32]    # the specific sub-root (e.g., balance_root)
+    sub_root_path:      Vec<[u8; 32]>  # path from sub_root to evidence_root (2-3 hashes)
+    leaf_path:          Vec<[u8; 32]>  # path from content_hash leaf to sub_root (~20 hashes)
+    evidence_root:      [u8; 32]
+    anchor_txid:        [u8; 32]    # Bitcoin transaction containing the OP_RETURN
+    anchor_block_height: u32
+}
+```
+
+Self-contained. Verifiable with only Bitcoin block headers (SPV: 80 bytes/block). Can be printed as a QR code, broadcast by radio, inscribed on Bitcoin (~744 sats for permanent per-content proof). Any participant with epoch summary + leaf data can produce existence proofs. Settlers produce them as a natural byproduct.
+
+**Ghost dossier** (Nostr event, NIP_GHOST_DOSSIER_KIND): Complete evidence summary for dead content — economic biography, Bitcoin anchor references, pre-computed existence proofs (birth, peak, death), verification instructions. The protocol's finished product for a content item. Anyone can produce from public data; deterministic inputs → multiple producers converge.
 
 ### 4. Settlement (settler-signed)
 
@@ -698,7 +776,7 @@ for each mint m:
 - Deterministic: same epoch summary chain → same settlement. Anyone can verify. Tenure-weighted payout requires bounded lookback (~12 epochs at reference TENURE_DECAY) — deterministic from the same `prev`-chained epoch summaries settlers already consume.
 - Per-mint decomposition: no cross-mint join.
 - Epochs by block height (EPOCH_BLOCKS). Mint-canonical epoch assignment. `epoch_number = (block_height - genesis_inscription_height) / EPOCH_BLOCKS`. `epoch_start_height(N) = genesis_inscription_height + N × EPOCH_BLOCKS`.
-- **Per-mint state commitment** (`balance_root`) = Merkle root over sorted PoolState leaves for live content. Closed per-mint computation — no cross-mint join. Stores verify pool balances; auditors verify custody and arithmetic (exact level-1 verification via `drained/recycled/deposited` fields in PoolState — see State Commitments). **Global state** is an index-layer product (materializer aggregates per-mint balance_roots; deterministic, multiple indexes converge). **Bitcoin anchoring** is a market activity: any party anchors `"OCDN"(4B) || genesis_fingerprint(8B) || balance_root(32B) || epoch(4B)` via OP_RETURN for their own reasons. Self-contained, gap-tolerant, non-conflicting by construction. Ghost state provable via the hash-chained epoch log (funding_root + sweep_root proofs — see State Commitments: Ghost State).
+- **Per-mint state commitment** (`balance_root`) = Merkle root over sorted PoolState leaves for live content. Closed per-mint computation — no cross-mint join. Stores verify pool balances; auditors verify custody and arithmetic (exact level-1 verification via `drained/recycled/deposited` fields in PoolState — see State Commitments). **Global state** is an index-layer product (materializer aggregates per-mint balance_roots; deterministic, multiple indexes converge). **Bitcoin anchoring** is mandatory: each epoch's `evidence_root` is anchored via OP_RETURN (`"OCDN"(4B) || genesis_fingerprint(8B) || epoch(4B) || evidence_root(32B) || prev_anchor_txid_prefix(8B)`, ~56 bytes). Any participant can publish; first valid anchor per epoch is canonical. Duplicate anchors are non-conflicting by construction (same inputs → same root). Cost: ~56 sats/epoch. The `prev_anchor_txid_prefix` creates a Bitcoin-native chain link — consecutive anchors verifiable entirely on Bitcoin. See State Commitments: Evidence Layer. Ghost state provable via the hash-chained epoch log (funding_root + sweep_root proofs — see State Commitments: Ghost State).
 - Multiple settlers cross-verify via `input_set` convergence tag.
 - Mint liveness: offline mints stop earning. Stores and clients reroute after MAX_SILENT_EPOCHS (~24h) of missing summaries. No death penalty — mint resumes on return; reputation reflects the gap.
 - All events carry `["v", "1"]` version tag.
@@ -1313,6 +1391,8 @@ Three tiers: the genesis inscription (one hardcoded constant — everything else
 | EPOCH_BLOCKS | Inscription body | 24 (~4h). |
 | RING_CONFIRM_DEPTH | Inscription body | 6. Reorg-proof. |
 | CHALLENGE_SAMPLE_DENOM | Inscription body | 10. Store self-attests ~10% of blobs per epoch via deterministic block-hash-derived challenge set. |
+| PRECOMMIT_TTL | Inscription body | 42. Epochs a pre-commitment stays in precommit_root without funding. Same as SWEEP_EPOCHS reference default. |
+| EVIDENCE_VERSION | Inscription body | 0x01. ExistenceProof format version. |
 
 **Global invariants** (must match across participants — change = content-fork version bump):
 
@@ -1321,6 +1401,7 @@ Three tiers: the genesis inscription (one hardcoded constant — everything else
 | CONTENT_KEY_DOMAIN | "ocdn-content-v1" | Content-fork version tag. Convergent encryption key = SHA256(protocol_seed \|\| CONTENT_KEY_DOMAIN \|\| content_hash). Genesis pubkey is permanent across versions; this string is the forkable part. |
 | PROTOCOL_VERSION | 1 | All events carry `["v", "1"]` + `["g", "<genesis_fingerprint>"]`. |
 | NIP Event Kinds | 1000-9999 range | Non-replaceable. Pool credits are additive. |
+| ANCHOR_MAGIC | "OCDN" | 4-byte OP_RETURN prefix for mandatory Bitcoin evidence anchors. |
 
 **Per-mint declared parameters** (each mint publishes in bond registration event; settlers use declaring mint's values; reference client defaults anchor market convergence):
 
@@ -1492,8 +1573,8 @@ File layer, L402, node kit, receipt SDK, pin contracts. Cryptographic primitives
 The client validates the thesis. The storage market captures value from the thesis. Build the client first — if nobody funds contested claims through it, the storage market is moot. All four ship in MVP, but priority is: client → spec → settle → store.
 
 1. **Static client SPA + OG endpoint** — No backend. Stateless (see Human Interface: Stateless Client). Via tag = FOUNDER_VIA_PUBKEY. Funding via NWC/Cashu through DEFAULT_MINT, split across DEPOSIT_SPLIT_MIN mints. Deploy to IPFS + domain + self-host via `ocdn-pack`. OG endpoint as Cloudflare Worker. `/earn` route for operator recruitment. **This is the founder's primary income-generating asset** — every request proof earns referrer income. First-mover links and OG cards compound the social moat. **Shelf life**: IPFS SPA breaks within 6-18 months; domain version is updatable. Genesis income survives client competition; referrer income doesn't.
-2. **Protocol spec (NIP)** — Four event types (see §1-4), bonded mints, settlement rule, global invariants, per-mint parameter schema. Short enough to read in 20 minutes. Structural upgrades via content-fork (see Upgrade Model); economic parameters are per-mint declared.
-3. **`ocdn-settle` binary** — Deterministic CLI (single static binary). Input: relay URL(s) + mint epoch summaries + `GENESIS_INSCRIPTION` (derives genesis_pubkey → genesis_address + all protocol parameters). Output: settlement events published to relays. Content-hash the binary, publish the hash.
+2. **Protocol spec (NIP)** — Four event types (see §1-4) + evidence layer events (funding receipt, pre-commitment, existence proof, ghost dossier), bonded mints, settlement rule, mandatory Bitcoin anchoring, ExistenceProof Borsh schema, global invariants, per-mint parameter schema. Short enough to read in 20 minutes. Structural upgrades via content-fork (see Upgrade Model); economic parameters are per-mint declared.
+3. **`ocdn-settle` binary** — Deterministic CLI (single static binary). Input: relay URL(s) + mint epoch summaries + `GENESIS_INSCRIPTION` (derives genesis_pubkey → genesis_address + all protocol parameters). Output: settlement events published to relays + mandatory Bitcoin anchor (OP_RETURN with `evidence_root`, ~56 bytes) + batch existence proofs for all live content (published to Blossom). Content-hash the binary, publish the hash. Ships with `ocdn-proof` CLI (~200 lines: generate/verify portable ExistenceProofs against Bitcoin headers).
 4. **`ocdn-store` daemon** — Docker container bundling Tor. Binds .onion address on first run (key persists in volume). Watches coverage signals, stores shards, registers mappings via anonymous transport, responds to challenges, attests to mint, cross-verifies peers, earns Cashu ecash tokens (blind-signed, redeemable anywhere). Zero editorial decisions. `docker run ocdn-store`. Operator identity never leaves the container. Earnings accumulate as bearer token files in the volume; `ocdn-store cashout` sweeps to Lightning. Laptop-viable: zero cost basis, graceful sleep/wake, earns when online.
 
 ### Phase 2b: Bootstrap Mint (founder-operated, temporary)
@@ -1832,7 +1913,7 @@ Self-attestation proofs are published to relays (not direct to mint). The mint m
 
 ## The One-Sentence Version
 
-**Sats bind to hashes; the genesis pubkey seeds every derivation; four separated roles (store, serve, mint, genesis) settle at participant parity; epoch_hash mutual authentication at every boundary; all infrastructure is anonymous; the founder operates nothing; the income is settlement math; the moat is cryptographic.**
+**Sats bind to hashes; the genesis pubkey seeds every derivation; four separated roles (store, serve, mint, genesis) settle at participant parity; epoch_hash mutual authentication at every boundary; all infrastructure is anonymous and combustible; the evidence layer is Bitcoin-permanent; the founder operates nothing; the income is settlement math; the moat is cryptographic; content is mortal but the accusation is not.**
 
 ---
 
