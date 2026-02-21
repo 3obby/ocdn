@@ -82,9 +82,9 @@ Bootstrap reference (any N, at R=1): At S=1, coordination fraction = 50%. At S=3
 | **Fulfillment evidence** | Client-published event when a processing_commitment exists but no delivery tokens were received. Contains: request_proof_hash, processing_commitment (mint-signed), selection_nonce, epoch, mint_pubkey. Anyone can verify: mint's signature on commitment, `SHA256(selection_nonce) == blind`, request proof validity. Self-contained cryptographic evidence — no trusted verifier needed. |
 | **Settlement event** | Settler publishes deterministic payout computation from epoch summaries. |
 | **Funding receipt** | Funder-controlled evidence, independent of mint. Contains content_hash, amount, mint_pubkey, HTLC preimage (cryptographic proof the mint accepted the deposit). Published to relays; optionally inscribed on Bitcoin (~120 bytes) for permanent evidence. Creates a record independent of the mint's balance_root — if the mint omits the content, the receipt + absence is irrefutable one-sided fraud proof. Committed via `receipt_root` in epoch summary. |
-| **Pre-commitment** | Content_hash timestamped before funding or storage. Zero cost beyond relay publication. Enters epoch summary's `precommit_root`. Expires after PRECOMMIT_TTL epochs if never funded; any Bitcoin anchor during the TTL has already timestamped it permanently. Use cases: whistleblower commitment device, scientific priority, dead man's switch, proving prior knowledge before publication. |
-| **Existence proof** | Portable, self-contained proof that a content_hash was in a specific Merkle root at a specific Bitcoin-anchored epoch. ~744 bytes (content_hash + sub-root + Merkle paths + evidence_root + anchor txid + block height). Verifiable with only Bitcoin block headers and SHA-256 — no relay, no mint, no internet beyond a Bitcoin node. Can be printed as a QR code, broadcast by radio, stored on paper. The protocol's most durable artifact. See State Commitments: Evidence Layer. |
-| **Ghost dossier** | Complete evidence summary for dead content. Economic biography (lifetime, funding, demand, cause of death), Bitcoin anchor references, pre-computed existence proofs, verification instructions. The protocol's finished product for a content item — live content is work in progress; a ghost is a completed evidence cycle. Anyone can produce from public data. |
+| **Pre-commitment** | Content_hash timestamped before funding or storage. Zero cost beyond relay publication. Enters epoch summary's `precommit_root`. Expires after PRECOMMIT_TTL epochs if never funded; any Bitcoin anchor during the TTL has already timestamped it permanently. Use cases: whistleblower commitment device, scientific priority, dead man's switch, proving prior knowledge before publication. For inscribed content, the Bitcoin inscription IS the permanent timestamp — the relay-based pre-commitment event is unnecessary (see Bitcoin Inscription Layer: Three Durability Tiers). |
+| **Existence proof** | Portable, self-contained proof that a content_hash was in a specific Merkle root at a specific Bitcoin-anchored epoch. ~744 bytes (content_hash + sub-root + Merkle paths + evidence_root + anchor txid + block height). Verifiable with only Bitcoin block headers and SHA-256 — no relay, no mint, no internet beyond a Bitcoin node. Can be printed as a QR code, broadcast by radio, stored on paper. The protocol's most durable artifact. See State Commitments: Evidence Layer. For directly inscribed content, the existence proof simplifies to the OP_RETURN transaction itself (~80 bytes on-chain). For batched inscriptions, ~459 bytes (leaf + Merkle path + batch txid). |
+| **Ghost dossier** | Complete evidence summary for dead content. Economic biography (lifetime, funding, demand, cause of death), Bitcoin anchor references, pre-computed existence proofs, verification instructions, and `birth_inscription` (Bitcoin txid of content inscription, if inscribed). The protocol's finished product for a content item — live content is work in progress; a ghost is a completed evidence cycle. Anyone can produce from public data. For inscribed content, the lifecycle is fully Bitcoin-anchored: inscription (birth) → epoch evidence_roots (life) → sweep (death). |
 | **Parameter signal** | Funder or operator publishes preferred per-mint parameter values, weighted by participant reputation. See Glossary: Parameter signal, Verification System: Parameter Signaling. |
 
 ### Economic Terms
@@ -99,6 +99,18 @@ Bootstrap reference (any N, at R=1): At S=1, coordination fraction = 50%. At S=3
 | **Economic moat** | Five layers, descending by durability: (a) **cryptographic binding** — genesis pubkey is the protocol seed; all derivations (content keys, Argon2 salts, epoch hashes, challenge nonces, store selection, state roots) are rooted in it. A fork that changes the genesis pubkey creates a mathematically incompatible protocol — can't decrypt existing content, can't discover existing stores, can't verify existing settlements. (b) **economic state** — accumulated deposits, settlement history, per-mint content state trees on relays (state roots include protocol_seed; Bitcoin-anchorable by any party). Unforkable without re-bootstrapping. (c) **Schelling point** — reference implementations set defaults; market converges. (d) **traffic** — reference client hardcodes the founder's via tag. (e) **deposit routing** — reference client defaults to founder-bonded mint. Layers (d) and (e) are speed bumps; layers (a)-(c) are structural. Layer (a) is cryptographic — not economically costly to break, but mathematically impossible. |
 | **Participant reputation** | Pubkey-associated, verifiable from public relay data, time-compounding. Two kinds: **funder reputation** (cumulative deposits, active pool balance, funding diversity, re-funding rate — all derivable from fund confirmation events) and **operator reputation** (store: cumulative challenge epochs passed, shard-epochs, uptime consistency — from `challenge_root` chain; mint: epoch chain length, bond tenure, store retention, confidence ratio). Reputation weight is expensive to accumulate (requires real sats or real work) and costly to abandon (key rotation resets to zero). See Parameter Signaling. |
 | **Parameter signal** | Signed event where a funder or operator signals preferred per-mint parameter values (DRAIN_RATE, SWEEP_EPOCHS, TENURE_DECAY), weighted by participant reputation. Not binding — inputs to market convergence. Two independent medians: demand-side (funder-weighted by active pool balance) and supply-side (operator-weighted by shard-epochs or bond×tenure). Mints whose declared parameters sit between both medians attract both deposits and stores. See Verification System: Parameter Signaling. |
+
+### Bitcoin Inscriptions
+
+| Term | Definition |
+|------|-----------|
+| **Content inscription** | OP_RETURN (≤80 bytes) registering a content_hash on Bitcoin. Optional durability upgrade — content can exist on relays/OCDN without inscription. Contains: magic(4B), type(1B), genesis_fingerprint(8B), content_hash(32B), flags(1B), resolution_hint(≤34B). Self-contained for text ≤34 bytes; pointer for larger content. The content's permanent birth certificate. See Bitcoin Inscription Layer. |
+| **Edge inscription** | OP_RETURN linking two content_hashes with a typed relation (cites, contradicts, corroborates, supersedes, replies_to, contains). 80 bytes. Implicitly registers the source_hash — a reply inscription simultaneously registers and links. The citation graph is computable from Bitcoin alone. |
+| **Append inscription** | OP_RETURN attaching ≤34 bytes of typed data (tag, numeric, hash-ref, key-value) to an existing content_hash. Permissionless annotation layer on Bitcoin. |
+| **Batch inscription** | OP_RETURN committing a Merkle root over multiple typed inscription leaves. Amortizes Bitcoin transaction cost across N items. Leaf data published to Blossom/relays; inclusion proofs (~459 bytes at N=1000) are portable and self-contained. See Batching Service. |
+| **Batching service** | Permissionless operator collecting inscription items from users, building Merkle batches, publishing to Bitcoin. Earns per-item fees (market-priced). Not a protocol role — a service built on protocol primitives. Accountability via signed submission receipts, running checkpoints, and permissionless poke audits. Ephemeral service, durable reputation. |
+| **Poke (batch audit)** | Permissionless, unpaid verification of a batch inscription. Anyone fetches leaf data, rebuilds tree, verifies root against on-chain commitment. Missing data = reputation failure. Checkpoint + omission = provable fraud. Benefits nobody economically; enables penalties for cheating. Part of the commit-maintain-poke pattern. |
+| **Commit-maintain-poke** | Design principle applied uniformly: store challenges (self-attest → hold blobs → anyone verifies), mint epoch summaries (commit roots → maintain leaf data → settlers audit), batch inscriptions (commit root → maintain leaf data → anyone pokes). Public commitment + ongoing obligation + permissionless verification + reputation consequence. Ephemeral stores, durable reputations. |
 
 ---
 
@@ -154,12 +166,14 @@ Bootstrap reference (any N, at R=1): At S=1, coordination fraction = 50%. At S=3
 22. **Funding receipts make mint omission provable** — The funder's HTLC preimage is cryptographic proof the mint accepted a deposit. Published independently of the mint's epoch summary, it creates a second Bitcoin-anchorable record. If the mint's `balance_root` excludes funded content, the receipt + absence is one-sided fraud evidence — self-proving, no adjudicator needed (see Glossary: Funding receipt).
 23. **Pre-commitment extends evidence backward in time** — A content hash timestamped before funding proves prior existence. The Bitcoin anchor of a pre-commitment epoch proves the content predates publication. Enables commitment devices, scientific priority claims, and dead man's switches from protocol primitives (see Glossary: Pre-commitment).
 24. **Bilateral checks: funders and operators constrain each other** — Funders (sats-in) and operators (hardware-in) have structurally opposed preferences: funders want low DRAIN_RATE (longer content life per sat), operators want high DRAIN_RATE (faster income). Neither side can get what it wants without the other's cooperation — funders without stores get no availability, stores without funders get no income. Reputation-weighted parameter signaling (see Glossary: Parameter signal) makes this tension legible. Mints are market-makers: they declare parameters to attract both sides. The equilibrium is where both find the tradeoff acceptable. No governance, no votes — just public signals from verified participants, weighted by sats-at-risk or proven work, converging via market selection.
+25. **Ephemeral stores, durable reputations** — Infrastructure is combustible by design. Stores, mints, serve endpoints, and batching services are replaceable commodities. What persists is the reputation record: challenge history, confidence votes, poke audit results, epoch chain integrity — all on relays, all signed, all verifiable. The accountability pattern is uniform: public commitment + ongoing obligation + permissionless verification + reputation consequence (commit-maintain-poke). You don't punish bad actors by seizing their infrastructure; you mark them and let the market route around.
+26. **Bitcoin inscriptions are the namespace; the protocol is the resolver** — OP_RETURN inscriptions (≤80 bytes) register content_hashes, citation edges, and annotations permanently on Bitcoin. The inscription is the birth certificate; the OCDN protocol is the nursery. Three durability tiers: ephemeral (relay-only, free), funded (OCDN pool, market-priced), inscribed (Bitcoin OP_RETURN, miner-priced). Registration and hosting are decoupled — inscribe once (permanent), fund as needed (ephemeral). The citation graph is computable from Bitcoin data alone. If the protocol dies, the inscriptions persist. Anyone with the file + sats can reignite.
 
 ---
 
 ## What This System Invented
 
-Nine things no existing system provides:
+Ten things no existing system provides:
 
 1. **A pool attached to a hash** — money bound to content identity, not to an author or server
 2. **Request proofs as demand signal** — PoW-gated request proofs gate content delivery, ensuring every read produces a verifiable demand signal. The `via` tag attributes distribution to the front-end that facilitated the request
@@ -171,6 +185,8 @@ Nine things no existing system provides:
 8. **Genesis-pubkey-as-protocol-seed with epoch_hash mutual authentication** — a single pubkey (discovered from a Bitcoin inscription) is the cryptographic root of every protocol derivation. `epoch_hash` (derived from protocol_seed + live Bitcoin block hash) is verified at every protocol boundary. A fork that changes the genesis pubkey creates a mathematically incompatible protocol; a participant with the wrong genesis pubkey is computationally inert at first contact. The protocol's healthy operation continuously proves all participants share the same genesis pubkey
 
 9. **Bitcoin-anchored evidence chain with portable proofs** — mandatory epoch anchoring (~56 bytes OP_RETURN) creates a permanent evidence record verifiable without any protocol infrastructure. Funder-controlled funding receipts (independent of mint) make deposit omission provably fraudulent. Pre-commitments extend evidence backward in time. Existence proofs (~744 bytes) are self-contained, offline-verifiable artifacts — the protocol's most durable output. Ghost dossiers summarize completed evidence cycles. The storage market is the engine; the evidence chain is the permanent exhaust
+
+10. **Bitcoin-native content namespace via OP_RETURN** — ≤80-byte inscriptions register content_hashes, typed citation edges, and annotations permanently on Bitcoin. Three inscription types (register, edge, append) plus a batch type form a self-assembling graph computable from Bitcoin alone. Inscription and pool funding are decoupled — different operations, different times, potentially different parties. Batching services amortize inscription cost via Merkle commitments, held accountable by permissionless poke audits (commit-maintain-poke). The inscription is the permanent record; the protocol is the ephemeral resolution layer
 
 Everything else is borrowed infrastructure.
 
@@ -206,6 +222,8 @@ Everything else is borrowed infrastructure.
 ├─────────────────────────────────────────────────────────────────┤
 │  EVIDENCE (permanent — the protocol's primary output)           │
 │  Epoch evidence_root anchored on Bitcoin (mandatory, ~56 bytes).│
+│  Content inscriptions: OP_RETURN ≤80B (optional, per-content). │
+│  Batch inscriptions: Merkle root over N items (amortized).     │
 │  Funding receipts (funder-controlled, HTLC preimage proof).    │
 │  Existence proofs (portable, self-contained, ~744 bytes).      │
 │  Pre-commitments (timestamp-only, zero cost).                  │
@@ -1436,7 +1454,10 @@ Three tiers: the genesis inscription (one hardcoded constant — everything else
 | CONTENT_KEY_DOMAIN | "ocdn-content-v1" | Content-fork version tag. Convergent encryption key = SHA256(protocol_seed \|\| CONTENT_KEY_DOMAIN \|\| content_hash). Genesis pubkey is permanent across versions; this string is the forkable part. |
 | PROTOCOL_VERSION | 1 | All events carry `["v", "1"]` + `["g", "<genesis_fingerprint>"]`. |
 | NIP Event Kinds | 1000-9999 range | Non-replaceable. Pool credits are additive. |
-| ANCHOR_MAGIC | "OCDN" | 4-byte OP_RETURN prefix for mandatory Bitcoin evidence anchors. |
+| ANCHOR_MAGIC | "OCDN" | 4-byte OP_RETURN prefix for all OCDN Bitcoin inscriptions (epoch anchors, content registrations, edges, appends, batches). |
+| INSCRIPTION_VERSION | 0x0 | High nibble of OP_RETURN type byte. Future format changes increment. |
+| EDGE_RELATIONS | ref=0, cites=1, contradicts=2, corroborates=3, supersedes=4, replies_to=5, contains=6 | Canonical relation types for edge inscriptions. Extensible — unknown types are valid but uninterpreted by reference implementations. |
+| INSCRIPTION_CONFIRM_DEPTH | 6 | Confirmations before an inscription is considered final. Matches RING_CONFIRM_DEPTH. |
 
 **Per-mint declared parameters** (each mint publishes in bond registration event; settlers use declaring mint's values; reference client defaults anchor market convergence):
 
@@ -1555,6 +1576,171 @@ The inscription sender's pubkey = `genesis_pubkey` = `protocol_seed`. The body i
 ### Canonical Tag Ordering for Epoch Summaries
 
 Epoch summary events use a **fixed tag order** to ensure deterministic Nostr event IDs (which form the hash chain). The NIP specifies the exact order; tags not present in a given epoch (e.g., `sweep_root` when no sweeps occurred) are omitted entirely. Implementations MUST serialize tags in the specified order.
+
+---
+
+## Bitcoin Inscription Layer
+
+Optional, per-content Bitcoin registration via OP_RETURN (≤80 bytes). The inscription is the content's permanent birth certificate; the OCDN protocol is the resolution layer. Registration and hosting are decoupled — different operations, different parties, different times. The genesis inscription (witness-data, one-time, larger) is a separate artifact; all subsequent OCDN inscriptions use the OP_RETURN format below.
+
+### OP_RETURN Format
+
+All OCDN inscriptions share a 13-byte header:
+
+```
+OP_RETURN (≤80 bytes):
+  [0:4]    "OCDN"                 4B   magic
+  [4]      version | type         1B   high nibble: version (0x0), low nibble: type
+  [5:13]   genesis_fingerprint    8B   instance binding
+  [13:80]  payload               ≤67B  type-specific
+```
+
+Five types:
+
+| Type | Nibble | Payload | Total | Producer |
+|------|--------|---------|-------|----------|
+| Epoch anchor | 0x0 | epoch_number(4) + evidence_root(32) + prev_anchor_prefix(8) | 57B | Settler |
+| Register | 0x1 | content_hash(32) + flags(1) + resolution_hint(≤34) | ≤80B | Content creator |
+| Edge | 0x2 | source_hash(32) + target_hash(32) + relation(1) + weight(2) | 80B | Anyone |
+| Append | 0x3 | target_hash(32) + append_type(1) + data(≤34) | ≤80B | Anyone |
+| Batch | 0x4 | batch_root(32) + batch_count(4) | 49B | Batching service |
+
+### Register (type 0x1)
+
+```
+ [13:45]   content_hash          32B
+ [45]      flags                  1B
+             bit 0:   self-contained (remaining bytes ARE the content)
+             bit 1:   has resolution hint
+             bit 2-4: content_type (0=text, 1=doc, 2=topic, 3=list)
+             bit 5-7: hint_type (0=ocdn, 1=https, 2=nostr, 3=ipfs, 4=txid)
+ [46:80]   resolution_hint       34B
+```
+
+Self-contained: ≤34 bytes of UTF-8 text. `content_hash = SHA256(text_bytes)`. Verifiable from Bitcoin alone. Resolution hint: pointer into OCDN, a URL, a Nostr event ID, an IPFS CID, or another Bitcoin txid. Any resolver that can serve the matching bytes works — the hash is the universal key.
+
+### Edge (type 0x2)
+
+```
+ [13:45]   source_hash           32B
+ [45:77]   target_hash           32B
+ [77]      relation               1B
+             0x00=ref  0x01=cites  0x02=contradicts  0x03=corroborates
+             0x04=supersedes  0x05=replies_to  0x06=contains
+ [78:80]   weight                 2B   big-endian u16 (0-65535 → 0.0-1.0)
+```
+
+Implicitly registers source_hash on Bitcoin. A reply inscription simultaneously registers the reply and links it to the parent. The citation graph is computable from edge inscriptions alone.
+
+### Append (type 0x3)
+
+```
+ [13:45]   target_hash           32B
+ [45]      append_type            1B
+             0x00=raw  0x01=tag  0x02=numeric  0x03=hash-ref  0x04=key-value
+ [46:80]   data                  34B
+```
+
+Permissionless annotation: 34 bytes of typed data attached to any content_hash. Anyone can annotate anything — the graph is append-only.
+
+### Resolution Hierarchy
+
+Every content_hash resolves through the best available layer:
+
+```
+Self-contained (34B in inscription) → Bitcoin txid-chain → OCDN protocol → Nostr relays → Clearnet URL
+```
+
+Each layer is independently useful. No layer requires any other. Hash verification at every layer ensures integrity regardless of source. The inscription's hint_type is the creator's preference, not a constraint.
+
+### Three Durability Tiers
+
+| Tier | Where | Cost | Evidence |
+|------|-------|------|----------|
+| Ephemeral | Nostr relays | PoW | Relay-dependent |
+| Funded | OCDN pool (stores + mints) | Sats (pool deposit) | Epoch evidence_root (settler-anchored) |
+| Inscribed | Bitcoin OP_RETURN | Miner fee | Self-contained on Bitcoin |
+
+`[+]` upgrades ephemeral → funded. Inscription upgrades funded → inscribed. For inscribed content, the pre-commitment event type is unnecessary — the inscription IS the Bitcoin timestamp. Existence proofs simplify to the OP_RETURN transaction itself for direct inscriptions.
+
+### Privacy
+
+OP_RETURN inscriptions are cleartext on Bitcoin: content_hash, citation graph, genesis_fingerprint. An adversary scanning Bitcoin can enumerate all registrations and map the graph. The inscription reveals *what* but not *who* — creator identity is a chain-analysis problem. Mitigations: batching services (service's UTXO, not user's), coinjoin before inscribing, ephemeral funding keys. Inscription durability trades against creator privacy — the user chooses.
+
+### Inscription Discovery
+
+Participants scan Bitcoin for OP_RETURNs with `"OCDN"` magic, filter by genesis_fingerprint. Serve endpoints and index operators are the natural scanners (aligned: more inscribed content = richer index = more via income). At scale, dedicated inscription indexers emerge (analogous to Ordinals indexers). The OCDN protocol functions without inscriptions — they are an optional durability layer.
+
+---
+
+## Batching Service
+
+Permissionless operator that amortizes inscription cost via Merkle batching. Not a protocol role — a service built on protocol primitives. Anyone can run one. Competition discovers fair prices.
+
+### Lifecycle
+
+```
+COLLECT → CLOSE → BUILD → PUBLISH → PROVE
+```
+
+**COLLECT**: Service accepts typed items (register, edge, append) from users. Users pay per-item via Lightning. Service issues signed submission receipt per item.
+
+**CLOSE**: At batch boundary (time threshold, count threshold, or whichever first). Market determines cadence — express (next block), standard (~100 min), economy (next epoch).
+
+**BUILD**: Borsh-serialize each leaf, sort lexicographically, build RFC 6962 Merkle tree. Identical construction to every other Merkle tree in the protocol.
+
+**PUBLISH**: (1) Leaf data blob → Blossom/relays. (2) Bitcoin transaction with batch OP_RETURN (type 0x4: batch_root + batch_count, 49 bytes).
+
+**PROVE**: After confirmation, service generates per-item inclusion proofs:
+
+```
+BatchInclusionProof {
+    leaf_bytes:     Vec<u8>         # full Borsh-serialized leaf
+    leaf_index:     u32             # position in sorted tree
+    merkle_path:    Vec<[u8; 32]>   # sibling hashes, root-ward
+    batch_root:     [u8; 32]
+    batch_txid:     [u8; 32]
+    block_height:   u32
+}
+```
+
+~459 bytes at N=1000. Portable, self-contained, verifiable with Bitcoin headers + SHA-256.
+
+### Accountability: Poke Mechanic
+
+The batch OP_RETURN on Bitcoin is the permanent, irrevocable claim. The leaf data blob is the ongoing obligation. The poke makes the gap between claim and proof visible and attributable.
+
+**Running checkpoints**: During the batch window, the service publishes incremental Merkle commitments to relays — signed, timestamped claims: "I have received these items as of this moment." Checkpoints are the proactive accountability mechanism.
+
+**Poke**: Anyone can verify any batch at any time:
+
+1. Fetch leaf data blob for the batch
+2. Rebuild Merkle tree, verify root matches on-chain OP_RETURN
+3. If leaf data unavailable → reputation failure
+4. If root mismatch → provable fraud
+5. If a checkpointed item is missing from the final batch → provable censorship (checkpoint + final batch is self-contained evidence)
+
+**Poke result**: Signed Nostr event (`NIP_BATCH_AUDIT`) with batch_txid, service pubkey, result (`verified|unavailable|mismatch|censored`), evidence references. Multiple independent auditors converging = high-confidence signal.
+
+**Why unpaid works**: No direct poke reward. Indirect incentives: users want their proofs, competitors want to damage rivals, index operators want complete data. The poke is economically inert; it moves reputation, not sats.
+
+**Reputation**: Ratio of verifiable batches to total batches, weighted by recency. Published via signed events. Ephemeral service, durable reputation.
+
+### Leaf Data Availability
+
+Not guaranteed by the protocol. Made costly to lose via reputation.
+
+| Inscription path | Durability under data loss | Cost |
+|-----------------|---------------------------|------|
+| Direct OP_RETURN | Survives everything (self-contained on Bitcoin) | Full transaction fee |
+| Batched + proof cached | Survives leaf data loss (proof is self-contained) | Amortized fee + user caches ~459B proof |
+| Batched + proof not cached | Degrades if leaf data lost | Amortized fee only |
+
+Users who want maximum durability inscribe directly or cache their inclusion proofs. The protocol makes unreliability visible; the market punishes it.
+
+### Fee Discovery
+
+Bitcoin fee variance is absorbed by the batching service, not the user. Services compete on price, latency, reliability, and proof delivery. No protocol-specified fee schedule. The batch format and poke mechanic are protocol; pricing and timing are market.
 
 ---
 
@@ -1960,6 +2146,18 @@ The architecture has a durability inversion: the most resilient layer (anonymous
 
 **Residual**: (i) Store daemon patience calibration — `P(mint_resurrection)` is a heuristic with no ground truth at bootstrap. (ii) Retroactive gap settlement is a mint policy, not a protocol rule — a race-to-bottom mint could skip it. Reference `ocdn-mint` implementation should honor gap claims by default. (iii) Sats at the dead mint are irrecoverably lost — no funder reclaim mechanism exists post-deposit (accepted: the HTLC protects entry, the bond + deposit-splitting bounds exposure, the ghost → restored path handles re-funding).
 
+### 38. Inscription Creation UX
+
+The reference client is a browser SPA. Creating a Bitcoin OP_RETURN requires a Bitcoin wallet, not just NIP-07. Three creation paths coexist: (A) direct inscription via external wallet (`ocdn-inscribe` CLI generates raw tx hex), (B) batching service via the reference client (user pays Lightning, service handles the Bitcoin transaction), (C) mint-bundled registration (mint includes `registration_root` in epoch summary — no separate inscription, but only covers OCDN-funded content). Path B is the default for normal users; path A for sovereignty-maximizers. **Residual**: NWC wallet support for arbitrary OP_RETURN construction is uneven; batching service may be the only practical path for browser-only users at launch.
+
+### 39. Inscription Chain Analysis Surface
+
+OP_RETURN inscriptions are cleartext on Bitcoin. An adversary monitoring the chain can enumerate all OCDN registrations, map the citation graph, and correlate inscription UTXOs with funder identity. Batching services mitigate (the service's UTXO, not the user's). Coinjoin mitigates further. **Residual**: at bootstrap with one batching service, that service sees all submitted content_hashes. Multiple competing services reduce this concentration. The inscription reveals *what* was registered; chain analysis reveals *who* paid. The user's choice: durability (inscribe) vs. privacy (relay-only).
+
+### 40. Batching Service Bootstrap
+
+At launch, likely one batching service (operated by serve endpoint or founder). Single-service censorship is detectable post-batch (user checks leaf data) but not preventable pre-batch. **Mitigations**: signed submission receipts, running checkpoints, low barrier to entry for competing services (open format, no bond, no permission). **Residual**: bootstrap monopoly on inscription batching. Analogous to single-mint bootstrap — centralizable early, distributes as ecosystem grows.
+
 ---
 
 ## The One-Sentence Version
@@ -2136,6 +2334,18 @@ Notation: `→` = sends to, `←` = receives from, `⊕` = honest action, `⊘` 
 | R1 | Persist and serve OCDN events | ⊕ | — | Ecosystem health. |
 | R2 | Censor specific events (drop fund confirmations, request proofs) | ⊘ | [D] Events also on serve endpoint relay archives (economically aligned) + other external relays | [C] Serve endpoint archives are the primary persistence layer. External relays are fallback. Single relay censorship is ineffective. |
 | R3 | Filter by genesis fingerprint (block an entire protocol instance) | ⊘ | [D] Other relays don't filter. | [C] Serve endpoint relay archives route around. |
+
+### BATCHING SERVICE (not a protocol role — included for completeness)
+
+| # | Action | Type | Detection | Consequence |
+|---|--------|------|-----------|-------------|
+| B1 | Collect items, build correct batch, publish leaf data + OP_RETURN | ⊕ | — | Items inscribed. Proofs available. Reputation accrues. |
+| B2 | Omit a submitted item from the batch (censorship) | ⊘ | [D] User checks leaf data post-publication. Signed submission receipt is evidence. Running checkpoints make omission provable: checkpoint includes item, final batch doesn't. | [C] Reputation damage. User switches to competing service. Provable fraud if checkpoint exists. |
+| B3 | Publish batch OP_RETURN but withhold leaf data (claim without proof) | ⊘ | [D] Poke audit: anyone fetches leaf data, finds it unavailable. batch_count on-chain vs. zero resolvable items. | [C] Reputation failure — permanent on-chain claim with no backing. Users with cached proofs unaffected; users without proofs cannot prove inclusion. |
+| B4 | Publish incorrect Merkle root (leaf data doesn't match on-chain root) | ⊘ | [D] Poke audit: anyone rebuilds tree from leaf data, root mismatches on-chain OP_RETURN. Deterministic, trivial to verify. | [C] Provable fraud — self-contained evidence (leaf data + on-chain root). |
+| B5 | Charge fees but never publish batch | ⊘ | [D] Users hold payment receipts. No corresponding on-chain OP_RETURN at expected time. | [C] Reputation destruction. Competing services absorb users. |
+| B6 | Publish fake submission receipts for items never received | ⊘ | [D] Receipt references a batch_id. If batch publishes and item is present: harmless. If absent: receipt contradicts batch — but this hurts the service, not the user. | [C] Self-harming — creates false evidence against oneself. |
+| B7 | Front-run: see submitted content_hash, inscribe directly to claim priority | ⊘ | [D] Inscription timestamps are block-height-ordered. Both inscriptions visible on-chain. | [C] User's content still inscribed (via batch). Priority claims use block height of the FIRST inscription containing the hash. Front-running is visible. |
 
 ### CROSS-BOUNDARY: epoch_hash mutual authentication summary
 
