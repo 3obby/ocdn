@@ -85,6 +85,7 @@ Bootstrap reference (any N, at R=1): At S=1, coordination fraction = 50%. At S=3
 | **Pre-commitment** | Content_hash timestamped before funding or storage. Zero cost beyond relay publication. Enters epoch summary's `precommit_root`. Expires after PRECOMMIT_TTL epochs if never funded; any Bitcoin anchor during the TTL has already timestamped it permanently. Use cases: whistleblower commitment device, scientific priority, dead man's switch, proving prior knowledge before publication. |
 | **Existence proof** | Portable, self-contained proof that a content_hash was in a specific Merkle root at a specific Bitcoin-anchored epoch. ~744 bytes (content_hash + sub-root + Merkle paths + evidence_root + anchor txid + block height). Verifiable with only Bitcoin block headers and SHA-256 — no relay, no mint, no internet beyond a Bitcoin node. Can be printed as a QR code, broadcast by radio, stored on paper. The protocol's most durable artifact. See State Commitments: Evidence Layer. |
 | **Ghost dossier** | Complete evidence summary for dead content. Economic biography (lifetime, funding, demand, cause of death), Bitcoin anchor references, pre-computed existence proofs, verification instructions. The protocol's finished product for a content item — live content is work in progress; a ghost is a completed evidence cycle. Anyone can produce from public data. |
+| **Parameter signal** | Funder or operator publishes preferred per-mint parameter values, weighted by participant reputation. See Glossary: Parameter signal, Verification System: Parameter Signaling. |
 
 ### Economic Terms
 
@@ -96,6 +97,8 @@ Bootstrap reference (any N, at R=1): At S=1, coordination fraction = 50%. At S=3
 | **Dwell-based PoW** | Reference client pre-mines request proofs in background; submits on viewport dwell ≥2s. Reading feels instant. |
 | **Ephemeral message** | Free Nostr event. Relay-only, no protocol awareness, no pool, no rank influence. Visible as collapsed `+ n` counts. `[+]` upgrades to funded. |
 | **Economic moat** | Five layers, descending by durability: (a) **cryptographic binding** — genesis pubkey is the protocol seed; all derivations (content keys, Argon2 salts, epoch hashes, challenge nonces, store selection, state roots) are rooted in it. A fork that changes the genesis pubkey creates a mathematically incompatible protocol — can't decrypt existing content, can't discover existing stores, can't verify existing settlements. (b) **economic state** — accumulated deposits, settlement history, per-mint content state trees on relays (state roots include protocol_seed; Bitcoin-anchorable by any party). Unforkable without re-bootstrapping. (c) **Schelling point** — reference implementations set defaults; market converges. (d) **traffic** — reference client hardcodes the founder's via tag. (e) **deposit routing** — reference client defaults to founder-bonded mint. Layers (d) and (e) are speed bumps; layers (a)-(c) are structural. Layer (a) is cryptographic — not economically costly to break, but mathematically impossible. |
+| **Participant reputation** | Pubkey-associated, verifiable from public relay data, time-compounding. Two kinds: **funder reputation** (cumulative deposits, active pool balance, funding diversity, re-funding rate — all derivable from fund confirmation events) and **operator reputation** (store: cumulative challenge epochs passed, shard-epochs, uptime consistency — from `challenge_root` chain; mint: epoch chain length, bond tenure, store retention, confidence ratio). Reputation weight is expensive to accumulate (requires real sats or real work) and costly to abandon (key rotation resets to zero). See Parameter Signaling. |
+| **Parameter signal** | Signed event where a funder or operator signals preferred per-mint parameter values (DRAIN_RATE, SWEEP_EPOCHS, TENURE_DECAY), weighted by participant reputation. Not binding — inputs to market convergence. Two independent medians: demand-side (funder-weighted by active pool balance) and supply-side (operator-weighted by shard-epochs or bond×tenure). Mints whose declared parameters sit between both medians attract both deposits and stores. See Verification System: Parameter Signaling. |
 
 ---
 
@@ -150,6 +153,7 @@ Bootstrap reference (any N, at R=1): At S=1, coordination fraction = 50%. At S=3
 21. **The evidence layer is the primary output; the storage market is the engine** — The protocol produces two outputs: an ephemeral availability window (content retrievable while funded) and a permanent Bitcoin-anchored evidence record (existence, demand, funding, suppression — verifiable with only block headers and SHA-256). The storage market generates rich, economically meaningful evidence as a byproduct of its operation. Content is mortal; evidence is not. A bare hash inscribed on Bitcoin proves existence. The protocol adds demand proof (PoW-verified consumption — hardest signal to fabricate at scale), funding proof (multi-party economic conviction), and suppression proof (funded + consumed + dead = unnatural death). The evidence record outlives the protocol, the infrastructure, and the participants. **The censor's dilemma**: suppressing content creates a permanent, irrefutable, Bitcoin-timestamped accusation. There is no "suppress quietly" option once any single participant anchors an epoch. The cost of preventing evidence (~56-sat OP_RETURN from any participant) is equivalent to censoring Bitcoin itself.
 22. **Funding receipts make mint omission provable** — The funder's HTLC preimage is cryptographic proof the mint accepted a deposit. Published independently of the mint's epoch summary, it creates a second Bitcoin-anchorable record. If the mint's `balance_root` excludes funded content, the receipt + absence is one-sided fraud evidence — self-proving, no adjudicator needed (see Glossary: Funding receipt).
 23. **Pre-commitment extends evidence backward in time** — A content hash timestamped before funding proves prior existence. The Bitcoin anchor of a pre-commitment epoch proves the content predates publication. Enables commitment devices, scientific priority claims, and dead man's switches from protocol primitives (see Glossary: Pre-commitment).
+24. **Bilateral checks: funders and operators constrain each other** — Funders (sats-in) and operators (hardware-in) have structurally opposed preferences: funders want low DRAIN_RATE (longer content life per sat), operators want high DRAIN_RATE (faster income). Neither side can get what it wants without the other's cooperation — funders without stores get no availability, stores without funders get no income. Reputation-weighted parameter signaling (see Glossary: Parameter signal) makes this tension legible. Mints are market-makers: they declare parameters to attract both sides. The equilibrium is where both find the tradeoff acceptable. No governance, no votes — just public signals from verified participants, weighted by sats-at-risk or proven work, converging via market selection.
 
 ---
 
@@ -952,6 +956,36 @@ sig: store signature
 
 **Accountability loop**: Mints coordinate (custody, delivery tokens, epoch summaries) → stores audit mints (observe payout accuracy, challenge fairness, epoch summary consistency) → confidence votes adjust reputation → mints that lose confidence lose stores and deposits → competitive exit pressure. No role checks itself. Authority flows down (genesis → mints → stores). Accountability flows up (stores → mints → must maintain confidence). Sybil-voting is bounded by self-attestation weight: accumulating meaningful vote weight requires actually storing data — the cost of influence IS the cost of honest participation.
 
+### Parameter Signaling
+
+Funders and operators publish preferred per-mint parameter values — reputation-weighted, non-binding inputs to market convergence (see Glossary: Parameter signal, Participant reputation, Core Thesis #24).
+
+```
+kind: NIP_SIGNAL_KIND
+pubkey: participant_pubkey
+tags:
+  ["g", "<genesis_fingerprint>"]
+  ["epoch", "<epoch_number>"]
+  ["epoch_hash", "<epoch_hash>"]
+  ["role", "funder|store|mint"]
+  ["param", "DRAIN_RATE", "<numerator>", "<denominator>"]
+  ["param", "SWEEP_EPOCHS", "<value>"]
+  ["param", "TENURE_DECAY", "<numerator>", "<denominator>"]
+sig: participant signature
+```
+
+**Weight computation** (deterministic from public data):
+
+- Funder: active pool balance funded by this pubkey (sats currently at risk, from `funding_root` leaves)
+- Store: shard-epochs passed in the last SIGNAL_WINDOW epochs (recent work, from `challenge_root` chain)
+- Mint: `bond_value × tenure_factor` (capital × time, from bond UTXO + epoch chain length)
+
+**Community parameter** = weighted median per role. Two independent medians matter: demand-side (funder-weighted) and supply-side (store+mint-weighted). The reference client surfaces both alongside each mint's declared parameters: "This mint's DRAIN_RATE is within X% of the funder median and Y% of the operator median." Mints between both medians attract both deposits and stores. Mints far from either lose one side, then the other.
+
+**Properties**: No quorum (signals always meaningful). No binding outcome (mints can ignore signals and bear market consequences). Continuous (not epoch-gated or proposal-gated). Sybil-resistant by construction (weight requires real sats-at-risk or verified work). Fork-compatible (competing clients can weight signals differently). The natural tension — funders want slow drain, operators want fast drain — resolves at the equilibrium where both sides find the tradeoff acceptable. Signaling makes this equilibrium visible in real-time rather than implicit in deposit/store migration patterns.
+
+**Transition**: At bootstrap, signal weight is too thin to be meaningful — the reference defaults are the Schelling point. As reputation accumulates (months), community medians become statistically significant. The reference implementation tracks the community signal over time: defaults that diverge from mature community medians get updated in subsequent releases. Power shifts from founder defaults to market signals monotonically — no discrete handoff event.
+
 ### Bonded Mint Operators (Permissionless)
 
 Permissionless entry via on-chain bond (BTC in time-locked UTXO). Any operator in any jurisdiction. Each operator: holds pool balance fraction (custody), verifies request proofs, collects store attestations, issues storage challenges, publishes epoch summaries, publishes coverage signals, executes settlement payouts.
@@ -1424,7 +1458,7 @@ Three tiers: the genesis inscription (one hardcoded constant — everything else
 | SERVE_CREDENTIAL_POW | 2^236 | ~3s PoW to register as serve endpoint with this mint. |
 | RELAY_SAMPLE_RATE | 100 | 1-in-N request proofs published to relays by clients. Serve endpoints sample independently. At bootstrap: 1 (every proof published). In degraded mode: 1 (forced — sweep prevention). |
 | RELAY_JITTER_BLOCKS | EPOCH_BLOCKS / 2 | Max random delay (in blocks, ~2h) before epoch-end sampled proof publication. Timing-correlation resistance. |
-
+| SIGNAL_WINDOW | 42 | Rolling epoch window for store reputation weight in parameter signals. Same as SWEEP_EPOCHS reference default. |
 
 **Reference client constants** (not protocol — embedded in the reference SPA):
 
@@ -1542,7 +1576,7 @@ Global invariants (RS params, WASM binary, encryption domain, Argon2 params) cha
 
 Economic parameters (DRAIN_RATE, SWEEP_EPOCHS, challenge intervals, etc.) are per-mint declared. Each mint publishes its parameter set in its bond registration event. Settlers compute per-mint settlement using that mint's declared values. Deterministic — same declared params + same epoch summary = same settlement.
 
-**Convergence**: The reference client sorts mints by proximity to reference defaults. Funders see parameter implications at deposit time ("estimated pool duration: ~15 days"). Mints near reference defaults attract more deposits. Mints far from defaults serve niches or attract nothing. The reference implementation is the Schelling point — not by authority, but by default.
+**Convergence**: The reference client sorts mints by proximity to reference defaults at bootstrap and by proximity to reputation-weighted community parameter medians at maturity (see Parameter Signaling). Funders see parameter implications at deposit time ("estimated pool duration: ~15 days"). Mints near the convergence target attract more deposits. Mints far from it serve niches or attract nothing. The Schelling point evolves: founder defaults → community medians → market equilibrium.
 
 **Verification**: Fund confirmations (public) + epoch summaries (public) + declared parameters → expected drain and payouts are independently computable by any settler or store. Competitive exit handles discrepancies. No new trust assumption.
 
@@ -1551,7 +1585,7 @@ Economic parameters (DRAIN_RATE, SWEEP_EPOCHS, challenge intervals, etc.) are pe
 ### What the Founder Actually Does
 
 1. Publishes reference implementations (open source, forkable, but the founder's repo is the coordination point by convention).
-2. Sets reference defaults (not enforced, just defaults — the Schelling point).
+2. Sets reference defaults at bootstrap (not enforced, just defaults — the initial Schelling point). Updates defaults to track reputation-weighted community parameter medians as signal matures.
 3. Signs nothing. Operates nothing. Endorses nothing explicitly.
 
 ### Moat Properties
@@ -1611,8 +1645,9 @@ The founder monitors for:
 - 2+ independent stores running `ocdn-store` and earning from pools (visible as attestation patterns in epoch summaries)
 - 1+ independent bonded mint operating (not founder-operated)
 - 1+ independent settler publishing settlement events that match the reference settler's output
+- Parameter signals from participants with non-trivial reputation weight (community medians computable)
 
-At this point, every role is performed by someone other than the founder. The genesis address continues receiving remainders. **The founder shuts down any infrastructure they personally operated and walks away.**
+At this point, every role is performed by someone other than the founder. The genesis address continues receiving remainders. **The founder shuts down any infrastructure they personally operated.** Reference implementation defaults begin tracking community parameter medians where signal weight is statistically meaningful.
 
 ### Post-Launch (Build When Triggered — by anyone)
 
@@ -1626,6 +1661,7 @@ At this point, every role is performed by someone other than the founder. The ge
 | Block-level chunking | Streaming media demand |
 | Genesis key ceremony (FROST 2-of-3) | Income justifies ceremony |
 | Cross-settler verification | Multiple settlers running |
+| Reference defaults track community medians | Parameter signal weight statistically meaningful |
 
 ---
 
@@ -1894,9 +1930,9 @@ The global demand check (request proofs from relays) is removed from the sweep c
 
 **Residual**: genesis address is the standing beneficiary of sweep, creating an incentive to maximize sweep. See #33. **Residual**: post-outage grace period — a mint returning after prolonged downtime may trigger immediate sweep for pools that were inactive before the outage. Stores rushing to re-attest on return naturally mitigate this; an explicit grace period of G epochs after chain resumption is an optional refinement.
 
-### 33. Genesis Address Incentive Alignment
+### 33. Genesis Address Incentive Alignment — PARTIALLY RESOLVED → Parameter Signaling + Market Accountability
 
-The genesis address receives all sweep income and all cascading remainders. The genesis key holder has a standing incentive to maximize sweep — the only protocol participant whose income grows when pools die. Three attack surfaces: (i) **Passive storeless mint**: operate a bonded mint, attract deposits, ensure no stores engage, collect sweep after SWEEP_EPOCHS. Low yield in a mature market (funders check store coverage), minor concern at bootstrap. (ii) **Rug-pull**: operate stores to attract deposits, withdraw stores, collect sweep. Mitigated by replacement stores filling profitable gaps within the SWEEP_EPOCHS window. Viable against niche low-demand content. (iii) **Coordination refusal**: operate a bonded mint, accept deposits, produce valid epoch summaries, but never distribute shard data to stores. Stores can't attest → sweep triggers. No competitive-exit evidence (no attestation was excluded; none existed). Hardest to detect. **Design space**: (a) provably unspendable genesis address (NUMS point) — eliminates incentive, eliminates protocol self-funding; (b) genesis address as covenant/timelocked distribution — reduces concentration; (c) bond must scale with deposits held (bond ≥ α×deposits) — bounds attack ROI to 1/α minus opportunity cost; (d) coordination-commitment mechanism — mint proves it distributed shard data, absence of proof is evidence. The founder's counter-argument: the genesis key holder is incentivized to maximize *volume* (total inflow), not *sweep* (failed pools) — sweep income from sabotaged pools is bounded, while referrer + remainder income from a thriving market compounds indefinitely.
+The genesis address receives all sweep income and all cascading remainders. Three attack surfaces remain theoretically possible: (i) **Passive storeless mint**, (ii) **Rug-pull**, (iii) **Coordination refusal** (see previous analysis). **Primary resolution**: the genesis key holder is incentivized to maximize *volume* (total inflow), not *sweep* (failed pools) — sweep income from sabotaged pools is bounded, while referrer + remainder income from a thriving market compounds indefinitely. **Secondary resolution**: reputation-weighted parameter signaling (see Verification System: Parameter Signaling) creates a public accountability signal — funders and operators with accumulated reputation publish preferred parameters; a genesis-operated mint whose behavior diverges from community medians is legibly out-of-band, accelerating competitive exit. As participant reputation matures, the community signal constrains all mints including any genesis-affiliated mint. **Residual**: at bootstrap, the genesis key holder has outsized influence (thin signal weight, single mint). Accepted: analogous to Bitcoin bootstrap. The transition from founder centrality to market-driven parameter convergence is monotonic and observable (see Parameter Signaling: Transition).
 
 ### 34. Store Verification: "Consistent But Wrong" Parameters
 
