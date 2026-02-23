@@ -890,16 +890,31 @@ Most design questions are resolved above. What remains:
    reveal is stuck — is implementation-level but affects UX latency
    and reliability.
 
+   Key-path recovery on all commit outputs. Non-negotiable. The portal's internal key is always the Taproot internal key. This is invisible to the protocol (the indexer only cares about the script-path reveal).
+RBF signaling on all transactions. Fee-bumping is the primary tool for stuck transactions.
+Package broadcast. Commit + reveal submitted together. Both can land in the same block.
+Multi-envelope batching. Collect posts into a time window, multiple envelopes per script. No protocol change needed — the indexer already parses all envelopes it finds in a witness.
+UTXO pool with fan-out. Pre-split for concurrency. Consolidate to avoid fragmentation. Background process.
+Retry with escalation. Mempool eviction → rebroadcast. Stuck tx → RBF fee bump. Persistent failure → key-path recovery + refund.
+
+the multi-envelope-per-script pattern should be explicitly blessed by the indexer rules — "scan for all envelopes in a witness, not just the first"
+
 2. Content size limits. The protocol imposes none (fee market self-
    regulates). Should the portal impose a soft limit? Long content
    increases reveal tx size and cost linearly. Practical question,
    not protocol question.
+
+   no limits imposed by portal, clear data displayed to the user.
 
 3. Nonce generation. Spec says 8 random bytes. Who generates it —
    author (client-side) or portal? In custodial mode the portal can
    generate it. In non-custodial mode the author must. Affects the
    signing flow.
 
+   author.
+
 4. Signet/testnet validation. The spec should be validated against
    real Bitcoin transactions before mainnet. Signet is the appropriate
    testbed — realistic mempool behavior, free sats.
+
+   sure, signet.
