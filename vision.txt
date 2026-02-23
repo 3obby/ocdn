@@ -29,9 +29,9 @@ CORE THESIS
    data availability.
 7. Identity is application-layer, anchored to Bitcoin keys. Author signatures
    live in the payload, not in Bitcoin's native UTXO signing model. Reputation
-   is on-chain history — accumulated earnings, citations received, funding
-   given. Sybil cost = cost of building a real economic history over real time.
-8. The entire social graph is on Bitcoin. Posts, replies, citations, funding
+   is on-chain history — posts authored, citations received, burns given.
+   Sybil cost = cost of building a real economic history over real time.
+8. The entire social graph is on Bitcoin. Posts, replies, citations, burn
    events — all transactions. The graph is reconstructable from any archival
    node. No platform owns the graph.
 
@@ -89,15 +89,16 @@ Architectural consequences:
     management, fee estimation, RBF/CPFP, dust threshold compliance,
     mempool pinning awareness.
 
-10. Upvote semantics must be explicit.
-    A sat transfer is a payment. An upvote requires an unambiguous, parseable
-    on-chain marker. Without protocol-defined structure, payments and upvotes
-    are indistinguishable.
+10. Burn semantics must be explicit.
+    A high fee is just a high fee. A ranking burn requires an unambiguous,
+    parseable on-chain marker tying excess fee to a content hash. Without
+    protocol-defined structure, ordinary fees and burns are indistinguishable.
 
-11. On-chain identity is a public financial graph.
-    "Identity is a key" + "earnings are on-chain" = full linkability of
-    authorship, funding, and earning history. Privacy is structurally
-    compromised unless explicitly addressed.
+11. On-chain identity is a public preference graph.
+    "Identity is a key" + "burns are on-chain" = full linkability of
+    authorship and burn history. No author earnings to surveil, but
+    burner preferences are public. Privacy is structurally compromised
+    unless explicitly addressed.
 
 12. Payload size is linearly coupled to fee.
     There is no discounted text lane. Nontrivial content increases cost
@@ -144,11 +145,12 @@ Post        Taproot tx, text in witness data. Short posts in OP_RETURN
 Reply       Taproot tx referencing parent content hash. Text in witness.
             Threads are chains of Bitcoin transactions.
 
-Fund        Tx with OP_RETURN referencing content hash + protocol marker.
-            Sats sent to author address = direct payment for valued
-            content. Sats burned via OP_RETURN = pure ranking signal.
-            Either way, the economic commitment is on-chain. The protocol
-            marker disambiguates upvotes from ordinary payments.
+Burn        Tx with OP_RETURN referencing content hash + protocol marker.
+            The tx fee IS the burn — sats destroyed as pure ranking
+            signal. No payment to author; miners collect. The OP_RETURN
+            is a marker, not a value carrier. Self-dealing costs face
+            value (no refund path). The protocol marker disambiguates
+            ranking burns from ordinary transactions.
 
 Citation    Tx with OP_RETURN: magic + source_hash + relation_type +
             target_hash. Typed link. The citation graph is computable
@@ -191,12 +193,14 @@ Portal        Clearnet interface. Runs an archival full node. Indexes all
 Author        Submits content to the portal (or self-publishes directly).
               Signs the payload with their own key — authorship lives in
               the application-layer signature, not the UTXO spend.
-              Earns sats directly from funding txs. On-chain earnings =
-              verifiable, publicly linkable reputation (invariant 11).
+              Authors do not earn from the protocol. Reputation is
+              on-chain history: posts, citations received, burns given
+              (invariant 11). The content's visibility IS the reward.
 
-Funder        Sends sats to content (author address or burn) with protocol
-              marker. The act of funding IS the ranking signal. No
-              intermediary decides what gets promoted.
+Burner        Destroys sats as ranking signal for content. The tx fee is
+              the burn — miners collect, sats are irrecoverable. The act
+              of burning IS the ranking signal. No intermediary decides
+              what gets promoted. Self-dealing costs face value.
 
 Reader        Free access. The website serves content ranked by economic
               commitment. Anyone can run their own indexer against the
@@ -222,7 +226,6 @@ The website provides four things:
 
 Revenue model:
 - Flat rake per post (e.g., 500–2000 sats on top of miner fee)
-- Lightning tipping integration (instant micropayments, small cut)
 - Fiat on-ramp ("pay $1 to post" — portal handles all Bitcoin)
 - Premium features (analytics, API access, notifications) as subscription
 
@@ -254,18 +257,19 @@ Trust surface:
 
 RANKING
 
-Importance = f(total_sats_committed, citation_graph_position,
-               author_reputation, time)
+Importance = f(total_sats_committed, citation_graph_position, time)
 
 All inputs are on-chain:
-- Total sats committed = sum of all Fund txs with protocol markers
-  referencing the content hash (including the author's original tx fee)
+- Total sats committed = sum of all Burn tx fees with protocol markers
+  referencing the content hash (including the author's original tx fee).
 - Citation graph position = authority metric over the on-chain citation
   graph. Graph will be sparse (invariant 14); algorithm must be robust
-  to low-density data and funding-based manipulation.
-- Author reputation = lifetime on-chain earnings, funding given, citation
+  to low-density data and burn-based manipulation.
+- Author reputation = lifetime post history, burns given, citation
   history, key age. Publicly linkable (invariant 11).
-- Time = block height of original post (subject to reorg, invariant 4)
+- Time = block height of original post (subject to reorg, invariant 4).
+  Two views: recency (decaying, for discovery) and canonical (cumulative,
+  for reference). Both computable from the same on-chain data.
 
 Anyone can compute the ranking from an archival node + indexer.
 Competing websites can use different ranking algorithms over the same
@@ -359,11 +363,13 @@ Reputation          Requires spending real sats over real time building
 forgery             fake history. Cost scales linearly with the reputation
                     being forged. No shortcut.
 
-Manipulation        Fake upvotes cost real sats. If you spend 1M sats
-attack              manipulating rankings, you've paid 1M sats for the
-                    privilege. The market decides if the signal is useful.
+Manipulation        Fake burns cost real sats — and those sats are
+attack              destroyed. If you spend 1M sats manipulating
+                    rankings, you've destroyed 1M sats for the privilege.
                     Sparse citation graph (invariant 14) may amplify
-                    manipulation via graph-based metrics.
+                    manipulation via graph-based metrics. Burner breadth
+                    in the ranking function is the primary structural
+                    defense — single-source burning is discountable.
 
 Defense cost is low (data replicated by existing Bitcoin infrastructure).
 Attack cost is high and irreversible. The asymmetry is structural, not
@@ -375,11 +381,11 @@ alternative.
 
 WHAT THE SYSTEM LOOKS LIKE
 
-A forum where every post is a Bitcoin transaction. Upvotes are real sats
-sent to the author or burned as signal. The most funded, most cited, most
-reputable content rises to the top. Nothing can be silently deleted —
-everything is on archival nodes, append-only. Hateful noise is low-ranked
-(nobody funds it). Spam is priced out (every post costs real money).
+A forum where every post is a Bitcoin transaction. Upvotes are sats
+burned — destroyed as ranking signal, collected by miners, irrecoverable.
+The most burned-for content rises to the top. Nothing can be silently
+deleted — everything is on archival nodes, append-only. Hateful noise is
+low-ranked (nobody burns for it). Spam is priced out (every post costs real money).
 Important content is permanently inscribed and economically endorsed.
 
 The website is a window into on-chain data. If it disappears, someone
@@ -387,8 +393,8 @@ builds another one from an archival node — same data, same content.
 The data is a public good. The lens is a competitive market. Bitcoin is
 the settlement layer, the evidence archive, and the storage medium.
 
-Authors earn directly from the quality of their ideas. The ranking signal
-IS the payment. No ads, no subscriptions, no editorial gatekeepers. The
+Authors do not earn. The content publicity
+IS the value. No ads, no subscriptions, no editorial gatekeepers. The
 accumulated economic conviction of every participant, weighted by their
 verified on-chain history, determines what matters.
 
@@ -425,8 +431,12 @@ Why no relay layer    Bitcoin already solved persistence (for archival nodes).
 
 Why no ephemeral      Every post costs real sats. This is a feature. The
 tier                  absence of free posting IS the signal. Casual discourse
-                      lives on existing platforms. OCDN is the "this matters
-                      enough to spend money on" layer.
+                      lives on existing platforms (Nostr, X, forums). OCDN
+                      is the "this matters enough to spend money on" layer.
+                      The cost is a costly signal (Spence, 1973) — it carries
+                      information beyond the text. A post that costs sats is
+                      inherently more credible than the same text posted for
+                      free, because the author has something to lose.
 
 Why no gradual        Content on Bitcoin is permanent. Ranking provides the
 fade                  equivalent effect — underfunded content sinks in the
@@ -489,22 +499,21 @@ value is a spec-level decision. The tag must be short (minimize overhead),
 unique (avoid collisions with Ordinals "ord" and other protocols), and
 permanent (never changes — the version field handles evolution).
 
-Note: the TRANSACTION TYPES section describes short posts in OP_RETURN
-(~80 bytes). In practice, per-post protocol overhead (author pubkey +
-signature + type/version) approaches or exceeds 80 bytes before any
-content. OP_RETURN may remain viable for metadata-only actions (Fund,
-Citation) where the payload is compact references and markers. Whether
-to support OP_RETURN as an alternative carrier or use witness envelopes
-uniformly is an open encoding decision. Uniform witness is simpler for
-indexers and safer against relay policy shifts (invariant 3). OP_RETURN
-is cheaper for small payloads but adds a second parsing path.
+Note: OP_RETURN is the carrier for Burn transactions (38 bytes: tag +
+version + type + content_hash). Content posts cannot fit in OP_RETURN —
+per-post protocol overhead (author pubkey + signature + type/version)
+exceeds 80 bytes before any content. The encoding split is resolved:
+witness envelopes for content (Post, Reply), OP_RETURN for metadata
+(Burn, and future Citation). This is two parsing paths, but each is
+minimal and the split aligns with the data: content needs witness
+space, burns need one transaction (no commit/reveal).
 
 ---
 
 CONTENT ADDRESSING
 
 Every protocol action references content by hash. Replies point to a
-parent hash. Funds identify a target hash. Citations link source and
+parent hash. Burns identify a target hash. Citations link source and
 target hashes. Edits reference an original hash.
 
 Required properties of the content hash:
@@ -567,7 +576,7 @@ private key loss is final. Rotation is a future consideration, not
 a launch requirement.
 
 Reputation is the history of a key: posts authored, sats earned,
-citations received, funding given, age of first appearance. All
+citations received, burns given, age of first appearance. All
 derivable from the chain by any indexer. Sybil cost = cost of
 building this history with real sats over real time.
 
@@ -611,43 +620,42 @@ ordpool-parser       JS/TS library for detecting inscriptions in
                      starting point for OCDN envelope detection.
 
 PostgreSQL           Indexer database. Parsed content, thread trees,
-                     citation graph, reputation data, funding totals.
+                     citation graph, reputation data, burn totals.
                      Portal-local state derived from the chain —
                      reconstructable from any archival node.
 
 Next.js              Web framework for the portal. Reads from indexer
                      DB, writes to Bitcoin via tx construction pipeline.
 
-Lightning            Payment rail for the portal rake and instant
-(LND / CLN / LDK)   funding. User pays invoice → portal queues for
-                     on-chain publication. Lightning = UX layer.
-                     On-chain tx = protocol layer (invariant 16).
+Lightning            Payment rail for the portal rake. User pays
+(LND / CLN / LDK)   invoice → portal queues for on-chain publication.
+                     Lightning = UX layer. On-chain tx = protocol
+                     layer (invariant 16).
 
 ---
 
 PROTOCOL SPECIFICATION (v1 MINIMUM)
 
-Scope. Three transaction types: Post, Reply, Fund. This is the
+Scope. Three transaction types: Post, Reply, Burn. This is the
 minimum viable protocol — write text to Bitcoin, thread replies,
-fund content. Edit, Citation, and Batch are deferred to future
+burn sats as ranking signal. Edit, Citation, and Batch are deferred to future
 versions. The type code space accommodates them without breaking
 existing indexers.
 
 Low-responsibility defaults (resolved):
 
   Encoding          Witness envelope for content (Post, Reply).
-                    OP_RETURN for metadata (Fund). Content needs
-                    witness for space; Fund needs one transaction,
+                    OP_RETURN for metadata (Burn). Content needs
+                    witness for space; Burn needs one transaction,
                     not two. The split is pragmatic, not principled.
 
   Fee volatility    Pass-through. Portal charges rake + estimated
                     fee. Users bear fee-market risk. The portal
                     makes no promises about fee levels.
 
-  Fund economics    Sats sent to author's address. Ranking signal =
-                    amount received. Self-funding is visible (same
-                    pubkey) and discountable by portal ranking. Burn
-                    mechanics deferred.
+  Burn economics    Sats destroyed as miner fee. Ranking signal =
+                    burn amount. Self-dealing costs face value (no
+                    refund path). Authors do not earn from the protocol.
 
   Privacy           Public forum, public economics. No mitigations
                     in v1. Invariant 11 accepted.
@@ -670,7 +678,7 @@ PROTOCOL CONSTANTS
 
   Tag               "ocdn" (0x6F 0x63 0x64 0x6E)
   Version           0x01
-  Type codes        POST = 0x01, REPLY = 0x02, FUND = 0x03
+  Type codes        POST = 0x01, REPLY = 0x02, BURN = 0x03
                     Reserved: CITE = 0x04, EDIT = 0x05, BATCH = 0x06
 
 ---
@@ -690,7 +698,7 @@ CONTENT HASH
 
   The content hash is 32 bytes. It is the canonical identifier for a
   piece of content across all protocol actions (replies reference it,
-  funds target it).
+  burns target it).
 
   Properties satisfied:
   - Deterministic (computable before mining)
@@ -702,34 +710,34 @@ CONTENT HASH
 
 AUTHOR SIGNATURE
 
+  The signature commits to the content_hash, not the content fields.
+  content_hash already binds (pubkey, nonce, content). The signature
+  adds protocol context (version, type, threading). No field is
+  serialized twice. sign_msg is fixed-size for every action type.
+
   For POST:
     sign_msg = tagged_hash("ocdn/sign",
-        version || type || nonce || content)
+        version || type || content_hash)
+    Preimage: 1 + 1 + 32 = 34 bytes, fixed.
 
   For REPLY:
     sign_msg = tagged_hash("ocdn/sign",
-        version || type || nonce || parent_hash || content)
+        version || type || parent_hash || content_hash)
+    Preimage: 1 + 1 + 32 + 32 = 66 bytes, fixed.
 
   author_sig = BIP340_sign(author_privkey, sign_msg)
 
   Verification:
     BIP340_verify(author_pubkey, sign_msg, author_sig) → bool
 
-  The signature commits to: version (prevents cross-version replay),
-  type (prevents cross-type replay), nonce (uniqueness), and content
-  (authenticity). For REPLY, it also commits to parent_hash (binds
-  the reply to its thread position).
+  Serialization invariant: variable-length data (content) appears in
+  exactly one preimage (content_hash), where it is terminal. All other
+  preimages in the protocol are fixed-size by construction. No length
+  prefixes needed. Future action types add fixed-size fields to
+  sign_msg — they never touch the content serialization path.
 
----
-
-AUTHOR ADDRESS
-
-  Given an author's x-only pubkey P, their receive address for Fund
-  payments is: P2TR(P) with no script tree (key-path only).
-
-  This is deterministic — anyone can compute where to send funds for
-  any author from their pubkey alone. Standard Taproot key-path
-  address derivation (BIP-341, internal key = P, empty Merkle root).
+  Pubkey is committed transitively via content_hash and independently
+  by BIP-340's internal challenge hash (R || P || m). Defense in depth.
 
 ---
 
@@ -772,25 +780,30 @@ WITNESS ENVELOPE (POST, REPLY)
 
 ---
 
-OP_RETURN MARKER (FUND)
+OP_RETURN MARKER (BURN)
 
-  Single transaction, no commit/reveal.
+  Single transaction, no commit/reveal. The tx fee IS the burn.
 
   Outputs:
     1. OP_RETURN:  "ocdn" || 0x01 || 0x03 || content_hash
-                   (4 + 1 + 1 + 32 = 38 bytes)
-    2. Payment:    N sats to author's P2TR address
-    3. Change:     back to funder (ignored by indexer)
+                   (4 + 1 + 1 + 32 = 38 bytes, 0 sats)
+    2. Change:     back to burner
+
+  burn_amount = tx_fee = sum(inputs) - sum(outputs)
 
   The indexer reads the OP_RETURN, extracts the target content_hash,
-  identifies the output paying the author's known address, and
-  records N sats as economic commitment to that content.
+  computes the tx fee (requires input value lookup — available via
+  getblock verbosity 2+ with -txindex), and records the fee as
+  economic commitment to that content.
 
-  Funder identity is the Bitcoin-level UTXO spender. No application-
-  layer funder identity in v1.
+  No payment output. No author address. No UTXO bloat — the
+  OP_RETURN is pruned from the UTXO set by consensus. Miners
+  collect the burned sats, aligning their incentive to include
+  high-burn txs (strengthens liveness, invariant 2).
 
-  Self-funding: detectable when author's pubkey matches the funding
-  tx's input key. Portal ranking can discount or ignore.
+  Self-dealing costs face value. To boost content by N sats, you
+  destroy N sats. No refund path. Burner breadth in the ranking
+  function is the additional structural defense (see RANKING).
 
 ---
 
@@ -801,15 +814,17 @@ INDEXER RULES
   1. Witness scan. For each transaction with a Taproot script-path
      spend, inspect the witness stack for a script containing:
      OP_FALSE OP_IF OP_PUSH "ocdn" ...
-     If found: parse envelope fields in order, verify author
-     signature, compute content_hash, index the content. For REPLY,
-     validate that parent_hash references existing indexed content.
+     If found: parse envelope fields in order, compute content_hash
+     from (pubkey, nonce, content), compute sign_msg from (version,
+     type, [parent_hash,] content_hash), verify author signature
+     against sign_msg, index the content. For REPLY, validate that
+     parent_hash references existing indexed content.
 
   2. OP_RETURN scan. For each transaction output that is OP_RETURN,
      check if payload begins with "ocdn". If so: parse version and
-     type. If FUND (0x03), extract target content_hash. Look up the
-     author's P2TR address for that content. Find the output paying
-     that address. Record the amount.
+     type. If BURN (0x03), extract target content_hash. Compute
+     tx fee (sum of input values - sum of output values). Record
+     the fee as burn amount for that content.
 
   3. Reorg handling. Maintain a chain tip cursor (block hash + height).
      On reorg: rewind index to the fork point, delete all data from
@@ -836,14 +851,16 @@ COST ESTIMATES (v1, NO BATCHING)
     Portal rake:                            ~1,000 sats
     User cost:                              ~1,400 sats
 
-  FUND:
-    Single tx: ~120 vbytes                  = ~120 sats
+  BURN:
+    Single tx: ~80 vbytes (no payment       = ~80 sats relay minimum
+    output, just OP_RETURN + change)
     Portal rake (if facilitated):            ~500 sats
-    Funder cost:                        ~620 sats + funded amount
+    Burn amount:                         entirely user's choice
+    Total cost:                   ~580 sats overhead + burn amount
 
   At 50 sat/vbyte (high-fee):
     POST becomes ~20,000 sats miner fee + rake = ~21,000 sats
-    FUND becomes ~6,000 sats miner fee + rake + funded amount
+    BURN relay minimum becomes ~4,000 sats + rake + burn amount
 
   Batching (future) amortizes commit/reveal across N posts,
   approaching rake-only cost per post at scale.
@@ -866,10 +883,6 @@ DEFERRED (FUTURE VERSIONS)
                       of content hashes in the envelope. Per-post
                       Merkle proof as inclusion receipt. Reduces cost
                       toward rake-only at volume.
-
-  Burn funding        Sats destroyed as pure ranking signal, no author
-                      payment. Requires distinguishing burn from
-                      transfer in Fund tx structure.
 
   Key rotation        Signed attestation linking old key to new key.
                       Deferred due to attack surface concerns (see
