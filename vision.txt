@@ -1,0 +1,905 @@
+OCDN — The Economic Speech Layer
+
+PURPOSE: A permanent, economically-ranked knowledge layer where every post
+is a Bitcoin transaction, every upvote is real sats, the entire social graph
+lives on-chain, and the interface is a replaceable lens over indestructible
+data. The protocol is Bitcoin. The product is the index. The website is a
+commodity service that takes a flat rake.
+
+---
+
+CORE THESIS
+
+1. Spam is a pricing problem. Bitcoin transaction fees filter infinite noise.
+   The fee market itself is the quality signal — high-fee periods select for
+   high-conviction content, low-fee periods open the floor.
+2. Censorship resistance is maximized by putting data on Bitcoin. Suppression
+   requires outbidding, policy capture, or sustained miner-level filtering —
+   all expensive, all detectable, none silent.
+3. Reading is free; writing costs sats. The cost of writing IS the spam
+   filter AND the conviction signal. No separate mechanism needed.
+4. The importance index is the product. Total sats committed × citation
+   graph position × author reputation. All inputs are on-chain and
+   verifiable by anyone.
+5. Everything is append-only. Nothing is edited or deleted — ever. Bitcoin
+   is the append-only log. Edits are new transactions referencing originals.
+6. The interface is a replaceable lens. Whoever controls the data controls
+   the platform. Nobody controls Bitcoin. Competing websites index the same
+   on-chain data. Corruption of any single interface has zero effect on
+   data availability.
+7. Identity is application-layer, anchored to Bitcoin keys. Author signatures
+   live in the payload, not in Bitcoin's native UTXO signing model. Reputation
+   is on-chain history — accumulated earnings, citations received, funding
+   given. Sybil cost = cost of building a real economic history over real time.
+8. The entire social graph is on Bitcoin. Posts, replies, citations, funding
+   events — all transactions. The graph is reconstructable from any archival
+   node. No platform owns the graph.
+
+---
+
+INVARIANTS
+
+Hard constraints. Cannot be designed around, only accommodated.
+
+Bitcoin reality:
+
+1.  Throughput is finite and contested.
+    Block weight is capped. Every OCDN byte competes with all other Bitcoin
+    demand for the same scarce blockspace. The system cannot exceed global
+    throughput regardless of design.
+
+2.  Inclusion requires competitive fee bidding.
+    A valid transaction can still not be mined — fee too low, policy
+    rejection, miner choice, targeted filtering. Liveness is a market,
+    not a guarantee.
+
+3.  Mempool policy is not consensus.
+    Relay behavior, OP_RETURN limits, script acceptance, minimum feerate —
+    all can change via policy flags without a fork. Only consensus rules are
+    dependable for long-term liveness.
+
+4.  Finality is probabilistic.
+    Reorgs happen. "Published in block N" can be reversed for a window.
+    Indexers must handle reorgs, conflicting tips, and ambiguous ordering
+    during temporary forks.
+
+5.  On-chain data is permanent, public, and irretractable.
+    Every byte in witness or OP_RETURN is globally replicated by archival
+    nodes and cannot be corrected. Errors, deanonymization, and regrettable
+    content are forever.
+
+6.  Archival is not universal.
+    Pruned nodes discard old blocks. Durability means "as long as archival
+    nodes exist," not "every node forever."
+
+Architectural consequences:
+
+7.  Authorship is application-layer.
+    The Bitcoin tx signer is the UTXO spender. When the portal batches or
+    pays fees, the portal is the signer. Author identity must be encoded
+    in the payload and verified at the application layer.
+
+8.  Batching requires payload-level identity.
+    One tx, one txid, one set of input signers. Per-post authorship,
+    reputation, and attribution live inside the batch payload, not in
+    Bitcoin's native signature model.
+
+9.  UTXO management is mandatory.
+    Content-as-transaction requires: wallet state, UTXO selection, change
+    management, fee estimation, RBF/CPFP, dust threshold compliance,
+    mempool pinning awareness.
+
+10. Upvote semantics must be explicit.
+    A sat transfer is a payment. An upvote requires an unambiguous, parseable
+    on-chain marker. Without protocol-defined structure, payments and upvotes
+    are indistinguishable.
+
+11. On-chain identity is a public financial graph.
+    "Identity is a key" + "earnings are on-chain" = full linkability of
+    authorship, funding, and earning history. Privacy is structurally
+    compromised unless explicitly addressed.
+
+12. Payload size is linearly coupled to fee.
+    There is no discounted text lane. Nontrivial content increases cost
+    proportionally. Witness discount (4x) helps but does not eliminate
+    the coupling.
+
+Infrastructure consequences:
+
+13. Reconstruction requires infrastructure.
+    Parsing blocks, detecting protocol events, maintaining a database,
+    handling reorg rewinds, coping with missing historical data if the
+    indexer is not archival. Non-optional for any portal.
+
+14. The citation graph will be sparse.
+    Fee-gated citations mean most content will have few or none. Graph
+    algorithms over sparse data are noisy and gameable.
+
+15. Tx construction is custodial or client-signed.
+    If the portal builds transactions for users without them managing
+    UTXOs, the portal controls funds (custodial) or requires client-side
+    key management (wallet integration). No third option at Bitcoin's
+    base layer.
+
+16. Lightning receipt ≠ on-chain publication.
+    A Lightning payment confirms payment, not inscription. The on-chain
+    pipeline — UTXO management, fee policy, inclusion bidding — is a
+    separate system with its own failure modes.
+
+---
+
+TRANSACTION TYPES
+
+Every transaction carries a protocol-defined payload in witness data or
+OP_RETURN. The payload includes an author pubkey and an author signature
+over the content — this is separate from the Bitcoin-level UTXO signature
+and is what establishes authorship when the portal is the UTXO spender.
+
+Post        Taproot tx, text in witness data. Short posts in OP_RETURN
+            (~80 bytes). Longer posts in witness (Taproot inscription
+            style, ~1-5KB typical). Payload includes: author pubkey,
+            author signature, content. The tx fee is the minimum
+            economic commitment.
+
+Reply       Taproot tx referencing parent content hash. Text in witness.
+            Threads are chains of Bitcoin transactions.
+
+Fund        Tx with OP_RETURN referencing content hash + protocol marker.
+            Sats sent to author address = direct payment for valued
+            content. Sats burned via OP_RETURN = pure ranking signal.
+            Either way, the economic commitment is on-chain. The protocol
+            marker disambiguates upvotes from ordinary payments.
+
+Citation    Tx with OP_RETURN: magic + source_hash + relation_type +
+            target_hash. Typed link. The citation graph is computable
+            from Bitcoin alone (sparse — see invariant 14).
+
+Edit        Tx referencing original content hash with EDIT relation.
+            New content in witness. The website decides display (latest
+            edit, full history, diff). Both versions permanent on-chain.
+
+---
+
+TEXT-ONLY PROTOCOL
+
+The protocol handles only text. Images, video, documents are pointers —
+text posts referencing external hashes. The protocol ranks the pointer;
+the bytes live elsewhere (Blossom, IPFS, HTTP, etc.).
+
+Text-only means:
+- No blob storage problem. Text payloads are small relative to blockspace.
+- Content moderation concerns largely dissolve (text, not binary).
+- A million posts < 1 GB of block space.
+- Archival nodes store the full history; pruned nodes do not (invariant 6).
+
+---
+
+ROLES
+
+Portal        Clearnet interface. Runs an archival full node. Indexes all
+(Website)     protocol-tagged transactions. Builds threading, ranking,
+              search. Serves the UI. Takes a flat rake per write. Competes
+              on UX and curation, not data control.
+
+              The portal is either custodial (holds UTXOs, constructs and
+              signs txs on behalf of users) or requires client-side signing
+              (wallet integration). In custodial mode, trust surface is:
+              the portal could fail to publish after accepting payment.
+              Mitigated by: proof of inclusion after mining, reputation,
+              competing portals, and the option to self-publish.
+
+Author        Submits content to the portal (or self-publishes directly).
+              Signs the payload with their own key — authorship lives in
+              the application-layer signature, not the UTXO spend.
+              Earns sats directly from funding txs. On-chain earnings =
+              verifiable, publicly linkable reputation (invariant 11).
+
+Funder        Sends sats to content (author address or burn) with protocol
+              marker. The act of funding IS the ranking signal. No
+              intermediary decides what gets promoted.
+
+Reader        Free access. The website serves content ranked by economic
+              commitment. Anyone can run their own indexer against the
+              public chain (requires archival node + infrastructure).
+
+---
+
+WEBSITE ECONOMICS (THE FLAT RAKE)
+
+The website provides four things:
+
+1. Transaction construction + UTXO management — users don't run Bitcoin
+   Core. Submit text + payment, the portal manages wallet state, fee
+   estimation, RBF/CPFP, and broadcast. This is custodial by default
+   (the portal holds the publishing UTXOs). Client-side signing via
+   wallet integration is the non-custodial alternative.
+2. Batching — amortize tx costs across many users. N posts in one Taproot
+   tx via Merkle tree in witness data. Each post gets a Merkle proof of
+   inclusion. Per-post authorship via payload-level signatures (invariant 8).
+3. Indexing — scan the chain for protocol-tagged txs, build thread tree,
+   compute rankings, handle reorg rewinds (invariant 4).
+4. UX — search, threading, profiles, notifications, the forum interface.
+
+Revenue model:
+- Flat rake per post (e.g., 500–2000 sats on top of miner fee)
+- Lightning tipping integration (instant micropayments, small cut)
+- Fiat on-ramp ("pay $1 to post" — portal handles all Bitcoin)
+- Premium features (analytics, API access, notifications) as subscription
+
+Cost math at 1 sat/vbyte (low-fee environment):
+  Single post, 1KB:  ~1,250 sats miner fee + 1,000 rake = ~2,250 sats
+  Batched, 100/tx:   ~12 sats miner fee + 1,000 rake    = ~1,012 sats
+  Batched, 1000/tx:  ~1 sat miner fee + 1,000 rake       = ~1,001 sats
+
+At scale, per-post cost approaches the rake itself. The website earns
+margin on volume. Competition keeps the rake honest.
+
+Note: these costs are for a low-fee environment. At 50 sat/vbyte a single
+1KB post costs ~62,500 sats in miner fees alone. Fee volatility (invariant
+2) means no fixed-cost UX promise is enforceable at protocol level. The
+portal can absorb variance, queue during high-fee periods, or pass
+through — each is a business decision, not a protocol guarantee.
+
+Trust surface:
+- The portal can censor its display (data still on Bitcoin, competitors
+  can index it).
+- The portal can fail to publish after accepting payment (detectable:
+  no Merkle proof of inclusion; mitigated: reputation + competing portals).
+- The portal can overcharge (users switch or self-publish).
+- The portal can go down (data persists on-chain for anyone to re-index).
+- The portal holds publishing UTXOs (custodial risk on the hot wallet,
+  not on user content — content already mined is safe).
+
+---
+
+RANKING
+
+Importance = f(total_sats_committed, citation_graph_position,
+               author_reputation, time)
+
+All inputs are on-chain:
+- Total sats committed = sum of all Fund txs with protocol markers
+  referencing the content hash (including the author's original tx fee)
+- Citation graph position = authority metric over the on-chain citation
+  graph. Graph will be sparse (invariant 14); algorithm must be robust
+  to low-density data and funding-based manipulation.
+- Author reputation = lifetime on-chain earnings, funding given, citation
+  history, key age. Publicly linkable (invariant 11).
+- Time = block height of original post (subject to reorg, invariant 4)
+
+Anyone can compute the ranking from an archival node + indexer.
+Competing websites can use different ranking algorithms over the same
+data. The ranking is the product; the data is a public good.
+
+---
+
+BITCOIN-NATIVE PROPERTIES
+
+Permanence          Archival nodes store the full history. Content durability
+                    is a function of the archival node population, not of
+                    any single operator. Stronger than any application-layer
+                    storage guarantee, but not absolute (invariant 6).
+
+Censorship          Suppression requires outbidding for blockspace inclusion,
+resistance          miner-level tx filtering, or mempool policy capture.
+                    All costly, all detectable, none silent. Not "impossible"
+                    — maximally expensive relative to any known alternative.
+
+Timestamping        Block inclusion IS the timestamp. Priority claims have
+                    probabilistic finality — strong after 6+ confirmations,
+                    effectively irreversible for practical purposes. Indexers
+                    must handle the reorg window (invariant 4).
+
+Identity            Application-layer author signatures over content, anchored
+                    to Bitcoin keys. Portable across every portal that indexes
+                    the chain. On-chain history accumulates as a public,
+                    linkable financial record (invariant 11).
+
+Ordering            Blocks provide total ordering after convergence.
+                    During temporary forks, ordering is ambiguous (invariant
+                    4). Indexers must handle conflicting tips.
+
+Auditability        All protocol events are on-chain. Every sat committed to
+                    every post is publicly verifiable from an archival node.
+                    No custodial pools, no opaque systems — except the
+                    portal's hot wallet for UTXO management.
+
+---
+
+ADVANCED CAPABILITIES (ALL BITCOIN-NATIVE)
+
+Time-locked         OP_CHECKLOCKTIMEVERIFY / nLockTime. Commit content
+content             hash now (proves existence), decryption key in a
+                    time-locked tx (becomes spendable at block N).
+                    Whistleblower protection, embargoed releases, dead
+                    man's switches. No smart contracts, no oracles.
+
+Multisig            M-of-N signatures to publish. Collective authorship
+authorship          with cryptographic proof of consent. Editorial boards.
+                    Whistleblower corroboration requiring N independent
+                    co-signers. All on-chain, all verifiable.
+
+Challenge           Bitcoin outputs locked by hashlock. "Pay N sats to
+bounties            anyone who provides content contradicting claim X."
+                    The bounty is a UTXO. The claim is the spend. No
+                    intermediary adjudicates — the cryptographic
+                    condition IS the adjudication.
+
+Encrypted           Encrypt post to recipients' public keys. Ciphertext
+content             on-chain (durable, timestamped, censorship-resistant),
+                    only intended recipients decrypt. Private messaging
+                    with the same durability guarantees as public posts.
+
+Conditional         Taproot script conditions. Content revealed only when
+revelation          conditions are met (hashlock, timelock, multisig).
+                    Prediction markets as posts. Escrow-gated disclosures.
+
+---
+
+ADVERSARIAL ECONOMICS
+
+Spam attack         Costs real Bitcoin per post. Thousands of spam posts =
+                    millions of sats. Cluster of low-reputation keys spending
+                    money for zero upvotes. Ranking ignores it automatically.
+
+Censorship          Targeted: miner/pool filtering of specific protocol txs.
+attack              Detectable (valid txs not being mined despite adequate
+                    fee). Bypassable (different fee levels, different mempools,
+                    direct miner submission). Sustained filtering requires
+                    majority hashrate cooperation — expensive but not
+                    impossible.
+
+Erasure             Requires that all archival nodes discard the data.
+attack              Practically very difficult — the Bitcoin archival node
+                    population is large, geographically distributed, and
+                    independently motivated. Not physically impossible, but
+                    as close as any known system gets.
+
+Reputation          Requires spending real sats over real time building
+forgery             fake history. Cost scales linearly with the reputation
+                    being forged. No shortcut.
+
+Manipulation        Fake upvotes cost real sats. If you spend 1M sats
+attack              manipulating rankings, you've paid 1M sats for the
+                    privilege. The market decides if the signal is useful.
+                    Sparse citation graph (invariant 14) may amplify
+                    manipulation via graph-based metrics.
+
+Defense cost is low (data replicated by existing Bitcoin infrastructure).
+Attack cost is high and irreversible. The asymmetry is structural, not
+policy-based — but not infinite. Every defense has a price at which it
+breaks; the claim is that Bitcoin makes that price higher than any
+alternative.
+
+---
+
+WHAT THE SYSTEM LOOKS LIKE
+
+A forum where every post is a Bitcoin transaction. Upvotes are real sats
+sent to the author or burned as signal. The most funded, most cited, most
+reputable content rises to the top. Nothing can be silently deleted —
+everything is on archival nodes, append-only. Hateful noise is low-ranked
+(nobody funds it). Spam is priced out (every post costs real money).
+Important content is permanently inscribed and economically endorsed.
+
+The website is a window into on-chain data. If it disappears, someone
+builds another one from an archival node — same data, same content.
+The data is a public good. The lens is a competitive market. Bitcoin is
+the settlement layer, the evidence archive, and the storage medium.
+
+Authors earn directly from the quality of their ideas. The ranking signal
+IS the payment. No ads, no subscriptions, no editorial gatekeepers. The
+accumulated economic conviction of every participant, weighted by their
+verified on-chain history, determines what matters.
+
+---
+
+STRUCTURAL INCORRUPTIBILITY
+
+Every content platform follows the same arc: launch with free speech
+promises, grow, accumulate power over the data, get pressured by
+governments/advertisers/ideology, gradually corrupt the editorial function.
+The corruption is inevitable because the architecture permits it — whoever
+controls the data controls the platform.
+
+The pure Bitcoin model breaks this at the structural level. There is no
+data controller to corrupt. The data layer is Bitcoin — no operator, no
+board, no terms of service. The interface layer has operators, but they
+are commodity services competing on UX over public data. Corruption of
+any single interface has zero effect on data availability or integrity.
+
+This is not "we promise not to censor." It is "censorship at the data
+layer requires attacking Bitcoin itself, and censorship at the interface
+layer is trivially circumventable." The strongest achievable property
+given the invariants above.
+
+---
+
+DESIGN CHOICES
+
+Why no relay layer    Bitcoin already solved persistence (for archival nodes).
+                      Designing a relay incentive system (pools, bounties,
+                      HTLCs) rebuilds a worse version of what Bitcoin provides
+                      natively — one that introduces custodial pools, bounty
+                      game theory, and relay sybil attacks.
+
+Why no ephemeral      Every post costs real sats. This is a feature. The
+tier                  absence of free posting IS the signal. Casual discourse
+                      lives on existing platforms. OCDN is the "this matters
+                      enough to spend money on" layer.
+
+Why no gradual        Content on Bitcoin is permanent. Ranking provides the
+fade                  equivalent effect — underfunded content sinks in the
+                      index. The bytes persist, but visibility is proportional
+                      to economic commitment.
+
+Why text-only         Text is small, cheap to inscribe, and fits witness data
+                      efficiently. Media is pointers to external storage. The
+                      protocol ranks the pointer; commodity storage markets
+                      handle the bytes.
+
+Why flat rake         Simple, sustainable, competition-driven. The website
+                      earns by volume. No complex tokenomics, no custodial
+                      pools, no fee curves. Users understand the cost upfront.
+                      Competition drives it toward marginal cost.
+
+Why custodial         Non-custodial tx construction requires wallet integration
+portal default        on the client. Custodial is the pragmatic default for
+                      web UX — the portal holds publishing UTXOs, not user
+                      funds. Trust surface is bounded: worst case is
+                      non-publication after payment, detectable and
+                      reputation-costly. Non-custodial mode via client-side
+                      signing is available for users who want it.
+
+---
+
+ENVELOPE FORMAT
+
+OCDN data lives in Bitcoin witness via the same mechanism as Ordinals
+inscriptions: an OP_FALSE OP_IF ... OP_ENDIF envelope inside a Taproot
+script-path spend. This is not novel — it reuses an encoding with
+established miner acceptance, relay propagation, and tooling. The
+protocol defines what goes inside the envelope, not the envelope itself.
+
+Bitcoin constraints on the envelope:
+
+- Taproot script-path spends require a commit/reveal transaction pair.
+  The commit tx creates a Taproot output whose script tree contains the
+  envelope. The reveal tx spends it, placing the script (and data) in
+  the witness. Two on-chain transactions per publication event. The
+  indexer only parses reveal txs; commit txs are internal plumbing.
+
+- Data pushes within the script are capped at 520 bytes. Larger payloads
+  use multiple sequential pushes inside the envelope. Standard practice
+  — same as Ordinals inscriptions.
+
+- Witness data gets the 4x weight discount (1 weight unit per byte vs 4
+  for non-witness). This is the economic basis for text-in-witness.
+
+- Commit and reveal can be broadcast as a package. Bitcoin Core 28+
+  supports 1-parent-1-child package relay. Both propagate together; the
+  reveal confirms after the commit is mined.
+
+The portal batches many posts into one commit/reveal pair. Per-post
+overhead amortizes across the batch. The commit is the cost center
+(creates the Taproot output); the reveal is the data carrier.
+
+The envelope contains a fixed protocol tag that indexers scan for. Its
+value is a spec-level decision. The tag must be short (minimize overhead),
+unique (avoid collisions with Ordinals "ord" and other protocols), and
+permanent (never changes — the version field handles evolution).
+
+Note: the TRANSACTION TYPES section describes short posts in OP_RETURN
+(~80 bytes). In practice, per-post protocol overhead (author pubkey +
+signature + type/version) approaches or exceeds 80 bytes before any
+content. OP_RETURN may remain viable for metadata-only actions (Fund,
+Citation) where the payload is compact references and markers. Whether
+to support OP_RETURN as an alternative carrier or use witness envelopes
+uniformly is an open encoding decision. Uniform witness is simpler for
+indexers and safer against relay policy shifts (invariant 3). OP_RETURN
+is cheaper for small payloads but adds a second parsing path.
+
+---
+
+CONTENT ADDRESSING
+
+Every protocol action references content by hash. Replies point to a
+parent hash. Funds identify a target hash. Citations link source and
+target hashes. Edits reference an original hash.
+
+Required properties of the content hash:
+
+  Deterministic.    Computable from the payload alone, before mining.
+                    The author (or portal) can compute it at submission
+                    time.
+
+  Unique.           Distinct posts produce distinct hashes. Identical
+                    text submitted twice by the same author must yield
+                    different hashes. This implies a nonce or equivalent
+                    uniqueness field in the preimage.
+
+  Author-bound.     The same text from different authors produces
+                    different hashes. The author's public key is part
+                    of the preimage.
+
+  Tx-independent.   Stable across batching, RBF replacement, and
+                    rebroadcast. Cannot depend on txid (txid is unknown
+                    at author signing time and shared across a batch).
+
+SHA256 is the hash function. Bitcoin uses it. No reason to introduce
+another.
+
+The preimage includes at minimum: author pubkey, a nonce, and the
+content bytes. Exact field ordering and serialization are spec-level
+decisions. The constraint is the four properties above.
+
+---
+
+AUTHOR IDENTITY
+
+Identity is a secp256k1 public key — specifically, a 32-byte x-only
+public key as defined in BIP-340.
+
+BIP-340 Schnorr is the signature scheme. Bitcoin-native (Taproot uses
+it at consensus level), well-audited, production library support.
+64-byte signatures.
+
+The author signature is application-layer. It lives inside the envelope
+payload, separate from the Bitcoin-level UTXO signature (which belongs
+to the portal in custodial mode). The author signs the content; the
+portal signs the transaction. Both use Schnorr, but over different
+messages with different keys.
+
+The signed message must commit to:
+- The action type (prevents cross-type replay: a Post signature cannot
+  be reused as a Citation).
+- The nonce (same nonce as in the content hash).
+- The content or reference fields (the substantive payload).
+
+A fixed domain tag in the signed message prevents cross-protocol
+signature reuse.
+
+Key = identity. No key rotation mechanism in the initial protocol.
+Rotation introduces complexity and an attack surface: a compromised
+key could "rotate" the legitimate owner out before they react. An
+author who loses a key starts fresh. This is Bitcoin's own model —
+private key loss is final. Rotation is a future consideration, not
+a launch requirement.
+
+Reputation is the history of a key: posts authored, sats earned,
+citations received, funding given, age of first appearance. All
+derivable from the chain by any indexer. Sybil cost = cost of
+building this history with real sats over real time.
+
+---
+
+IMPLEMENTATION SUBSTRATE
+
+Existing tools and infrastructure. Nothing below is OCDN-specific —
+these are commodity components the protocol builds on.
+
+Bitcoin Core         Archival full node. Block data via RPC (getblock
+                     verbosity 2+ returns full tx data with witness),
+                     mempool monitoring, tx broadcast, fee estimation.
+                     REST interface (-rest=1) for block iteration
+                     without JSON-RPC overhead. Required: -txindex=1
+                     for tx lookup, unpruned for full archival.
+
+bitcoinjs-lib        JS/TS Bitcoin library (v7+). Full Taproot support:
+                     script-path spends, PSBT construction, Schnorr
+                     keypairs, witness assembly. Tx construction layer
+                     for the portal.
+
+@noble/curves        Audited, zero-dependency JS/TS elliptic curve
+                     library. BIP-340 Schnorr sign/verify on secp256k1.
+                     Handles the application-layer author signatures.
+                     Production-grade, peer-reviewed.
+
+@cmdcode/tapscript   TypeScript library for Taproot script and
+                     inscription-style witness construction. Zero
+                     dependencies. Commit/reveal pipeline, envelope
+                     assembly, Taproot address derivation.
+
+ord (reference)      Ordinals reference indexer (Rust, open source).
+                     Not used directly — architecture reference for:
+                     parsing witness envelopes from raw blocks,
+                     handling chain reorgs, maintaining a derived
+                     index over protocol-tagged transactions.
+
+ordpool-parser       JS/TS library for detecting inscriptions in
+                     Bitcoin transactions. Parsing reference or
+                     starting point for OCDN envelope detection.
+
+PostgreSQL           Indexer database. Parsed content, thread trees,
+                     citation graph, reputation data, funding totals.
+                     Portal-local state derived from the chain —
+                     reconstructable from any archival node.
+
+Next.js              Web framework for the portal. Reads from indexer
+                     DB, writes to Bitcoin via tx construction pipeline.
+
+Lightning            Payment rail for the portal rake and instant
+(LND / CLN / LDK)   funding. User pays invoice → portal queues for
+                     on-chain publication. Lightning = UX layer.
+                     On-chain tx = protocol layer (invariant 16).
+
+---
+
+PROTOCOL SPECIFICATION (v1 MINIMUM)
+
+Scope. Three transaction types: Post, Reply, Fund. This is the
+minimum viable protocol — write text to Bitcoin, thread replies,
+fund content. Edit, Citation, and Batch are deferred to future
+versions. The type code space accommodates them without breaking
+existing indexers.
+
+Low-responsibility defaults (resolved):
+
+  Encoding          Witness envelope for content (Post, Reply).
+                    OP_RETURN for metadata (Fund). Content needs
+                    witness for space; Fund needs one transaction,
+                    not two. The split is pragmatic, not principled.
+
+  Fee volatility    Pass-through. Portal charges rake + estimated
+                    fee. Users bear fee-market risk. The portal
+                    makes no promises about fee levels.
+
+  Fund economics    Sats sent to author's address. Ranking signal =
+                    amount received. Self-funding is visible (same
+                    pubkey) and discountable by portal ranking. Burn
+                    mechanics deferred.
+
+  Privacy           Public forum, public economics. No mitigations
+                    in v1. Invariant 11 accepted.
+
+  Reorg policy      Portal-level. Suggested: display after 1
+                    confirmation with visual indicator; treat 6+
+                    as settled.
+
+  Citations         Deferred. v1 ranking uses sats committed + time.
+                    Type code 0x04 reserved.
+
+  Policy risk       Acknowledged. v1 depends on current Taproot and
+                    OP_RETURN relay policies. No fallback.
+
+  Bootstrap         Builders seed content. No incentive mechanism.
+
+---
+
+PROTOCOL CONSTANTS
+
+  Tag               "ocdn" (0x6F 0x63 0x64 0x6E)
+  Version           0x01
+  Type codes        POST = 0x01, REPLY = 0x02, FUND = 0x03
+                    Reserved: CITE = 0x04, EDIT = 0x05, BATCH = 0x06
+
+---
+
+CONTENT HASH
+
+  content_hash = tagged_hash("ocdn/content",
+      pubkey || nonce || content)
+
+  tagged_hash(tag, msg) = SHA256(SHA256(tag) || SHA256(tag) || msg)
+  per BIP-340's tagged hash construction.
+
+  pubkey:   32-byte x-only author public key
+  nonce:    8 bytes, random (generated by author or portal)
+  content:  UTF-8 encoded text bytes
+  ||:       concatenation
+
+  The content hash is 32 bytes. It is the canonical identifier for a
+  piece of content across all protocol actions (replies reference it,
+  funds target it).
+
+  Properties satisfied:
+  - Deterministic (computable before mining)
+  - Unique (random nonce)
+  - Author-bound (pubkey in preimage)
+  - Tx-independent (no txid dependency)
+
+---
+
+AUTHOR SIGNATURE
+
+  For POST:
+    sign_msg = tagged_hash("ocdn/sign",
+        version || type || nonce || content)
+
+  For REPLY:
+    sign_msg = tagged_hash("ocdn/sign",
+        version || type || nonce || parent_hash || content)
+
+  author_sig = BIP340_sign(author_privkey, sign_msg)
+
+  Verification:
+    BIP340_verify(author_pubkey, sign_msg, author_sig) → bool
+
+  The signature commits to: version (prevents cross-version replay),
+  type (prevents cross-type replay), nonce (uniqueness), and content
+  (authenticity). For REPLY, it also commits to parent_hash (binds
+  the reply to its thread position).
+
+---
+
+AUTHOR ADDRESS
+
+  Given an author's x-only pubkey P, their receive address for Fund
+  payments is: P2TR(P) with no script tree (key-path only).
+
+  This is deterministic — anyone can compute where to send funds for
+  any author from their pubkey alone. Standard Taproot key-path
+  address derivation (BIP-341, internal key = P, empty Merkle root).
+
+---
+
+WITNESS ENVELOPE (POST, REPLY)
+
+  Follows the Ordinals envelope pattern: OP_FALSE OP_IF ... OP_ENDIF
+  inside a Taproot script-path spend script.
+
+  Envelope fields as sequential data pushes:
+
+    "ocdn"              protocol tag, 4 bytes
+    <version>           1 byte
+    <type>              1 byte (0x01 POST, 0x02 REPLY)
+    <nonce>             8 bytes
+    <pubkey>            32 bytes, x-only
+    <sig>               64 bytes, BIP-340
+    <parent_hash>       32 bytes, REPLY only (omitted for POST)
+    <content>           variable UTF-8, multiple pushes if >520 bytes
+
+  Each field is a separate OP_PUSH. Fixed-size fields first, variable
+  content last. The indexer reads them sequentially; push boundaries
+  are field boundaries.
+
+  Overhead per post: 4+1+1+8+32+64 = 110 bytes + content.
+  For REPLY: +32 bytes (parent_hash) = 142 bytes + content.
+
+  The envelope lives in a Taproot script-path spend, requiring the
+  commit/reveal transaction pair:
+
+    Commit tx     Portal spends an existing UTXO. Creates a P2TR
+                  output whose script tree contains the envelope
+                  script. Change output back to portal.
+
+    Reveal tx     Spends the commit output via script-path. The
+                  witness contains the envelope script + Taproot
+                  control block. Change output to portal.
+
+  Content is on-chain when the reveal tx is mined. The commit and
+  reveal can be broadcast as a package (Bitcoin Core 28+ 1P1C relay).
+
+---
+
+OP_RETURN MARKER (FUND)
+
+  Single transaction, no commit/reveal.
+
+  Outputs:
+    1. OP_RETURN:  "ocdn" || 0x01 || 0x03 || content_hash
+                   (4 + 1 + 1 + 32 = 38 bytes)
+    2. Payment:    N sats to author's P2TR address
+    3. Change:     back to funder (ignored by indexer)
+
+  The indexer reads the OP_RETURN, extracts the target content_hash,
+  identifies the output paying the author's known address, and
+  records N sats as economic commitment to that content.
+
+  Funder identity is the Bitcoin-level UTXO spender. No application-
+  layer funder identity in v1.
+
+  Self-funding: detectable when author's pubkey matches the funding
+  tx's input key. Portal ranking can discount or ignore.
+
+---
+
+INDEXER RULES
+
+  For every new block:
+
+  1. Witness scan. For each transaction with a Taproot script-path
+     spend, inspect the witness stack for a script containing:
+     OP_FALSE OP_IF OP_PUSH "ocdn" ...
+     If found: parse envelope fields in order, verify author
+     signature, compute content_hash, index the content. For REPLY,
+     validate that parent_hash references existing indexed content.
+
+  2. OP_RETURN scan. For each transaction output that is OP_RETURN,
+     check if payload begins with "ocdn". If so: parse version and
+     type. If FUND (0x03), extract target content_hash. Look up the
+     author's P2TR address for that content. Find the output paying
+     that address. Record the amount.
+
+  3. Reorg handling. Maintain a chain tip cursor (block hash + height).
+     On reorg: rewind index to the fork point, delete all data from
+     orphaned blocks, re-process from the new chain. Content that
+     appeared in an orphaned block and reappears in the new chain is
+     re-indexed normally.
+
+  Invalid envelopes (bad signature, unknown version with same tag,
+  malformed fields) are silently ignored. The indexer processes only
+  what it can fully validate.
+
+---
+
+COST ESTIMATES (v1, NO BATCHING)
+
+  At 1 sat/vbyte (low-fee environment):
+
+  POST, 500 bytes content:
+    Commit tx:  ~150 vbytes                = ~150 sats
+    Reveal tx:  ~250 vbytes (110 overhead
+                + 500 content, witness      = ~250 sats
+                discount applied)
+    Miner fees total:                        ~400 sats
+    Portal rake:                            ~1,000 sats
+    User cost:                              ~1,400 sats
+
+  FUND:
+    Single tx: ~120 vbytes                  = ~120 sats
+    Portal rake (if facilitated):            ~500 sats
+    Funder cost:                        ~620 sats + funded amount
+
+  At 50 sat/vbyte (high-fee):
+    POST becomes ~20,000 sats miner fee + rake = ~21,000 sats
+    FUND becomes ~6,000 sats miner fee + rake + funded amount
+
+  Batching (future) amortizes commit/reveal across N posts,
+  approaching rake-only cost per post at scale.
+
+---
+
+DEFERRED (FUTURE VERSIONS)
+
+  Edit (0x05)         Witness envelope referencing original content
+                      hash. Same author (indexer verifies pubkey).
+                      Portal decides display: latest edit, full
+                      history, diff view.
+
+  Citation (0x04)     Witness or OP_RETURN. Typed link: source_hash +
+                      relation_type + target_hash. Relation types
+                      (SUPPORTS, CONTRADICTS, EXTENDS) TBD. Sparse
+                      graph — ranking must account for this.
+
+  Batch (0x06)        Multiple posts in one commit/reveal. Merkle tree
+                      of content hashes in the envelope. Per-post
+                      Merkle proof as inclusion receipt. Reduces cost
+                      toward rake-only at volume.
+
+  Burn funding        Sats destroyed as pure ranking signal, no author
+                      payment. Requires distinguishing burn from
+                      transfer in Fund tx structure.
+
+  Key rotation        Signed attestation linking old key to new key.
+                      Deferred due to attack surface concerns (see
+                      AUTHOR IDENTITY).
+
+  Privacy             Separate posting keys, batch-level unlinkability,
+                      or other mitigations for invariant 11.
+
+---
+
+OPEN QUESTIONS (REMAINING)
+
+Most design questions are resolved above. What remains:
+
+1. Commit/reveal pipeline. The two-transaction pattern is structurally
+   required. How the portal manages this operationally — pre-funding,
+   pipeline depth, failure recovery when a commit confirms but the
+   reveal is stuck — is implementation-level but affects UX latency
+   and reliability.
+
+2. Content size limits. The protocol imposes none (fee market self-
+   regulates). Should the portal impose a soft limit? Long content
+   increases reveal tx size and cost linearly. Practical question,
+   not protocol question.
+
+3. Nonce generation. Spec says 8 random bytes. Who generates it —
+   author (client-side) or portal? In custodial mode the portal can
+   generate it. In non-custodial mode the author must. Affects the
+   signing flow.
+
+4. Signet/testnet validation. The spec should be validated against
+   real Bitcoin transactions before mainnet. Signet is the appropriate
+   testbed — realistic mempool behavior, free sats.
