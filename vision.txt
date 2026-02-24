@@ -18,9 +18,9 @@ CORE THESIS
    all expensive, all detectable, none silent.
 3. Reading is free; writing costs sats. The cost of writing IS the spam
    filter AND the conviction signal. No separate mechanism needed.
-4. The importance index is the product. Total sats committed × citation
-   graph position × author reputation. All inputs are on-chain and
-   verifiable by anyone.
+4. The importance index is the product. Total sats committed to content
+   and topics, weighted by author reputation and time. All inputs are
+   on-chain and verifiable by anyone.
 5. Everything is append-only. Nothing is edited or deleted — ever. Bitcoin
    is the append-only log. Edits are new transactions referencing originals.
 6. The interface is a replaceable lens. Whoever controls the data controls
@@ -31,7 +31,7 @@ CORE THESIS
    live in the payload, not in Bitcoin's native UTXO signing model. Reputation
    is on-chain history — posts authored, citations received, burns given.
    Sybil cost = cost of building a real economic history over real time.
-8. The entire social graph is on Bitcoin. Posts, replies, citations, burn
+8. The entire social graph is on Bitcoin. Posts, replies, topics, burn
    events — all transactions. The graph is reconstructable from any archival
    node. No platform owns the graph.
 
@@ -136,25 +136,30 @@ OP_RETURN. The payload includes an author pubkey and an author signature
 over the content — this is separate from the Bitcoin-level UTXO signature
 and is what establishes authorship when the portal is the UTXO spender.
 
-Post        Taproot tx, text in witness data. Short posts in OP_RETURN
-            (~80 bytes). Longer posts in witness (Taproot inscription
+Post        Taproot tx, text in witness data (Taproot inscription
             style, ~1-5KB typical). Payload includes: author pubkey,
-            author signature, content. The tx fee is the minimum
-            economic commitment.
+            author signature, optional topic string, content. A post
+            with a topic competes under that topic — multiple posts
+            to the same topic are siblings ranked by burns. A post
+            without a topic is standalone. Topic identity is
+            tagged_hash("ocdn/topic", topic_string). The tx fee is
+            the minimum economic commitment.
 
 Reply       Taproot tx referencing parent content hash. Text in witness.
             Threads are chains of Bitcoin transactions.
 
-Burn        Tx with OP_RETURN referencing content hash + protocol marker.
-            The tx fee IS the burn — sats destroyed as pure ranking
-            signal. No payment to author; miners collect. The OP_RETURN
-            is a marker, not a value carrier. Self-dealing costs face
-            value (no refund path). The protocol marker disambiguates
-            ranking burns from ordinary transactions.
+Burn        Tx with OP_RETURN referencing a 32-byte target hash +
+            protocol marker. Target is a content hash (post-level
+            burn) or topic hash (topic-level burn). The tx fee IS
+            the burn — sats destroyed as ranking signal. Miners
+            collect. Self-dealing costs face value (no refund path).
+            The protocol marker disambiguates burns from ordinary
+            transactions.
 
-Citation    Tx with OP_RETURN: magic + source_hash + relation_type +
-            target_hash. Typed link. The citation graph is computable
-            from Bitcoin alone (sparse — see invariant 14).
+Cross-ref   Deferred. Optional reference hashes in the Post/Reply
+            envelope — untyped edges ("this post references those
+            posts"). No separate transaction type; references travel
+            with the post. Interpretation lives in content.
 
 Edit        Tx referencing original content hash with EDIT relation.
             New content in witness. The website decides display (latest
@@ -179,9 +184,11 @@ Text-only means:
 ROLES
 
 Portal        Clearnet interface. Runs an archival full node. Indexes all
-(Website)     protocol-tagged transactions. Builds threading, ranking,
-              search. Serves the UI. Takes a flat rake per write. Competes
-              on UX and curation, not data control.
+(Website)     protocol-tagged transactions. Builds threading, topic
+              grouping, ranking, search. Serves the UI. Takes a flat
+              rake per write. Competes on UX and curation, not data
+              control. May also display text from other Bitcoin
+              protocols (e.g., EternityWall) alongside OCDN content.
 
               The portal is either custodial (holds UTXOs, constructs and
               signs txs on behalf of users) or requires client-side signing
@@ -257,23 +264,28 @@ Trust surface:
 
 RANKING
 
-Importance = f(total_sats_committed, citation_graph_position, time)
+Two ranking dimensions, both purely economic:
+
+Topic ranking:    Total sats burned targeting topic_hash. Determines
+                  which topics surface.
+
+Post ranking:     Total sats burned targeting content_hash (including
+                  the author's original tx fee). Determines which
+                  posts surface within a topic or reply level.
 
 All inputs are on-chain:
-- Total sats committed = sum of all Burn tx fees with protocol markers
-  referencing the content hash (including the author's original tx fee).
-- Citation graph position = authority metric over the on-chain citation
-  graph. Graph will be sparse (invariant 14); algorithm must be robust
-  to low-density data and burn-based manipulation.
-- Author reputation = lifetime post history, burns given, citation
-  history, key age. Publicly linkable (invariant 11).
+- Total sats committed = sum of all Burn tx fees referencing the
+  target hash (content_hash or topic_hash).
+- Author reputation = lifetime post history, burns received, key age.
+  Publicly linkable (invariant 11).
 - Time = block height of original post (subject to reorg, invariant 4).
   Two views: recency (decaying, for discovery) and canonical (cumulative,
   for reference). Both computable from the same on-chain data.
 
 Anyone can compute the ranking from an archival node + indexer.
 Competing websites can use different ranking algorithms over the same
-data. The ranking is the product; the data is a public good.
+data. The ranking is the product; the data is a public good. Rich
+will be louder; poor will be unsuppressable.
 
 ---
 
@@ -637,10 +649,10 @@ Lightning            Payment rail for the portal rake. User pays
 PROTOCOL SPECIFICATION (v1 MINIMUM)
 
 Scope. Three transaction types: Post, Reply, Burn. This is the
-minimum viable protocol — write text to Bitcoin, thread replies,
-burn sats as ranking signal. Edit, Citation, and Batch are deferred to future
-versions. The type code space accommodates them without breaking
-existing indexers.
+minimum viable protocol — write text to Bitcoin, organize by topic,
+thread replies, burn sats as ranking signal. Edit and Batch are
+deferred to future versions. The type code space accommodates them
+without breaking existing indexers.
 
 Low-responsibility defaults (resolved):
 
@@ -664,8 +676,7 @@ Low-responsibility defaults (resolved):
                     confirmation with visual indicator; treat 6+
                     as settled.
 
-  Citations         Deferred. v1 ranking uses sats committed + time.
-                    Type code 0x04 reserved.
+  Cross-refs        Deferred. v1 ranking uses sats committed + time.
 
   Policy risk       Acknowledged. v1 depends on current Taproot and
                     OP_RETURN relay policies. No fallback.
@@ -679,62 +690,62 @@ PROTOCOL CONSTANTS
   Tag               "ocdn" (0x6F 0x63 0x64 0x6E)
   Version           0x01
   Type codes        POST = 0x01, REPLY = 0x02, BURN = 0x03
-                    Reserved: CITE = 0x04, EDIT = 0x05, BATCH = 0x06
+                    Reserved: EDIT = 0x04, BATCH = 0x05
 
 ---
 
 CONTENT HASH
 
   content_hash = tagged_hash("ocdn/content",
-      pubkey || nonce || content)
+      pubkey || nonce || parent_ref || content)
 
   tagged_hash(tag, msg) = SHA256(SHA256(tag) || SHA256(tag) || msg)
   per BIP-340's tagged hash construction.
 
-  pubkey:   32-byte x-only author public key
-  nonce:    8 bytes, random (generated by author or portal)
-  content:  UTF-8 encoded text bytes
-  ||:       concatenation
+  pubkey:      32-byte x-only author public key
+  nonce:       8 bytes, random (generated by author)
+  parent_ref:  32 bytes — the post's position in the hierarchy:
+               POST with topic:  tagged_hash("ocdn/topic", topic_string)
+               POST standalone:  0x00 * 32
+               REPLY:            parent content_hash
+  content:     UTF-8 encoded text bytes
+  ||:          concatenation
 
   The content hash is 32 bytes. It is the canonical identifier for a
   piece of content across all protocol actions (replies reference it,
-  burns target it).
+  burns target it). Identical text under different topics or parents
+  produces different content hashes.
 
   Properties satisfied:
   - Deterministic (computable before mining)
   - Unique (random nonce)
   - Author-bound (pubkey in preimage)
   - Tx-independent (no txid dependency)
+  - Position-bound (parent_ref in preimage)
 
 ---
 
 AUTHOR SIGNATURE
 
   The signature commits to the content_hash, not the content fields.
-  content_hash already binds (pubkey, nonce, content). The signature
-  adds protocol context (version, type, threading). No field is
-  serialized twice. sign_msg is fixed-size for every action type.
+  content_hash already binds (pubkey, nonce, parent_ref, content).
+  The signature adds protocol context (version, type). No field is
+  serialized twice. sign_msg is fixed-size and uniform across all
+  action types.
 
-  For POST:
-    sign_msg = tagged_hash("ocdn/sign",
-        version || type || content_hash)
-    Preimage: 1 + 1 + 32 = 34 bytes, fixed.
-
-  For REPLY:
-    sign_msg = tagged_hash("ocdn/sign",
-        version || type || parent_hash || content_hash)
-    Preimage: 1 + 1 + 32 + 32 = 66 bytes, fixed.
+  sign_msg = tagged_hash("ocdn/sign",
+      version || type || content_hash)
+  Preimage: 1 + 1 + 32 = 34 bytes, fixed.
 
   author_sig = BIP340_sign(author_privkey, sign_msg)
 
   Verification:
     BIP340_verify(author_pubkey, sign_msg, author_sig) → bool
 
-  Serialization invariant: variable-length data (content) appears in
-  exactly one preimage (content_hash), where it is terminal. All other
-  preimages in the protocol are fixed-size by construction. No length
-  prefixes needed. Future action types add fixed-size fields to
-  sign_msg — they never touch the content serialization path.
+  Serialization invariant: variable-length data (topic, content)
+  appears in exactly one preimage each (topic_hash, content_hash),
+  where it is terminal. sign_msg is always 34 bytes. All hierarchical
+  context (topic, parent) is committed transitively via content_hash.
 
   Pubkey is committed transitively via content_hash and independently
   by BIP-340's internal challenge hash (R || P || m). Defense in depth.
@@ -754,15 +765,16 @@ WITNESS ENVELOPE (POST, REPLY)
     <nonce>             8 bytes
     <pubkey>            32 bytes, x-only
     <sig>               64 bytes, BIP-340
+    <topic>             variable UTF-8, POST only (empty push = standalone)
     <parent_hash>       32 bytes, REPLY only (omitted for POST)
     <content>           variable UTF-8, multiple pushes if >520 bytes
 
-  Each field is a separate OP_PUSH. Fixed-size fields first, variable
-  content last. The indexer reads them sequentially; push boundaries
-  are field boundaries.
+  The type byte determines the relational field: POST carries a topic
+  push (variable, may be empty), REPLY carries parent_hash (fixed 32).
+  Fixed fields first, then relational field, then content.
 
-  Overhead per post: 4+1+1+8+32+64 = 110 bytes + content.
-  For REPLY: +32 bytes (parent_hash) = 142 bytes + content.
+  Overhead: POST = 110 bytes + topic + content.
+            REPLY = 142 bytes + content.
 
   The envelope lives in a Taproot script-path spend, requiring the
   commit/reveal transaction pair:
@@ -785,16 +797,19 @@ OP_RETURN MARKER (BURN)
   Single transaction, no commit/reveal. The tx fee IS the burn.
 
   Outputs:
-    1. OP_RETURN:  "ocdn" || 0x01 || 0x03 || content_hash
+    1. OP_RETURN:  "ocdn" || 0x01 || 0x03 || target_hash
                    (4 + 1 + 1 + 32 = 38 bytes, 0 sats)
     2. Change:     back to burner
 
+  target_hash is a content hash (post burn) or topic hash (topic burn).
+  No collision: different tagged_hash domains.
+
   burn_amount = tx_fee = sum(inputs) - sum(outputs)
 
-  The indexer reads the OP_RETURN, extracts the target content_hash,
-  computes the tx fee (requires input value lookup — available via
-  getblock verbosity 2+ with -txindex), and records the fee as
-  economic commitment to that content.
+  The indexer reads the OP_RETURN, extracts the target hash, checks
+  it against known content hashes and topic hashes, computes the tx
+  fee (requires input value lookup — available via getblock verbosity
+  2+ with -txindex), and records the fee as economic commitment.
 
   No payment output. No author address. No UTXO bloat — the
   OP_RETURN is pruned from the UTXO set by consensus. Miners
@@ -814,17 +829,21 @@ INDEXER RULES
   1. Witness scan. For each transaction with a Taproot script-path
      spend, inspect the witness stack for a script containing:
      OP_FALSE OP_IF OP_PUSH "ocdn" ...
-     If found: parse envelope fields in order, compute content_hash
-     from (pubkey, nonce, content), compute sign_msg from (version,
-     type, [parent_hash,] content_hash), verify author signature
-     against sign_msg, index the content. For REPLY, validate that
-     parent_hash references existing indexed content.
+     If found: parse envelope fields in order. Compute parent_ref
+     (topic_hash for POST, parent_hash for REPLY, null for standalone).
+     Compute content_hash from (pubkey, nonce, parent_ref, content).
+     Compute sign_msg from (version, type, content_hash). Verify
+     author signature. Index the content. For POST with topic, index
+     under topic_hash. For REPLY, validate that parent_hash references
+     existing indexed content.
 
   2. OP_RETURN scan. For each transaction output that is OP_RETURN,
      check if payload begins with "ocdn". If so: parse version and
-     type. If BURN (0x03), extract target content_hash. Compute
-     tx fee (sum of input values - sum of output values). Record
-     the fee as burn amount for that content.
+     type. If BURN (0x03), extract target hash (32 bytes). Check
+     against known content hashes and topic hashes — no collision
+     risk (different tagged_hash domains). Compute tx fee (sum of
+     input values - sum of output values). Record the fee as burn
+     amount for that content or topic.
 
   3. Reorg handling. Maintain a chain tip cursor (block hash + height).
      On reorg: rewind index to the fork point, delete all data from
@@ -845,8 +864,8 @@ COST ESTIMATES (v1, NO BATCHING)
   POST, 500 bytes content:
     Commit tx:  ~150 vbytes                = ~150 sats
     Reveal tx:  ~250 vbytes (110 overhead
-                + 500 content, witness      = ~250 sats
-                discount applied)
+                + topic + 500 content,      = ~250 sats
+                witness discount applied)
     Miner fees total:                        ~400 sats
     Portal rake:                            ~1,000 sats
     User cost:                              ~1,400 sats
@@ -869,17 +888,16 @@ COST ESTIMATES (v1, NO BATCHING)
 
 DEFERRED (FUTURE VERSIONS)
 
-  Edit (0x05)         Witness envelope referencing original content
+  Edit (0x04)         Witness envelope referencing original content
                       hash. Same author (indexer verifies pubkey).
                       Portal decides display: latest edit, full
                       history, diff view.
 
-  Citation (0x04)     Witness or OP_RETURN. Typed link: source_hash +
-                      relation_type + target_hash. Relation types
-                      (SUPPORTS, CONTRADICTS, EXTENDS) TBD. Sparse
-                      graph — ranking must account for this.
+  Cross-references    Optional reference hashes in Post/Reply envelope.
+                      Untyped edges — protocol-level DAG for cross-
+                      thread linking. Interpretation lives in content.
 
-  Batch (0x06)        Multiple posts in one commit/reveal. Merkle tree
+  Batch (0x05)        Multiple posts in one commit/reveal. Merkle tree
                       of content hashes in the envelope. Per-post
                       Merkle proof as inclusion receipt. Reduces cost
                       toward rake-only at volume.
