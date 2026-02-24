@@ -31,9 +31,13 @@ CORE THESIS
    live in the payload, not in Bitcoin's native UTXO signing model. Reputation
    is on-chain history — posts authored, citations received, burns given.
    Sybil cost = cost of building a real economic history over real time.
-8. The entire social graph is on Bitcoin. Posts, replies, topics, burn
-   events — all transactions. The graph is reconstructable from any archival
-   node. No platform owns the graph.
+8. The entire social graph is on Bitcoin. Posts, replies, topics, burns,
+   signals — all transactions. The graph is reconstructable from any
+   archival node. No platform owns the graph.
+9. Cheap signals compose into rich structure. Individual interactions are
+   simple (an ordered list of plain-text references, ~80 sats). The
+   assembly — many keys, many targets, over time — creates a navigable
+   knowledge graph. Meaning lives in topology, not in any single signal.
 
 ---
 
@@ -155,6 +159,18 @@ Burn        Tx with OP_RETURN referencing a 32-byte target hash +
             collect. Self-dealing costs face value (no refund path).
             The protocol marker disambiguates burns from ordinary
             transactions.
+
+Signal      OP_RETURN tx carrying an ordered list of plain-text
+            references — topics, entities, concepts as UTF-8 strings.
+            Optional content_hash prefix for cross-referencing specific
+            posts. References are human-readable on-chain; no hash
+            lookup needed. The tx fee is the economic weight. Self-
+            signed mode: user signs own tx, Bitcoin signature
+            authenticates, no application-layer signature needed.
+            ~80 sats at floor fees. Meaning lives in what you link
+            and the order you link it. Single signals are simple;
+            their assembly across keys and time creates a navigable
+            knowledge graph.
 
 Cross-ref   Deferred. Optional reference hashes in the Post/Reply
             envelope — untyped edges ("this post references those
@@ -282,6 +298,14 @@ All inputs are on-chain:
   Two views: recency (decaying, for discovery) and canonical (cumulative,
   for reference). Both computable from the same on-chain data.
 
+Signal ranking:   Signals contribute tx fees toward referenced topics
+                  and content. Many cheap signals aggregate into
+                  significant economic weight. Allocation of a signal's
+                  fee across its multiple references is a portal-level
+                  decision. The signal spending graph also provides
+                  sybil-resistance inputs: graph topology, key diversity,
+                  temporal patterns (see ADVERSARIAL ECONOMICS).
+
 Anyone can compute the ranking from an archival node + indexer.
 Competing websites can use different ranking algorithms over the same
 data. The ranking is the product; the data is a public good. Rich
@@ -382,6 +406,17 @@ attack              destroyed. If you spend 1M sats manipulating
                     manipulation via graph-based metrics. Burner breadth
                     in the ranking function is the primary structural
                     defense — single-source burning is discountable.
+
+Sybil               The signal spending graph is an unforgeable
+detection            behavioral fingerprint per key. Temporal cadence,
+(spending graph)     cross-content diversity, amount entropy, graph
+                     topology, and reciprocity patterns distinguish
+                     organic keys from sybil clusters. Every fake
+                     graph edge costs real sats. Faking organic
+                     topology requires sustained diverse spending
+                     over months. Cost scales with time × diversity
+                     × amount. The indexer need not censor — it
+                     weights ranking by graph health metrics.
 
 Defense cost is low (data replicated by existing Bitcoin infrastructure).
 Attack cost is high and irreversible. The asymmetry is structural, not
@@ -648,11 +683,12 @@ Lightning            Payment rail for the portal rake. User pays
 
 PROTOCOL SPECIFICATION (v1 MINIMUM)
 
-Scope. Three transaction types: Post, Reply, Burn. This is the
-minimum viable protocol — write text to Bitcoin, organize by topic,
-thread replies, burn sats as ranking signal. Edit and Batch are
-deferred to future versions. The type code space accommodates them
-without breaking existing indexers.
+Scope. Four transaction types: Post, Reply, Burn, Signal. This is
+the minimum viable protocol — write text to Bitcoin, organize by
+topic, thread replies, burn sats as ranking signal, and link
+entities/concepts via cheap plain-text references. Edit and Batch
+are deferred to future versions. The type code space accommodates
+them without breaking existing indexers.
 
 Low-responsibility defaults (resolved):
 
@@ -689,7 +725,8 @@ PROTOCOL CONSTANTS
 
   Tag               "ocdn" (0x6F 0x63 0x64 0x6E)
   Version           0x01
-  Type codes        POST = 0x01, REPLY = 0x02, BURN = 0x03
+  Type codes        POST = 0x01, REPLY = 0x02, BURN = 0x03,
+                    SIGNAL = 0x06
                     Reserved: EDIT = 0x04, BATCH = 0x05
 
 ---
@@ -822,6 +859,50 @@ OP_RETURN MARKER (BURN)
 
 ---
 
+OP_RETURN SIGNAL
+
+  Single transaction, self-signed. The tx fee is the economic weight.
+
+  OP_RETURN payload (up to 80 bytes):
+    "ocdn"          4 bytes
+    <version>       1 byte
+    <type=0x06>     1 byte
+    <refs>          ordered sequence of:
+                      text ref:    [len][UTF-8 string]  (len > 0)
+                      content ref: [0x00][8-byte content_hash prefix]
+
+  74 bytes available for references after the 6-byte header.
+
+  Examples:
+    ["McDonald's"]["wage theft"]           24 bytes — links entity to concept
+    ["Oracle"]["open source"][0x00][hash]   30 bytes — entity + concept + evidence
+    ["Company A"]["worse than"]["Company B"] ~35 bytes — structured comparison
+
+  Text references are human-readable on-chain. Any third party
+  decodes them: length-prefixed UTF-8 strings after a fixed header.
+  No lookup table, no chain replay needed, no bootstrapping problem.
+
+  Content references (0x00 prefix) point to specific on-chain posts
+  via 8-byte content_hash prefix. Resolvable by any indexer that has
+  parsed the chain. Opaque in isolation, but honest about what they
+  are.
+
+  Identity: the tx input signer. In self-signed mode, the Bitcoin
+  UTXO signature authenticates the signal — no application-layer
+  signature needed. The signer's pubkey IS the author.
+
+  In portal-facilitated mode: signals are batched into witness
+  inscriptions with per-signal application-layer signatures.
+  Amortized cost ~18-50 sats/signal. Custodial during batch window.
+
+  The indexer normalizes text references (lowercase, trim, NFC
+  Unicode normalization) to compute canonical topic hashes for
+  grouping. The on-chain data is the verbatim string. Different
+  portals may normalize differently — that is their curation
+  value-add.
+
+---
+
 INDEXER RULES
 
   For every new block:
@@ -844,6 +925,15 @@ INDEXER RULES
      risk (different tagged_hash domains). Compute tx fee (sum of
      input values - sum of output values). Record the fee as burn
      amount for that content or topic.
+
+     If SIGNAL (0x06), parse the reference list: iterate remaining
+     bytes, reading length-prefixed fields. len > 0 → text reference
+     (len bytes UTF-8). len = 0x00 → content reference (next 8 bytes
+     as content_hash prefix). Extract signer pubkey from tx input
+     witness (self-signed mode). Compute tx fee. Record signal as:
+     (signer_pubkey, [refs], tx_fee, block_height). For each text
+     ref, normalize and index under its canonical topic hash. For
+     each content ref, resolve against known content_hash prefixes.
 
   3. Reorg handling. Maintain a chain tip cursor (block hash + height).
      On reorg: rewind index to the fork point, delete all data from
@@ -881,6 +971,20 @@ COST ESTIMATES (v1, NO BATCHING)
     POST becomes ~20,000 sats miner fee + rake = ~21,000 sats
     BURN relay minimum becomes ~4,000 sats + rake + burn amount
 
+  SIGNAL (self-signed OP_RETURN):
+    Single tx: ~80 vbytes                = ~80 sats at 1 sat/vB
+    No portal involvement
+    User cost:                            ~80 sats minimum
+
+  SIGNAL (portal-batched, witness inscription):
+    Per signal amortized:                 ~18-50 sats at 1 sat/vB
+    Portal rake per signal:               ~10 sats
+    User cost:                            ~28-60 sats
+
+  Note: POST cost estimates above are ~10% optimistic. Detailed
+  calculation for a 445-byte payload gives commit ~155 vB + reveal
+  ~271 vB = ~426 vB total. The estimates remain useful approximations.
+
   Batching (future) amortizes commit/reveal across N posts,
   approaching rake-only cost per post at scale.
 
@@ -908,6 +1012,17 @@ DEFERRED (FUTURE VERSIONS)
 
   Privacy             Separate posting keys, batch-level unlinkability,
                       or other mitigations for invariant 11.
+
+  Staking/equity      Content supporters earn dilutive stake; future
+                      support distributes to existing stakeholders
+                      with rounding bias toward author. Trustless
+                      split enforcement requires covenant opcodes
+                      (OP_CTV, OP_CAT). Trust-minimized variant
+                      possible today via multi-output txs with
+                      verifiable deterministic splits — patron
+                      verifies before signing, anyone audits after
+                      mining — but not trustlessly enforceable at
+                      the address level.
 
 ---
 
