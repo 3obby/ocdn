@@ -1,5 +1,5 @@
 ocdn.is {
-	reverse_proxy app:3000
+	reverse_proxy 127.0.0.1:3000
 
 	encode gzip zstd
 
@@ -11,7 +11,7 @@ ocdn.is {
 	}
 
 	handle /api/events* {
-		reverse_proxy app:3000 {
+		reverse_proxy 127.0.0.1:3000 {
 			flush_interval -1
 		}
 	}
