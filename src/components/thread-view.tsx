@@ -7,7 +7,8 @@ import {
   useCallback,
   type RefCallback,
 } from "react";
-import { type ThreadItem, buildThread } from "@/lib/mock-data";
+import { type ThreadItem } from "@/lib/mock-data";
+import { useTextSize, ts } from "@/lib/text-size";
 import { ThreadCard } from "./feed-card";
 import { ArrowLeft } from "lucide-react";
 
@@ -22,15 +23,39 @@ export function ThreadView({
   onBack: () => void;
   onReply: (id: string) => void;
 }) {
-  const thread = buildThread(postId);
+  const sz = useTextSize();
+  const [thread, setThread] = useState<ThreadItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const cardEls = useRef<Map<string, HTMLDivElement>>(new Map());
-  const [centerDepth, setCenterDepth] = useState(() => {
-    const target = thread.find((t) => t.id === postId);
-    return target?.depth ?? 0;
-  });
+  const [centerDepth, setCenterDepth] = useState(0);
   const [focusedId, setFocusedId] = useState(postId);
   const rafRef = useRef<number>(0);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    setThread([]);
+
+    fetch(`/api/thread/${postId}`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`${r.status}`);
+        return r.json();
+      })
+      .then((data) => {
+        const items: ThreadItem[] = data.thread ?? [];
+        setThread(items);
+        const target = items.find((t) => t.id === postId);
+        if (target) {
+          setCenterDepth(target.depth);
+          setFocusedId(postId);
+        }
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed"))
+      .finally(() => setLoading(false));
+  }, [postId]);
 
   const setCardRef = useCallback(
     (id: string): RefCallback<HTMLDivElement> =>
@@ -42,14 +67,17 @@ export function ThreadView({
   );
 
   useEffect(() => {
-    const el = cardEls.current.get(postId);
-    if (el && scrollRef.current) {
-      const container = scrollRef.current;
-      const elTop = el.offsetTop;
-      const elH = el.offsetHeight;
-      container.scrollTop = elTop - container.clientHeight / 2 + elH / 2;
-    }
-  }, [postId]);
+    if (thread.length === 0) return;
+    requestAnimationFrame(() => {
+      const el = cardEls.current.get(postId);
+      if (el && scrollRef.current) {
+        const container = scrollRef.current;
+        const elTop = el.offsetTop;
+        const elH = el.offsetHeight;
+        container.scrollTop = elTop - container.clientHeight / 2 + elH / 2;
+      }
+    });
+  }, [postId, thread]);
 
   const handleScroll = useCallback(() => {
     cancelAnimationFrame(rafRef.current);
@@ -93,7 +121,6 @@ export function ThreadView({
 
   return (
     <div className="flex h-full flex-col">
-      {/* back bar */}
       <div className="flex h-12 shrink-0 items-center border-b border-border px-4">
         <button
           onClick={onBack}
@@ -103,35 +130,48 @@ export function ThreadView({
         </button>
       </div>
 
-      {/* thread scroll area */}
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto overflow-x-hidden"
       >
-        <div className="h-[40vh]" />
+        {loading ? (
+          <div
+            className={`flex h-32 items-center justify-center ${ts(sz)} text-white/10 animate-pulse`}
+          >
+            —
+          </div>
+        ) : error ? (
+          <div className="flex h-32 flex-col items-center justify-center gap-2">
+            <span className={`${ts(sz)} text-white/10`}>error</span>
+          </div>
+        ) : (
+          <>
+            <div className="h-[40vh]" />
 
-        {thread.map((item) => {
-          const offset = (item.depth - centerDepth) * INDENT_PX;
-          return (
-            <div
-              key={item.id}
-              ref={setCardRef(item.id)}
-              className="will-change-transform"
-              style={{
-                transform: `translateX(${offset}px)`,
-                transition: "transform 150ms ease-out",
-              }}
-            >
-              <ThreadCard
-                post={item}
-                isFocused={item.id === focusedId}
-                onReply={onReply}
-              />
-            </div>
-          );
-        })}
+            {thread.map((item) => {
+              const offset = (item.depth - centerDepth) * INDENT_PX;
+              return (
+                <div
+                  key={item.id}
+                  ref={setCardRef(item.id)}
+                  className="will-change-transform"
+                  style={{
+                    transform: `translateX(${offset}px)`,
+                    transition: "transform 150ms ease-out",
+                  }}
+                >
+                  <ThreadCard
+                    post={item}
+                    isFocused={item.id === focusedId}
+                    onReply={onReply}
+                  />
+                </div>
+              );
+            })}
 
-        <div className="h-[40vh]" />
+            <div className="h-[40vh]" />
+          </>
+        )}
       </div>
     </div>
   );

@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import { type Post, POSTS, shortPubkey } from "@/lib/mock-data";
+import { useState, useEffect, useRef } from "react";
+import { type Post } from "@/lib/mock-data";
 import { useTextSize, ts } from "@/lib/text-size";
 import { FeedCard } from "./feed-card";
 
-const DEFAULT_PUBKEY =
-  "02a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1";
+function isPubkey(q: string): boolean {
+  return /^[0-9a-f]{66}$/i.test(q.trim());
+}
 
 export function SearchView({
   onExpand,
@@ -15,15 +16,39 @@ export function SearchView({
 }) {
   const sz = useTextSize();
   const [query, setQuery] = useState("");
+  const [results, setResults] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const results: Post[] = query.trim()
-    ? POSTS.filter(
-        (p) =>
-          p.text.toLowerCase().includes(query.toLowerCase()) ||
-          p.authorPubkey.includes(query) ||
-          (p.topicName && p.topicName.includes(query.toLowerCase())),
-      )
-    : POSTS.filter((p) => p.authorPubkey === DEFAULT_PUBKEY);
+  useEffect(() => {
+    clearTimeout(debounceRef.current);
+
+    const q = query.trim();
+    if (!q) {
+      setResults([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const url = isPubkey(q)
+          ? `/api/author/${q}`
+          : `/api/search?q=${encodeURIComponent(q)}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        setResults(data.posts ?? []);
+      } catch {
+        setResults([]);
+      } finally {
+        setLoading(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(debounceRef.current);
+  }, [query]);
 
   return (
     <div className="flex h-full flex-col">
@@ -32,13 +57,21 @@ export function SearchView({
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={shortPubkey(DEFAULT_PUBKEY)}
+          placeholder="search or pubkey"
           className={`w-full bg-transparent ${ts(sz)} text-white placeholder:text-white/15 outline-none`}
         />
       </div>
       <div className="flex-1 overflow-y-auto">
-        {results.length === 0 ? (
-          <div className={`flex h-32 items-center justify-center ${ts(sz)} text-white/10`}>
+        {loading ? (
+          <div
+            className={`flex h-32 items-center justify-center ${ts(sz)} text-white/10 animate-pulse`}
+          >
+            —
+          </div>
+        ) : results.length === 0 ? (
+          <div
+            className={`flex h-32 items-center justify-center ${ts(sz)} text-white/10`}
+          >
             —
           </div>
         ) : (
