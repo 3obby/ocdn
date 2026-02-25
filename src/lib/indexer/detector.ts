@@ -24,9 +24,18 @@ export interface DetectedOpReturn {
   signerPubkey: string | null;
 }
 
+export interface DetectedExternalPost {
+  txid: string;
+  protocol: string;
+  content: string;
+  fee: bigint;
+  signerPubkey: string | null;
+}
+
 export interface BlockItems {
   envelopes: DetectedEnvelope[];
   opReturns: DetectedOpReturn[];
+  externalPosts: DetectedExternalPost[];
 }
 
 // ═══ HEX UTILITIES ═══
@@ -259,6 +268,47 @@ export function extractOpReturns(tx: RawTransaction): DetectedOpReturn[] {
   return results;
 }
 
+// ═══ EXTERNAL PROTOCOL DETECTION ═══
+
+const EW_PREFIX = new Uint8Array([0x45, 0x57]); // "EW"
+const decoder = new TextDecoder("utf-8", { fatal: true });
+
+function isValidUtf8(data: Uint8Array): boolean {
+  try {
+    decoder.decode(data);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Extract Eternity Wall and other recognized external protocol posts. */
+export function extractExternalPosts(tx: RawTransaction): DetectedExternalPost[] {
+  const results: DetectedExternalPost[] = [];
+
+  for (const vout of tx.vout) {
+    if (vout.scriptPubKey.type !== "nulldata") continue;
+
+    const data = extractOpReturnData(vout.scriptPubKey.hex);
+    if (!data || data.length < 3) continue;
+
+    // Skip ocdn-tagged payloads (handled by extractOpReturns)
+    if (data.length >= 4 && bytesEqual(data.slice(0, 4), PROTOCOL_TAG_BYTES)) continue;
+
+    // Eternity Wall: UTF-8 starting with "EW"
+    if (data.length >= 2 && bytesEqual(data.slice(0, 2), EW_PREFIX) && isValidUtf8(data)) {
+      const text = decoder.decode(data.slice(2)).trim();
+      if (text.length === 0) continue;
+
+      const fee = computeTxFee(tx);
+      const signerPubkey = extractSignerPubkey(tx);
+      results.push({ txid: tx.txid, protocol: "ew", content: text, fee, signerPubkey });
+    }
+  }
+
+  return results;
+}
+
 /**
  * Compute the transaction fee: sum(input prevout values) - sum(output values).
  * Requires verbosity-2 block data so prevout fields are populated.
@@ -297,21 +347,22 @@ export function extractSignerPubkey(tx: RawTransaction): string | null {
   return null;
 }
 
-/** Scan every transaction in a block for OCDN protocol data. */
+/** Scan every transaction in a block for OCDN and external protocol data. */
 export function detectBlockItems(
   txs: RawTransaction[],
 ): BlockItems {
   const envelopes: DetectedEnvelope[] = [];
   const opReturns: DetectedOpReturn[] = [];
+  const externalPosts: DetectedExternalPost[] = [];
 
   for (let i = 0; i < txs.length; i++) {
     const tx = txs[i];
-    // Skip coinbase (first tx in every block)
     if (i === 0 && (!tx.vin[0] || !tx.vin[0].prevout)) continue;
 
     envelopes.push(...extractWitnessEnvelopes(tx));
     opReturns.push(...extractOpReturns(tx));
+    externalPosts.push(...extractExternalPosts(tx));
   }
 
-  return { envelopes, opReturns };
+  return { envelopes, opReturns, externalPosts };
 }

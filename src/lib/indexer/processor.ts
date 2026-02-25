@@ -2,6 +2,7 @@ import type { PrismaClient } from "../../generated/prisma/client";
 import type { BlockVerbose } from "../bitcoin/rpc";
 import { TYPE_POST, TYPE_REPLY, TYPE_BURN, TYPE_SIGNAL } from "../protocol/constants";
 import type { PostEnvelope, ReplyEnvelope, BurnPayload, SignalPayload } from "../protocol/types";
+import { sha256 } from "@noble/hashes/sha2.js";
 import {
   detectBlockItems,
   toHex,
@@ -9,6 +10,7 @@ import {
   normalizedTopicHash,
   type DetectedEnvelope,
   type DetectedOpReturn,
+  type DetectedExternalPost,
 } from "./detector";
 
 // ═══ TYPES ═══
@@ -40,7 +42,7 @@ export async function processBlock(
   };
 
   const items = detectBlockItems(block.tx);
-  const hasData = items.envelopes.length > 0 || items.opReturns.length > 0;
+  const hasData = items.envelopes.length > 0 || items.opReturns.length > 0 || items.externalPosts.length > 0;
   if (!hasData) return result;
 
   const blockTimestamp = new Date(block.time * 1000);
@@ -56,6 +58,12 @@ export async function processBlock(
     },
     update: {},
   });
+
+  // Phase 0: index external protocol posts (EW, etc.)
+  for (const item of items.externalPosts) {
+    await indexExternalPost(item, block, blockTimestamp, prisma);
+    result.posts++;
+  }
 
   // Phase 1: index all POSTs (so same-block replies and burns can reference them)
   for (const item of items.envelopes) {
@@ -136,6 +144,47 @@ async function indexPost(
   }
 
   await upsertAuthorPost(authorPubkey, block.height, prisma);
+}
+
+// ═══ EXTERNAL PROTOCOL INDEXING ═══
+
+const textEncoder = new TextEncoder();
+
+async function indexExternalPost(
+  item: DetectedExternalPost,
+  block: BlockVerbose,
+  timestamp: Date,
+  prisma: PrismaClient,
+): Promise<void> {
+  // Deterministic content hash: sha256("ew:" + txid)
+  const hashInput = textEncoder.encode(`${item.protocol}:${item.txid}`);
+  const contentHashHex = toHex(sha256(hashInput));
+  const authorPubkey = item.signerPubkey ?? "unknown";
+
+  await prisma.post.upsert({
+    where: { contentHash: contentHashHex },
+    create: {
+      contentHash: contentHashHex,
+      txid: item.txid,
+      blockHash: block.hash,
+      blockHeight: block.height,
+      protocol: item.protocol,
+      authorPubkey,
+      nonce: null,
+      signature: null,
+      type: TYPE_POST,
+      topic: null,
+      topicHash: null,
+      parentHash: null,
+      content: item.content,
+      createdAt: timestamp,
+    },
+    update: {},
+  });
+
+  if (item.signerPubkey) {
+    await upsertAuthorPost(item.signerPubkey, block.height, prisma);
+  }
 }
 
 // ═══ REPLY INDEXING ═══

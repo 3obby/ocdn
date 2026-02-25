@@ -42,9 +42,10 @@ model Post {
   blockHash     String   @map("block_hash")
   blockHeight   Int      @map("block_height")
 
+  protocol      String   @default("ocdn") // "ocdn", "ew", etc.
   authorPubkey  String   @map("author_pubkey")
-  nonce         Bytes
-  signature     Bytes
+  nonce         Bytes?
+  signature     Bytes?
 
   type          Int      // 1 = POST, 2 = REPLY
   topic         String?  // original UTF-8 topic string (POST only)
@@ -65,6 +66,7 @@ model Post {
   @@index([topicHash])
   @@index([parentHash])
   @@index([txid])
+  @@index([protocol])
   @@map("posts")
 }
 

@@ -1,0 +1,116 @@
+we're protocol engineers building a free speech forum on bitcoin! the vision is in vision.txt; a task list is at tasks.txt; we've already started building and have a great fleshed-out ux; now we're ready to start building!
+
+we've completed sprints 1-4 (protocol library, bitcoin infrastructure, wallet + tx construction, indexer). now it's time for sprint 5: the portal API — the Next.js API routes that connect the frontend to the indexer database and the tx construction pipeline.
+
+here's what already exists and is working:
+
+SPRINT 1 — DONE (src/lib/protocol/):
+  constants.ts    protocol constants (tag "ocdn", version 0x01, type codes POST=0x01 REPLY=0x02 BURN=0x03 SIGNAL=0x06)
+  types.ts        PostEnvelope, ReplyEnvelope, BurnPayload, SignalPayload, SignalRef, KeyPair
+  crypto.ts       taggedHash(), topicHash(), contentHash(), computeParentRef(), signMessage(), sign(), verify(), generateNonce(), generateKeyPair(), getPublicKey()
+  serialize.ts    serializePostEnvelope(), serializeReplyEnvelope(), serializeBurnOpReturn(), serializeSignalOpReturn()
+  parse.ts        parseWitnessEnvelope(), parseOpReturn(), verifyContentHash(), verifyAuthorSignature(), verifyEnvelope()
+  create.ts       createPostEnvelope(), createReplyEnvelope(), createBurnPayload(), createSignalPayload(), createTopicBurnPayload()
+  index.ts        barrel export
+
+SPRINT 2 — DONE (src/lib/bitcoin/):
+  rpc.ts          BitcoinRpc class — getBlock(hash, verbosity), getBlockCount(), getBestBlockHash(), getBlockHash(height), getRawTransaction(), sendRawTransaction(), testMempoolAccept(), estimateSmartFee(), getMempoolInfo(), listUnspent(), submitPackage(), ping(). singleton via getRpc().
+  rest.ts         BitcoinRest class — getBlockByHash(), getBlockByHeight(), getBlockHeaders(), getChainInfo(). singleton via getRest().
+
+SPRINT 3 — DONE (src/lib/bitcoin/wallet.ts, tx.ts):
+  wallet.ts       portal key management (loadPortalKey, generatePortalKey), UTXO pool (getAvailableUtxos, reserveUtxo, releaseUtxo, markUtxoSpent, addUtxo, releaseStaleReservations), Taproot signing (createKeyPathSigner, createScriptPathSigner). exports NETWORK, DUST_LIMIT, RBF_SEQUENCE.
+  tx.ts           903 lines. full tx construction pipeline:
+    - buildCommitRevealTxs(privkey, envelope, utxo, feeRate) → CommitRevealResult (commitHex, revealHex, txids, fees, scripts)
+    - buildBurnTx(privkey, payload, utxo, feeRate, desiredBurn) → SingleTxResult
+    - buildSignalTx(privkey, payload, utxo, feeRate) → SingleTxResult
+    - buildKeyPathRecoveryTx(privkey, commitTxid, commitVout, commitAmount, commitOutputScript, scriptTree, feeRate) → SingleTxResult
+    - buildFanOutTx(privkey, utxo, count, targetAmount, feeRate) → fan-out result
+    - buildConsolidationTx(privkey, utxos, feeRate) → consolidation result
+    - buildRbfBump / bumpCommitReveal — RBF fee escalation
+    - broadcastCommitReveal(commitHex, revealHex) — package broadcast via submitPackage, fallback to sequential
+    - broadcastTx(hex) — single tx broadcast
+    - diagnoseCommitReveal / diagnoseSingleTx — retry pipeline diagnostics
+    - estimateCommitRevealCost / estimateBurnCost / estimateSignalCost — vbyte + fee estimation
+  tx.test.ts      664 lines of tests
+
+SPRINT 4 — DONE (src/lib/indexer/):
+  detector.ts     toHex(), fromHex(), normalizeTopic(), normalizedTopicHash(), parseScriptForEnvelopes(), extractOpReturnData(), extractWitnessEnvelopes(), extractOpReturns(), computeTxFee(), extractSignerPubkey(), detectBlockItems(). parses raw Bitcoin script for OP_FALSE OP_IF "ocdn" ... OP_ENDIF envelopes.
+  processor.ts    processBlock(block, prisma) → ProcessedBlock. writes posts, burns, signals to DB, updates TopicAggregate and AuthorAggregate. idempotent via upserts.
+  scanner.ts      runIndexer(config) — backfill mode (sequential block iteration) + real-time mode (polling). checkpoints progress via IndexerState.
+  reorg.ts        getIndexerState(), updateIndexerState(), tipMatchesNode(), findForkPoint(), rewindToHeight(), handleReorg(). CASCADE deletes via IndexedBlock relations.
+  indexer.test.ts 770 lines of tests
+  scripts/indexer.ts  entry point: npx tsx scripts/indexer.ts
+
+DATABASE (prisma/schema.prisma → Neon PostgreSQL, deployed):
+  IndexerState     chain tip cursor (hash + height)
+  IndexedBlock     hash (PK), height (unique), prevHash, timestamp → CASCADE to posts/burns/signals
+  Post             contentHash (PK), txid, blockHash, blockHeight, authorPubkey, nonce, signature, type (1=POST 2=REPLY), topic, topicHash, parentHash, content, createdAt — self-relation ThreadTree, relation to burns
+  TopicAggregate   topicHash (PK), topicName, totalBurned (BigInt desc-indexed), postCount, lastActivityHeight
+  Burn             id (auto), txid, blockHash, blockHeight, targetHash, targetType, amount (BigInt), createdAt
+  Signal           id (auto), txid, blockHash, blockHeight, signerPubkey, fee (BigInt), refs (Json), createdAt
+  AuthorAggregate  pubkey (PK), postCount, totalBurnsReceived, totalBurnsGiven, firstSeenHeight, lastSeenHeight
+  Utxo             txid+vout (unique), amount, scriptPubkey, status (available/reserved/spent)
+  PendingTx        commitTxid, revealTxid, txType, payload (Json), status (queued/committed/revealed/confirmed/failed), feeRate, attempts, lastError
+
+  indexes on: blockHeight, authorPubkey, topicHash, parentHash, txid, targetHash, signerPubkey, totalBurned(desc), status
+
+PRISMA CLIENT:
+  src/lib/db.ts    singleton via PrismaNeon adapter. import { prisma } from "@/lib/db"
+
+FRONTEND (currently uses mock data — will be wired in Sprint 7):
+  src/app/page.tsx          main page: feed (grouped by topic / new / top), search, thread view, compose sheet
+  src/lib/mock-data.ts      mock Post/Topic types, getGroupedFeed(), getFlatFeed(), buildThread(), formatSats(), shortPubkey()
+  src/components/           BottomNav, TopicStrip, SortMenu, FeedCard, ThreadView, ComposeSheet, SearchView
+  no API routes exist yet — src/app/api/ does not exist
+
+INFRASTRUCTURE:
+  Bitcoin Core 28.1 (signet) on VPS 185.165.169.8, synced, txindex=1, rest=1
+  Neon PostgreSQL with full schema deployed
+  .env has DATABASE_URL, BITCOIN_RPC_*, BITCOIN_ZMQ_*, BITCOIN_NETWORK=signet
+  PORTAL_PRIVKEY placeholder in .env (not yet generated)
+
+═══ YOUR TASK: SPRINT 5 — PORTAL API ═══
+
+build the Next.js API routes that serve data from the indexer database and accept write requests that feed into the tx construction pipeline. these are the endpoints the frontend will call.
+
+the tasks from tasks.txt:
+  [ ] Next.js API routes or separate service
+  [ ] GET /api/feed — grouped by topic, ranked by burns, paginated
+  [ ] GET /api/feed?sort=new|top — flat feed, sorted
+  [ ] GET /api/topic/:hash — posts under topic, ranked
+  [ ] GET /api/post/:hash — single post with full metadata
+  [ ] GET /api/thread/:hash — full ancestor/descendant chain with depths
+  [ ] GET /api/search?q= — full-text search over indexed content
+  [ ] GET /api/author/:pubkey — post history, burn totals, key age
+  [ ] GET /api/info/:hash — complete metadata (content_hash, block, tx, confirmations, burns)
+  [ ] POST /api/post — submit text + topic, portal constructs + broadcasts
+  [ ] POST /api/reply — submit text + parent_hash, portal constructs + broadcasts
+  [ ] POST /api/burn — submit target_hash + amount, portal constructs + broadcasts
+  [ ] POST /api/signal — submit refs list, portal constructs + broadcasts
+  [ ] cost estimation endpoint: return expected sats for a given action at current feerate
+  [ ] SSE /api/events — real-time feed updates on new blocks/content
+  [ ] rate limiting + abuse prevention
+
+use Next.js App Router route handlers (src/app/api/.../route.ts).
+
+important design notes:
+  - READ endpoints query the Prisma DB populated by the indexer. import { prisma } from "@/lib/db".
+  - WRITE endpoints use the tx construction pipeline from src/lib/bitcoin/tx.ts and wallet.ts.
+  - the write flow is: validate input → create protocol envelope (src/lib/protocol/create.ts) → reserve UTXO → build tx → broadcast → record PendingTx → return content_hash + status to client.
+  - for POST/REPLY: the portal generates a keypair for the author (or accepts a client-provided pubkey in the future). for MVP, the portal is the author — it signs with its own key.
+  - for BURN: the portal constructs the OP_RETURN tx targeting the given content_hash or topic_hash.
+  - for SIGNAL: accepts an array of refs, constructs the OP_RETURN.
+  - the cost estimation endpoint should return the expected sats for each action type at the current feerate (uses estimateCommitRevealCost, estimateBurnCost, estimateSignalCost from tx.ts plus the portal rake).
+  - pagination: use cursor-based pagination (last contentHash or id) for feeds and topic views.
+  - the /api/thread/:hash endpoint needs to walk the ThreadTree relation (ancestors + descendants) and return items with depth numbers, matching what buildThread() in mock-data.ts currently does.
+  - the /api/feed grouped mode should match getGroupedFeed() behavior: group by topic, show top N root posts per topic ranked by burns, topics ranked by totalBurned.
+  - for /api/search, use PostgreSQL full-text search (to_tsvector/to_tsquery) or ILIKE as a starting point. a prisma raw query is fine.
+  - /api/info/:hash should return the full on-chain metadata: content_hash, txid, block hash, block height, confirmations (current tip - block height + 1), total burns, author pubkey, topic.
+  - SSE /api/events: use a ReadableStream that polls the DB for new content since the client's last-seen height. keep it simple — poll every few seconds, send events when new content appears.
+  - rate limiting: simple in-memory rate limiter (IP-based, e.g. 10 writes/minute, 60 reads/minute). doesn't need to be Redis-backed for MVP.
+
+BigInt handling: Prisma returns BigInt for amount/fee/totalBurned fields. JSON.stringify cannot serialize BigInt. convert to number (if safe) or string in API responses.
+
+match the response shapes to what the frontend already expects from mock-data.ts where possible — the types are Post, Topic, ThreadItem, TopicGroup defined there.
+
+to test, we use 'npx next build'; no need to run the dev server. the prisma database has valuable live data, please append-only to .env.
