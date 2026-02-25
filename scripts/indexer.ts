@@ -1,8 +1,12 @@
 import "dotenv/config";
+import ws from "ws";
+import { neonConfig } from "@neondatabase/serverless";
 import { PrismaNeon } from "@prisma/adapter-neon";
 import { PrismaClient } from "../src/generated/prisma/client.js";
 import { BitcoinRpc } from "../src/lib/bitcoin/rpc.js";
 import { runIndexer } from "../src/lib/indexer/scanner.js";
+
+neonConfig.webSocketConstructor = ws;
 
 const DEFAULTS = {
   startHeight: Number(process.env.INDEXER_START_HEIGHT ?? "0"),
