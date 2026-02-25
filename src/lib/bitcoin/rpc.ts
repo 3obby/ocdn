@@ -26,7 +26,7 @@ export class BitcoinRpc {
     this.auth = "Basic " + Buffer.from(`${user}:${password}`).toString("base64");
   }
 
-  private async call<T>(method: string, params: unknown[] = []): Promise<T> {
+  async call<T>(method: string, params: unknown[] = []): Promise<T> {
     const id = `ocdn-${++this.idCounter}`;
     const body = JSON.stringify({ jsonrpc: "1.0", id, method, params });
 

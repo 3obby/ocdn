@@ -1,0 +1,46 @@
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      BITCOIN_RPC_HOST: ${BITCOIN_RPC_HOST:-host.docker.internal}
+      BITCOIN_RPC_PORT: ${BITCOIN_RPC_PORT:-38332}
+      BITCOIN_RPC_USER: ${BITCOIN_RPC_USER:-ocdn}
+      BITCOIN_RPC_PASSWORD: ${BITCOIN_RPC_PASSWORD}
+      BITCOIN_NETWORK: ${BITCOIN_NETWORK:-signet}
+      PORTAL_PRIVKEY: ${PORTAL_PRIVKEY}
+      MAX_FEE_RATE: ${MAX_FEE_RATE:-100}
+      API_WRITE_KEY: ${API_WRITE_KEY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:3000:3000"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+volumes:
+  caddy_data:
+  caddy_config:
