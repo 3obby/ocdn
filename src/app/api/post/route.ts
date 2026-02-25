@@ -101,7 +101,8 @@ export async function POST(request: Request) {
       try { await releaseUtxo(utxoId); } catch { /* best effort */ }
     }
     const message = err instanceof Error ? err.message : "Internal server error";
-    log("error", "api/post", message, { error: String(err) });
+    const stack = err instanceof Error ? err.stack : String(err);
+    log("error", "api/post", message, { stack });
     return errorResponse(message, 500);
   }
 }
