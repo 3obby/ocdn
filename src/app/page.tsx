@@ -19,6 +19,21 @@ import { SearchView } from "@/components/search-view";
 import { SortMenu } from "@/components/sort-menu";
 import { Plus } from "lucide-react";
 
+const HELLO_WORLD: Post = {
+  id: "_hello",
+  contentHash: "_hello",
+  protocol: "ocdn",
+  authorPubkey: "0000000000000000000000000000000000000000000000000000000000000000ff",
+  text: "hello world",
+  topicHash: null,
+  topicName: null,
+  parentId: null,
+  burnTotal: 0,
+  timestamp: Date.now(),
+  blockHeight: 0,
+  confirmations: 0,
+};
+
 export default function Home() {
   const [tab, setTab] = useState<"feed" | "search">("feed");
   const [topicFilter, setTopicFilter] = useState<string | null>(null);
@@ -315,11 +330,10 @@ export default function Home() {
               >
                 {sortMode === "topics" ? (
                   groups.length === 0 ? (
-                    <div
-                      className={`flex h-32 items-center justify-center ${sz} text-white/10`}
-                    >
-                      —
-                    </div>
+                    <FeedCard
+                      post={HELLO_WORLD}
+                      onExpand={() => {}}
+                    />
                   ) : (
                     groups.map((group) => (
                       <div key={group.topic?.hash ?? "_standalone"}>
@@ -370,11 +384,10 @@ export default function Home() {
                     ))
                   )
                 ) : posts.length === 0 ? (
-                  <div
-                    className={`flex h-32 items-center justify-center ${sz} text-white/10`}
-                  >
-                    —
-                  </div>
+                  <FeedCard
+                    post={HELLO_WORLD}
+                    onExpand={() => {}}
+                  />
                 ) : (
                   posts.map((p) => (
                     <FeedCard
