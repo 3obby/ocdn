@@ -88,6 +88,14 @@ function readPush(
   if (op === OP_0) {
     return { data: new Uint8Array(0), next: pos + 1 };
   }
+  // OP_1 through OP_16 push the integer value 1–16 as a single byte
+  if (op >= 0x51 && op <= 0x60) {
+    return { data: new Uint8Array([op - 0x50]), next: pos + 1 };
+  }
+  // OP_1NEGATE pushes 0x81 (-1 in script number encoding)
+  if (op === 0x4f) {
+    return { data: new Uint8Array([0x81]), next: pos + 1 };
+  }
   if (op >= 0x01 && op <= 0x4b) {
     const end = pos + 1 + op;
     if (end > script.length) return null;
