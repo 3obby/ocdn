@@ -1,0 +1,114 @@
+we're protocol engineers building a free speech forum on bitcoin! the vision is in vision.txt; a task list is at tasks.txt; we've already started building and have a great fleshed-out ux; now we're ready to start building!
+
+we've completed sprint 1 (protocol library), sprint 2 (bitcoin infrastructure), and sprint 3 (wallet + tx construction). now it's time for sprint 4: the indexer.
+
+here's what already exists and is working:
+
+SPRINT 1 — DONE (src/lib/protocol/):
+  constants.ts    protocol tag "ocdn", version 0x01, type codes (POST=0x01, REPLY=0x02, BURN=0x03, SIGNAL=0x06), field lengths, tagged hash domains
+  types.ts        PostEnvelope, ReplyEnvelope, BurnPayload, SignalPayload, SignalRef, KeyPair
+  crypto.ts       taggedHash(), topicHash(), contentHash(), computeParentRef(), signMessage(), sign(), verify(), generateNonce(), generateKeyPair(), getPublicKey() — uses @noble/hashes/sha2.js and @noble/curves/secp256k1.js
+  serialize.ts    serializePostEnvelope(), serializeReplyEnvelope(), serializeBurnOpReturn(), serializeSignalOpReturn() — handles 520-byte push splitting for witness data
+  parse.ts        parseWitnessEnvelope(), parseOpReturn(), verifyContentHash(), verifyAuthorSignature(), verifyEnvelope()
+  create.ts       createPostEnvelope(), createReplyEnvelope(), createBurnPayload(), createSignalPayload(), createTopicBurnPayload() — high-level convenience API
+  index.ts        barrel export of full public API
+  protocol.test.ts  35 passing tests
+
+SPRINT 2 — DONE:
+  src/lib/bitcoin/rpc.ts     BitcoinRpc class — full RPC client with all needed methods and types. constructor reads from env vars BITCOIN_RPC_HOST, BITCOIN_RPC_PORT, BITCOIN_RPC_USER, BITCOIN_RPC_PASSWORD. key methods: getBlock(hash, verbosity) returns full tx data at verbosity 2+, getRawTransaction(), sendRawTransaction(), estimateSmartFee(), getBlockCount(), getBestBlockHash(), getBlockHash(height), submitPackage().
+  src/lib/bitcoin/rest.ts    BitcoinRest class — REST client for efficient block iteration without JSON-RPC overhead. getBlockByHash(), getBlockByHeight(), getBlockHeaders(), getChainInfo().
+  src/lib/bitcoin/index.ts   barrel export of both clients + all types (Block, BlockVerbose, RawTransaction, TxInput, TxOutput, etc.)
+  src/lib/db.ts              Prisma client singleton with @prisma/adapter-neon (Neon serverless PostgreSQL)
+  prisma/schema.prisma       full indexer schema — here are the relevant models:
+
+    IndexerState     id, chainTipHash, chainTipHeight, updatedAt
+    IndexedBlock     hash (PK), height (unique), prevHash, timestamp, indexedAt — has relations to posts, burns, signals
+    Post             contentHash (PK), txid, blockHash, blockHeight, authorPubkey, nonce, signature, type (1=POST 2=REPLY), topic, topicHash, parentHash, content, createdAt, indexedAt — self-relation ThreadTree via parentHash, relation to burns via ContentBurns
+    TopicAggregate   topicHash (PK), topicName, totalBurned (BigInt), postCount, lastActivityHeight, updatedAt
+    Burn             id (auto), txid, blockHash, blockHeight, targetHash, targetType ("content"|"topic"), amount (BigInt), createdAt, indexedAt
+    Signal           id (auto), txid, blockHash, blockHeight, signerPubkey, fee (BigInt), refs (Json), createdAt, indexedAt
+    AuthorAggregate  pubkey (PK), postCount, totalBurnsReceived, totalBurnsGiven, firstSeenHeight, lastSeenHeight, updatedAt
+
+    indexes on: blockHeight, authorPubkey, topicHash, parentHash, txid, targetHash, signerPubkey, totalBurned(desc)
+
+SPRINT 3 — DONE (src/lib/bitcoin/wallet.ts, tx.ts, etc.):
+  portal wallet with Taproot key management
+  UTXO pool tracking in DB (Utxo model)
+  commit/reveal tx construction for POST and REPLY envelopes
+  OP_RETURN tx construction for BURN and SIGNAL
+  package broadcast (1P1C relay via submitPackage)
+  key-path recovery for stuck commit outputs
+  RBF signaling + fee bumping
+  cost estimator for all tx types
+  pending tx pipeline (PendingTx model)
+
+INFRASTRUCTURE:
+  Bitcoin Core 28.1 (signet) running on VPS 185.165.169.8, synced to chain tip
+    config: signet=1, txindex=1, rest=1, server=1, prune=0
+    RPC: 127.0.0.1:38332 (rpcuser=ocdn, rpcpassword in .env)
+    ZMQ: rawblock on tcp://127.0.0.1:28332, rawtx on tcp://127.0.0.1:28333
+    systemd service: bitcoind-signet (auto-starts on boot)
+  Neon PostgreSQL: schema deployed, all tables created, Prisma client generated
+  .env has DATABASE_URL and BITCOIN_RPC_* credentials
+
+═══ YOUR TASK: SPRINT 4 — INDEXER ═══
+
+build the block indexer. this is the core infrastructure that scans the Bitcoin blockchain for OCDN protocol transactions and populates the database. it will run as a long-lived process on the VPS alongside bitcoind.
+
+the tasks from tasks.txt:
+  [ ] block scanner: iterate blocks from genesis (or start height)
+  [ ] witness envelope detector: scan Taproot script-path spends for "ocdn" tag
+  [ ] multi-envelope support: parse ALL envelopes per witness, not just first
+  [ ] OP_RETURN scanner: detect "ocdn"-prefixed outputs
+  [ ] POST indexing: parse envelope, verify sig, store content + topic_hash
+  [ ] REPLY indexing: parse envelope, verify sig, validate parent exists, store
+  [ ] BURN indexing: parse OP_RETURN, compute tx fee (input values - output values), record
+  [ ] SIGNAL indexing: parse ref list, extract signer pubkey, compute fee, record
+  [ ] topic normalization: lowercase + trim + NFC for canonical topic hashes
+  [ ] thread tree builder: parent_hash chains → nested structure
+  [ ] ranking computation: total sats burned per content_hash and topic_hash
+  [ ] reorg handler: chain tip cursor, rewind on fork, re-process new chain
+  [ ] real-time mode: subscribe to new blocks, index incrementally
+  [ ] backfill mode: full historical scan
+  [ ] external protocol detection: recognize EternityWall and other known inscription formats
+  [ ] confirmation tracking: 0-conf display, 1-conf indicator, 6+ settled
+
+  (note: the PostgreSQL schema task is already done — it's in prisma/schema.prisma)
+
+key details from vision.txt you need:
+
+  INDEXER RULES (from the spec):
+    for every new block:
+    1. witness scan — for each tx with a Taproot script-path spend, inspect witness stack for OP_FALSE OP_IF OP_PUSH "ocdn" ... parse envelope fields. compute content_hash from (pubkey, nonce, parent_ref, content). verify author signature. index content. for POST with topic, index under topic_hash.
+    2. OP_RETURN scan — for each tx output that is OP_RETURN starting with "ocdn", parse version+type. BURN (0x03): extract 32-byte target_hash, compute tx fee (sum inputs - sum outputs), record as burn. SIGNAL (0x06): parse ref list, extract signer pubkey from tx input witness, compute fee, record.
+    3. reorg handling — maintain chain tip cursor (block hash + height). on reorg: rewind index to fork point, delete all data from orphaned blocks (CASCADE delete via IndexedBlock relations), re-process new chain.
+
+  BURN FEE COMPUTATION:
+    burn_amount = tx_fee = sum(input values) - sum(output values)
+    at RPC verbosity 2+, input values are available via prevout field on vin entries
+    the OP_RETURN output has 0 sats value
+
+  SIGNAL IDENTITY:
+    in self-signed mode, the tx input signer IS the author. extract the signer pubkey from the first input's witness data (it's a Taproot key-path spend, pubkey derivable from the witness).
+
+  TOPIC NORMALIZATION:
+    the indexer normalizes text (lowercase, trim, NFC Unicode normalization) to compute canonical topic hashes for grouping. the on-chain data is the verbatim string.
+
+  MULTI-ENVELOPE:
+    the indexer must scan for ALL envelopes in a witness, not just the first. the multi-envelope-per-script pattern supports batching.
+
+architecture:
+  - put the indexer code in src/lib/indexer/ (scanner.ts, processor.ts, reorg.ts, etc.)
+  - the main entry point should be a runnable script (e.g. src/indexer.ts or scripts/indexer.ts) that can be executed with `npx tsx scripts/indexer.ts`
+  - use the existing BitcoinRpc client from src/lib/bitcoin/rpc.ts for block fetching
+  - use the existing protocol parsers from src/lib/protocol/ for envelope parsing and verification
+  - use the existing Prisma client from src/lib/db.ts for database writes
+  - use getBlock(hash, 2) for verbosity-2 block data (includes prevout values on inputs, needed for fee calculation)
+  - for backfill: iterate blocks sequentially, batch DB writes per block
+  - for real-time: poll getBestBlockHash() every ~10 seconds (or ZMQ if you want), process new blocks
+  - update TopicAggregate and AuthorAggregate tables as content is indexed
+  - all DB writes for a single block should be in one transaction (atomic per block)
+
+write tests for the envelope detection and fee computation logic.
+
+to test, we use 'npx next build'; no need to run the dev server. the prisma database has valuable live data, please append-only to .env.

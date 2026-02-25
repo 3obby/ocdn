@@ -1,0 +1,181 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ═══ CHAIN STATE ═══
+
+model IndexerState {
+  id              Int    @id @default(1)
+  chainTipHash    String @map("chain_tip_hash")
+  chainTipHeight  Int    @map("chain_tip_height")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("indexer_state")
+}
+
+model IndexedBlock {
+  hash        String   @id
+  height      Int
+  prevHash    String   @map("prev_hash")
+  timestamp   DateTime
+  indexedAt    DateTime @default(now()) @map("indexed_at")
+
+  posts       Post[]
+  burns       Burn[]
+  signals     Signal[]
+
+  @@unique([height])
+  @@index([height])
+  @@map("indexed_blocks")
+}
+
+// ═══ CONTENT ═══
+
+model Post {
+  contentHash   String   @id @map("content_hash")
+  txid          String
+  blockHash     String   @map("block_hash")
+  blockHeight   Int      @map("block_height")
+
+  authorPubkey  String   @map("author_pubkey")
+  nonce         Bytes
+  signature     Bytes
+
+  type          Int      // 1 = POST, 2 = REPLY
+  topic         String?  // original UTF-8 topic string (POST only)
+  topicHash     String?  @map("topic_hash") // tagged_hash("ocdn/topic", topic) for POST with topic
+  parentHash    String?  @map("parent_hash") // content_hash of parent (REPLY only)
+  content       String
+
+  createdAt     DateTime @map("created_at") // block timestamp
+  indexedAt      DateTime @default(now()) @map("indexed_at")
+
+  block         IndexedBlock @relation(fields: [blockHash], references: [hash], onDelete: Cascade)
+  parent        Post?     @relation("ThreadTree", fields: [parentHash], references: [contentHash])
+  children      Post[]    @relation("ThreadTree")
+  burns         Burn[]    @relation("ContentBurns")
+
+  @@index([blockHeight])
+  @@index([authorPubkey])
+  @@index([topicHash])
+  @@index([parentHash])
+  @@index([txid])
+  @@map("posts")
+}
+
+// ═══ TOPICS ═══
+
+model TopicAggregate {
+  topicHash     String   @id @map("topic_hash")
+  topicName     String?  @map("topic_name") // first-seen topic string
+  totalBurned   BigInt   @default(0) @map("total_burned")
+  postCount     Int      @default(0) @map("post_count")
+  lastActivityHeight Int @default(0) @map("last_activity_height")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([totalBurned(sort: Desc)])
+  @@map("topic_aggregates")
+}
+
+// ═══ BURNS ═══
+
+model Burn {
+  id            Int      @id @default(autoincrement())
+  txid          String
+  blockHash     String   @map("block_hash")
+  blockHeight   Int      @map("block_height")
+
+  targetHash    String   @map("target_hash") // content_hash or topic_hash
+  targetType    String   @map("target_type") // "content" or "topic"
+  amount        BigInt   // tx fee in sats
+
+  createdAt     DateTime @map("created_at")
+  indexedAt      DateTime @default(now()) @map("indexed_at")
+
+  block         IndexedBlock @relation(fields: [blockHash], references: [hash], onDelete: Cascade)
+  post          Post?    @relation("ContentBurns", fields: [targetHash], references: [contentHash])
+
+  @@index([targetHash])
+  @@index([blockHeight])
+  @@index([txid])
+  @@map("burns")
+}
+
+// ═══ SIGNALS ═══
+
+model Signal {
+  id            Int      @id @default(autoincrement())
+  txid          String
+  blockHash     String   @map("block_hash")
+  blockHeight   Int      @map("block_height")
+
+  signerPubkey  String   @map("signer_pubkey")
+  fee           BigInt
+  refs          Json     // array of { kind: "text"|"content", value: string, hashPrefix?: string }
+
+  createdAt     DateTime @map("created_at")
+  indexedAt      DateTime @default(now()) @map("indexed_at")
+
+  block         IndexedBlock @relation(fields: [blockHash], references: [hash], onDelete: Cascade)
+
+  @@index([signerPubkey])
+  @@index([blockHeight])
+  @@index([txid])
+  @@map("signals")
+}
+
+// ═══ AUTHOR AGGREGATES ═══
+
+model AuthorAggregate {
+  pubkey         String   @id
+  postCount      Int      @default(0) @map("post_count")
+  totalBurnsReceived BigInt @default(0) @map("total_burns_received")
+  totalBurnsGiven    BigInt @default(0) @map("total_burns_given")
+  firstSeenHeight    Int    @default(0) @map("first_seen_height")
+  lastSeenHeight     Int    @default(0) @map("last_seen_height")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("author_aggregates")
+}
+
+// ═══ UTXO POOL (portal wallet) ═══
+
+model Utxo {
+  id            Int      @id @default(autoincrement())
+  txid          String
+  vout          Int
+  amount        BigInt   // sats
+  scriptPubkey  Bytes    @map("script_pubkey")
+  status        String   @default("available") // available, reserved, spent
+  reservedAt    DateTime? @map("reserved_at")
+  spentTxid     String?  @map("spent_txid")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([txid, vout])
+  @@index([status])
+  @@map("utxos")
+}
+
+// ═══ PENDING PUBLICATIONS ═══
+
+model PendingTx {
+  id            Int      @id @default(autoincrement())
+  commitTxid    String?  @map("commit_txid")
+  revealTxid    String?  @map("reveal_txid")
+  txType        String   @map("tx_type") // "post", "reply", "burn", "signal"
+  payload       Json     // serialized envelope or OP_RETURN data
+  status        String   @default("queued") // queued, committed, revealed, confirmed, failed
+  feeRate       Int?     @map("fee_rate") // sat/vB at time of construction
+  attempts      Int      @default(0)
+  lastError     String?  @map("last_error")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@map("pending_txs")
+}

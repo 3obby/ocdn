@@ -1,0 +1,77 @@
+we're protocol engineers building a free speech forum on bitcoin! the vision is in vision.txt; a task list is at tasks.txt; we've already started building and have a great fleshed-out ux; now we're ready to start building!
+
+we've completed sprint 1 (protocol library) and sprint 2 (bitcoin infrastructure). now it's time for sprint 3: wallet + tx construction.
+
+here's what already exists and is working:
+
+SPRINT 1 — DONE (src/lib/protocol/):
+  constants.ts    protocol tag "ocdn", version 0x01, type codes (POST=0x01, REPLY=0x02, BURN=0x03, SIGNAL=0x06), field lengths, tagged hash domains
+  types.ts        PostEnvelope, ReplyEnvelope, BurnPayload, SignalPayload, SignalRef, KeyPair
+  crypto.ts       taggedHash(), topicHash(), contentHash(), computeParentRef(), signMessage(), sign(), verify(), generateNonce(), generateKeyPair(), getPublicKey() — uses @noble/hashes/sha2.js and @noble/curves/secp256k1.js
+  serialize.ts    serializePostEnvelope(), serializeReplyEnvelope(), serializeBurnOpReturn(), serializeSignalOpReturn() — handles 520-byte push splitting for witness data
+  parse.ts        parseWitnessEnvelope(), parseOpReturn(), verifyContentHash(), verifyAuthorSignature(), verifyEnvelope()
+  create.ts       createPostEnvelope(), createReplyEnvelope(), createBurnPayload(), createSignalPayload(), createTopicBurnPayload() — high-level convenience API that generates nonces, computes hashes, signs
+  index.ts        barrel export of full public API
+  protocol.test.ts  35 passing tests (round-trip all 4 tx types, crypto primitives, invalid rejection, cross-type replay protection, determinism)
+
+SPRINT 2 — DONE:
+  src/lib/bitcoin/rpc.ts     BitcoinRpc class — full RPC client (getblock verbosity 0/1/2/3, getblockcount, getbestblockhash, getblockhash, getrawtransaction, sendrawtransaction, testmempoolaccept, estimatesmartfee, getmempoolinfo, listunspent, decoderawtransaction, submitpackage, ping). All types exported.
+  src/lib/bitcoin/rest.ts    BitcoinRest class — REST client for block iteration (getBlockByHash, getBlockByHeight, getBlockHeaders, getChainInfo, getTxOut). All types exported.
+  src/lib/bitcoin/index.ts   barrel export
+  src/lib/db.ts              Prisma client singleton with @prisma/adapter-neon (Neon serverless PostgreSQL)
+  prisma/schema.prisma       full indexer schema: IndexerState, IndexedBlock, Post, TopicAggregate, Burn, Signal, AuthorAggregate, Utxo, PendingTx
+
+INFRASTRUCTURE:
+  Bitcoin Core 28.1 (signet) running on VPS 185.165.169.8, synced to chain tip
+    config: signet=1, txindex=1, rest=1, server=1, prune=0
+    RPC: 127.0.0.1:38332 (rpcuser=ocdn)
+    ZMQ: rawblock on tcp://127.0.0.1:28332, rawtx on tcp://127.0.0.1:28333
+    systemd service: bitcoind-signet (auto-starts on boot)
+  Neon PostgreSQL: schema deployed, Prisma client generated
+  .env has DATABASE_URL and BITCOIN_RPC_* credentials
+
+FRONTEND (src/app/, src/components/):
+  Next.js 16 app with Tailwind, shadcn/ui, dark theme, Bitcoin orange accents
+  Components: BottomNav, TopicStrip, SortMenu, FeedCard, ThreadView, ComposeSheet, SearchView
+  Currently uses mock data in src/lib/mock-data.ts
+
+DEPENDENCIES already installed:
+  @noble/curves, @noble/hashes, prisma, @prisma/client, @prisma/adapter-neon, @neondatabase/serverless, dotenv
+
+═══ YOUR TASK: SPRINT 3 — WALLET + TX CONSTRUCTION ═══
+
+build the Bitcoin transaction construction pipeline. this is the code that takes a signed OCDN envelope (from the protocol library) and turns it into real Bitcoin transactions that can be broadcast to the network.
+
+the tasks from tasks.txt:
+  [ ] portal keypair generation and secure storage
+  [ ] UTXO pool: track portal-owned UTXOs in DB
+  [ ] UTXO fan-out: pre-split into concurrent-ready outputs
+  [ ] UTXO consolidation: background defragmentation
+  [ ] Taproot script-path spend: envelope → commit tx (P2TR output with script tree)
+  [ ] Taproot reveal tx: spend commit output via script-path, envelope in witness
+  [ ] commit/reveal as package broadcast (1P1C relay)
+  [ ] key-path recovery on all commit outputs (portal internal key)
+  [ ] RBF signaling on all txs
+  [ ] fee bumping: RBF escalation for stuck txs
+  [ ] BURN tx construction: OP_RETURN + change
+  [ ] SIGNAL tx construction: OP_RETURN + change (self-signed mode)
+  [ ] retry pipeline: mempool eviction → rebroadcast → RBF bump → key-path recovery
+  [ ] cost estimator: vbyte calculation for each tx type at current feerate
+
+key details from vision.txt you need:
+  - POST and REPLY use Taproot script-path spends with commit/reveal tx pairs
+  - the envelope goes inside an OP_FALSE OP_IF ... OP_ENDIF script in the Taproot script tree
+  - the portal's internal key is always the Taproot internal key (for key-path recovery)
+  - commit tx creates a P2TR output; reveal tx spends it via script-path, placing envelope in witness
+  - Bitcoin Core 28+ supports 1-parent-1-child package relay (commit + reveal broadcast together)
+  - BURN is a single OP_RETURN tx (no commit/reveal needed)
+  - SIGNAL is a single OP_RETURN tx (self-signed mode: the Bitcoin UTXO signer IS the author)
+  - RBF signaling (sequence < 0xfffffffe) on ALL transactions
+  - key-path recovery: if a commit confirms but reveal gets stuck, portal can recover funds via key-path spend
+  - the Utxo and PendingTx tables in the Prisma schema are already designed for this
+
+use bitcoinjs-lib (npm: bitcoinjs-lib) for Taproot/PSBT construction — install it. you may also need @cmdcode/tapscript or tiny-secp256k1; use whatever is most appropriate.
+
+put the wallet/tx code in src/lib/bitcoin/wallet.ts and src/lib/bitcoin/tx.ts (or split further as makes sense). write tests.
+
+to test, we use 'npx next build'; no need to run the dev server. the prisma database has valuable live data, please append-only to .env.
