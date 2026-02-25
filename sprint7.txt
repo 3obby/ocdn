@@ -1,0 +1,148 @@
+we're protocol engineers building a free speech forum on bitcoin! the vision is in vision.txt; a task list is at tasks.txt; we've already started building and have a great fleshed-out ux; now we're ready to start building!
+
+we've completed sprints 1-5 (protocol library, bitcoin infrastructure, wallet + tx construction, indexer, portal API) and added multi-protocol EW support. now it's time for sprint 7: wiring the frontend to real API data.
+
+NOTE: this sprint is independent of sprint 6 (payments). you can do this first to see real indexed data in the UI, then add the payment gate later.
+
+here's what already exists and is working:
+
+SPRINT 1-4 — DONE (see sprint5.txt for full details):
+  src/lib/protocol/     protocol library (envelope creation, serialization, parsing, verification)
+  src/lib/bitcoin/      RPC/REST clients, wallet/UTXO management, full tx construction pipeline
+  src/lib/indexer/      block scanner, multi-protocol detector (ocdn + EW), processor, reorg handler
+  scripts/indexer.ts    running on VPS, backfilling signet blocks into Neon PostgreSQL
+
+SPRINT 5 — DONE (src/app/api/):
+  READ endpoints:
+    GET /api/feed?sort=topics|new|top&topic=<hash>&protocol=ocdn|ew|all&cursor=<hash>&limit=N
+    GET /api/topic/[hash]?protocol=&cursor=&limit=
+    GET /api/post/[hash]
+    GET /api/thread/[hash]
+    GET /api/search?q=<query>&protocol=&cursor=&limit=
+    GET /api/author/[pubkey]?protocol=&cursor=&limit=
+    GET /api/info/[hash]
+    GET /api/costs?content=&feeRate=
+    GET /api/events?since=<blockHeight>  (SSE stream)
+  WRITE endpoints:
+    POST /api/post    { content, topic? }
+    POST /api/reply   { content, parentHash }
+    POST /api/burn    { targetHash, amount }
+    POST /api/signal  { refs: [...] }
+  Utilities:
+    src/lib/api-utils.ts  mapPost(), mapTopic(), getTipHeight(), rateLimit(), parseProtocolFilter(), parsePageSize()
+
+FRONTEND (currently mock data — THIS IS WHAT WE'RE REPLACING):
+  src/app/page.tsx               main page. currently imports from mock-data.ts:
+                                   - TOPICS (hardcoded array) → should fetch from API
+                                   - getGroupedFeed(topicFilter) → should call GET /api/feed?sort=topics
+                                   - getFlatFeed(sortMode, topicFilter) → should call GET /api/feed?sort=new|top
+  src/components/thread-view.tsx  uses buildThread(postId) from mock-data → should call GET /api/thread/:hash
+  src/components/search-view.tsx  uses POSTS array filtered client-side → should call GET /api/search?q=
+  src/components/compose-sheet.tsx  currently a visual-only sheet → should call POST /api/post or /api/reply
+  src/components/feed-card.tsx    renders Post objects (already uses the right type shape)
+  src/components/topic-strip.tsx  renders Topic[] (already uses the right type shape)
+  src/components/sort-menu.tsx    pure UI, no data dependencies
+  src/components/bottom-nav.tsx   pure UI, no data dependencies
+
+  src/lib/mock-data.ts           types: Post { id, contentHash, protocol, authorPubkey, text, topicHash, topicName, parentId, burnTotal, timestamp, blockHeight, confirmations }
+                                 types: Topic { hash, name, totalBurned }
+                                 types: ThreadItem = Post & { depth: number }
+                                 types: TopicGroup { topic: Topic | null, posts: Post[] }
+                                 types: SortMode = "topics" | "new" | "top"
+                                 helpers: formatSats(), formatTime(), shortPubkey(), topicLabel()
+
+API RESPONSE SHAPES (match the frontend types):
+  GET /api/feed?sort=topics      → { groups: TopicGroup[] }
+  GET /api/feed?sort=new|top     → { posts: Post[], nextCursor: string | null }
+  GET /api/topic/[hash]          → { topic: Topic, posts: Post[], nextCursor }
+  GET /api/post/[hash]           → { post: Post }
+  GET /api/thread/[hash]         → { thread: ThreadItem[] }
+  GET /api/search?q=             → { posts: Post[], nextCursor, query }
+  GET /api/author/[pubkey]       → { author: {...}, posts: Post[], nextCursor }
+  GET /api/costs                 → { feeRate, post: {...}, reply: {...}, burn: {...}, signal: {...} }
+
+═══ YOUR TASK: SPRINT 7 — FRONTEND (REAL DATA) ═══
+
+replace all mock data imports with real API calls. the API response shapes already match the frontend types. the UI should look the same but display real indexed data from the blockchain.
+
+the tasks from tasks.txt:
+  [ ] replace mock data with API calls to portal backend
+  [ ] feed: fetch grouped/sorted feed from /api/feed
+  [ ] thread mode: fetch /api/thread/:hash, render with 2D depth-scroll
+  [ ] search: wire to /api/search
+  [ ] author view: fetch /api/author/:pubkey on search tab
+  [ ] info modal: fetch /api/info/:hash on ⓘ tap
+  [ ] compose → POST /api/post or /api/reply (for now, no payment gate — just submit directly)
+  [ ] burn flow: tap burn area → POST /api/burn (for now, no payment gate)
+  [ ] SSE integration: real-time feed/thread updates without polling
+  [ ] confirmation indicator: visual state for 0-conf, 1-conf, 6+ settled
+  [ ] pending state: post submitted, awaiting on-chain confirmation
+  [ ] error states: API errors, tx rejected, network issues
+  [ ] topic page: dedicated filtered view when topic is selected
+  [ ] external content display: render EW posts with protocol indicator badge
+  [ ] OG meta tags: /post/:hash renders rich social preview (optional)
+
+important design notes:
+
+  DATA FETCHING PATTERN:
+    - this is a "use client" app (page.tsx has "use client" at top)
+    - use React state + useEffect for fetching, or a simple useFetch/useSWR hook
+    - keep it simple: fetch() in useEffect, loading/error states, no complex state management
+    - for infinite scroll: track nextCursor, fetch more on scroll-to-bottom
+
+  TOPIC STRIP:
+    - currently uses hardcoded TOPICS array
+    - replace with a fetch to GET /api/feed?sort=topics (the grouped response includes all active topics)
+    - or add a dedicated GET /api/topics endpoint that returns TopicAggregate[] sorted by totalBurned
+    - the topic strip should show real topics from the indexed data
+    - topics with no name should show as truncated hash (already handled by topicLabel())
+
+  FEED:
+    - "topics" mode: call GET /api/feed?sort=topics, render TopicGroup[] exactly as now
+    - "new" mode: call GET /api/feed?sort=new, render flat Post[]
+    - "top" mode: call GET /api/feed?sort=top, render flat Post[]
+    - when topicFilter is set: pass &topic=<hash> to the API call
+    - cursor pagination: track nextCursor from response, load more on scroll
+
+  THREAD VIEW:
+    - call GET /api/thread/:hash
+    - response is { thread: ThreadItem[] } where ThreadItem = Post & { depth: number }
+    - the existing ThreadView component already renders ThreadItem[] with depth-based indentation
+    - just replace buildThread(postId) with the API fetch
+
+  SEARCH:
+    - call GET /api/search?q=<query>
+    - debounce input (300ms) to avoid hammering the API
+    - show loading state while fetching
+
+  COMPOSE:
+    - POST /api/post { content, topic } for new posts
+    - POST /api/reply { content, parentHash } for replies
+    - show the cost estimate (from GET /api/costs) in the compose sheet
+    - on submit: show "broadcasting..." → "awaiting confirmation" → success/error
+    - for MVP (pre-payment gate): posts go through immediately
+
+  PROTOCOL BADGE:
+    - Post type now has `protocol: string` ("ocdn" or "ew")
+    - for EW posts, show a small "EW" badge or indicator in the FeedCard
+    - EW posts have no nonce/signature (they're external inscriptions from Eternity Wall)
+    - they can still receive burns and appear in search
+
+  LOADING & ERROR STATES:
+    - show a minimal loading indicator (pulsing "—" or similar, matching the minimal aesthetic)
+    - on API error: show a subtle error message, allow retry
+    - on empty results: show "—" (already handled for search)
+
+  KEEP mock-data.ts:
+    - keep the type definitions (Post, Topic, ThreadItem, TopicGroup, SortMode)
+    - keep the helper functions (formatSats, formatTime, shortPubkey, topicLabel)
+    - remove or keep the hardcoded data (it won't be imported anymore)
+
+  REAL-TIME UPDATES (SSE):
+    - connect to GET /api/events?since=<currentTipHeight>
+    - on "posts" event: prepend new posts to the feed
+    - on "burns" event: update burnTotal on affected posts
+    - on "tip" event: update confirmations on visible posts
+    - reconnect on disconnect with exponential backoff
+
+to test, we use 'npx next build'; no need to run the dev server. the prisma database has valuable live data, please append-only to .env.

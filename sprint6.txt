@@ -1,0 +1,139 @@
+we're protocol engineers building a free speech forum on bitcoin! the vision is in vision.txt; a task list is at tasks.txt; we've already started building and have a great fleshed-out ux; now we're ready to start building!
+
+we've completed sprints 1-5 (protocol library, bitcoin infrastructure, wallet + tx construction, indexer, portal API) and added multi-protocol EW support. now it's time for sprint 6: payments — the Lightning/BTCPayServer integration that gates write actions behind real bitcoin payments.
+
+NOTE: you may want to do sprint 7 (frontend wiring) first if you'd rather see real indexed data in the UI immediately. sprint 6 and 7 are independent of each other. sprint 6 adds the payment gate; sprint 7 wires the UI to the API. either can go first.
+
+here's what already exists and is working:
+
+SPRINT 1 — DONE (src/lib/protocol/):
+  constants.ts    protocol constants (tag "ocdn", version 0x01, type codes POST=0x01 REPLY=0x02 BURN=0x03 SIGNAL=0x06)
+  types.ts        PostEnvelope, ReplyEnvelope, BurnPayload, SignalPayload, SignalRef, KeyPair
+  crypto.ts       taggedHash(), topicHash(), contentHash(), computeParentRef(), signMessage(), sign(), verify(), generateNonce(), generateKeyPair(), getPublicKey()
+  serialize.ts    serializePostEnvelope(), serializeReplyEnvelope(), serializeBurnOpReturn(), serializeSignalOpReturn()
+  parse.ts        parseWitnessEnvelope(), parseOpReturn(), verifyContentHash(), verifyAuthorSignature(), verifyEnvelope()
+  create.ts       createPostEnvelope(), createReplyEnvelope(), createBurnPayload(), createSignalPayload(), createTopicBurnPayload()
+  index.ts        barrel export
+
+SPRINT 2 — DONE (src/lib/bitcoin/):
+  rpc.ts          BitcoinRpc class — getBlock, getBlockCount, getBestBlockHash, getBlockHash, getRawTransaction, sendRawTransaction, testMempoolAccept, estimateSmartFee, getMempoolInfo, listUnspent, submitPackage, ping. singleton via getRpc().
+  rest.ts         BitcoinRest class — getBlockByHash, getBlockByHeight, getBlockHeaders, getChainInfo. singleton via getRest().
+
+SPRINT 3 — DONE (src/lib/bitcoin/wallet.ts, tx.ts):
+  wallet.ts       portal key management (loadPortalKey, generatePortalKey), UTXO pool (getAvailableUtxos, reserveUtxo, releaseUtxo, markUtxoSpent, addUtxo, releaseStaleReservations), Taproot signing. exports NETWORK, DUST_LIMIT, RBF_SEQUENCE.
+  tx.ts           full tx construction pipeline: buildCommitRevealTxs, buildBurnTx, buildSignalTx, buildKeyPathRecoveryTx, buildFanOutTx, buildConsolidationTx, buildRbfBump, broadcastCommitReveal, broadcastTx, estimateCommitRevealCost, estimateBurnCost, estimateSignalCost.
+
+SPRINT 4 — DONE (src/lib/indexer/):
+  detector.ts     parseScriptForEnvelopes, extractWitnessEnvelopes, extractOpReturns, extractExternalPosts (EW protocol), detectBlockItems. multi-protocol: ocdn + Eternity Wall.
+  processor.ts    processBlock → writes posts (ocdn + EW), burns, signals to DB. updates TopicAggregate and AuthorAggregate. idempotent.
+  scanner.ts      runIndexer — backfill mode + real-time polling. checkpoints via IndexerState.
+  reorg.ts        reorg detection and chain rewind with CASCADE deletes.
+  scripts/indexer.ts  entry point with ws polyfill for Node.js environments.
+
+SPRINT 5 — DONE (src/app/api/, src/lib/api-utils.ts):
+  READ endpoints (query Prisma DB populated by indexer):
+    GET /api/feed           grouped by topic (sort=topics) or flat (sort=new|top), cursor-paginated, ?protocol= filter
+    GET /api/topic/[hash]   posts under topic ranked by burns, cursor-paginated
+    GET /api/post/[hash]    single post with full metadata
+    GET /api/thread/[hash]  full ancestor/descendant chain with depth numbers
+    GET /api/search?q=      PostgreSQL full-text search (to_tsvector/to_tsquery + ILIKE fallback)
+    GET /api/author/[pubkey] post history, burn totals, key age
+    GET /api/info/[hash]    full on-chain metadata with confirmations
+    GET /api/costs          fee estimates for post, reply, burn, signal at current feerate
+    GET /api/events         SSE stream polling for new content
+
+  WRITE endpoints (validate → envelope → UTXO → build tx → broadcast → PendingTx):
+    POST /api/post          submit text + topic → commit/reveal broadcast
+    POST /api/reply         submit text + parentHash → commit/reveal broadcast
+    POST /api/burn          submit targetHash + amount → OP_RETURN broadcast
+    POST /api/signal        submit refs array → OP_RETURN broadcast
+
+  Shared:
+    src/lib/api-utils.ts    BigInt serialization, mapPost/mapTopic type mappers, tip height cache, IP-based rate limiter (60 reads/min, 10 writes/min), pagination helpers, protocol filter
+
+DATABASE (prisma/schema.prisma → Neon PostgreSQL):
+  Post             now has `protocol` field ("ocdn" | "ew"), nullable nonce/signature for EW posts, indexed on protocol
+  TopicAggregate   topicHash, topicName, totalBurned (BigInt desc-indexed), postCount, lastActivityHeight
+  Burn             txid, blockHash, blockHeight, targetHash, targetType, amount
+  Signal           txid, blockHash, blockHeight, signerPubkey, fee, refs (Json)
+  AuthorAggregate  pubkey, postCount, totalBurnsReceived/Given, firstSeenHeight, lastSeenHeight
+  Utxo             txid+vout, amount, scriptPubkey, status (available/reserved/spent)
+  PendingTx        commitTxid, revealTxid, txType, payload, status, feeRate, attempts, lastError
+
+FRONTEND (currently uses mock data — will be wired in Sprint 7):
+  src/app/page.tsx          main page: feed (grouped by topic / new / top), search, thread view, compose sheet
+  src/lib/mock-data.ts      mock Post/Topic types (now with protocol field), getGroupedFeed(), getFlatFeed(), buildThread()
+  src/components/           BottomNav, TopicStrip, SortMenu, FeedCard, ThreadView, ComposeSheet, SearchView
+
+INFRASTRUCTURE:
+  Bitcoin Core 28.1 (signet) on VPS 185.165.169.8, synced at block 293K+, txindex=1, rest=1
+  Indexer running on VPS (nohup npx tsx scripts/indexer.ts), backfilling signet blocks → Neon DB
+  Neon PostgreSQL with full schema deployed, DATABASE_URL configured in Vercel
+  Vercel deployment auto-deploys from GitHub, builds passing
+  .env has DATABASE_URL, BITCOIN_RPC_*, BITCOIN_NETWORK=signet
+  PORTAL_PRIVKEY placeholder (not yet generated)
+
+═══ YOUR TASK: SPRINT 6 — PAYMENTS ═══
+
+integrate Lightning payments so that write actions (post, reply, burn, signal) require payment before the portal constructs and broadcasts the transaction. users pay the miner fee + a small portal rake via Lightning invoice.
+
+the tasks from tasks.txt:
+  [ ] BTCPayServer instance setup (or LND invoice generation directly)
+  [ ] Lightning invoice generation per write action (post/reply/burn/signal)
+  [ ] invoice amount = miner fee estimate + portal rake
+  [ ] payment verification: invoice settled → queue tx for broadcast
+  [ ] payment webhook: BTCPayServer → portal pipeline trigger
+  [ ] fiat on-ramp: "pay $X to post" with BTCPayServer fiat conversion (stretch)
+  [ ] payment status tracking: pending → paid → queued → broadcast → confirmed
+  [ ] refund path: payment received but tx failed → credit or LN refund
+
+important design notes:
+
+  PAYMENT FLOW:
+    1. client calls POST /api/post (or /reply, /burn, /signal) with the content
+    2. portal validates input, estimates cost via estimateCommitRevealCost/estimateBurnCost/estimateSignalCost
+    3. portal creates a Lightning invoice for (estimated fee + rake), stores the pending action
+    4. returns { invoiceId, paymentRequest (bolt11), amountSats, contentHash (pre-computed) } to client
+    5. client pays the invoice (via any Lightning wallet or in-app WebLN)
+    6. on settlement: portal constructs the envelope, reserves UTXO, builds tx, broadcasts
+    7. updates PendingTx status: paid → queued → revealed → confirmed
+    8. client polls or receives SSE update with final status
+
+  ARCHITECTURE OPTIONS (pick one):
+    A. BTCPayServer — full-featured, handles LN node management, has webhook system, can do fiat pricing
+       - deploy on VPS alongside Bitcoin Core
+       - use BTCPayServer Greenfield API for invoice creation + webhook registration
+       - webhook fires when invoice is settled
+    B. Direct LND/CLN — lighter, no BTCPayServer overhead
+       - connect to LND (already on VPS per creds.txt) or set up CLN
+       - use lnrpc to create invoices and subscribe to invoice settlement stream
+       - simpler but less batteries-included
+    C. For signet MVP: mock payments — accept all posts for free, add payment gate later
+       - fastest path to end-to-end testing
+       - skip this sprint entirely for now, come back before mainnet
+
+  THE PORTAL RAKE:
+    - portal operator earns a small margin on each write action
+    - suggested: 10-20% on top of the miner fee estimate
+    - configurable via env var PORTAL_RAKE_PERCENT (default 15)
+    - example: post costs ~1200 sats in miner fees → invoice for ~1380 sats
+
+  SCHEMA ADDITIONS:
+    - add to PendingTx or create new PaymentInvoice model:
+      invoiceId, bolt11, amountSats, status (pending/paid/expired), paidAt, expiresAt
+    - link PaymentInvoice → PendingTx so settlement triggers broadcast
+
+  ENV VARS NEEDED:
+    - BTCPAY_URL or LND_REST_HOST, LND_MACAROON_HEX, LND_TLS_CERT
+    - PORTAL_RAKE_PERCENT
+
+  CURRENT WRITE ENDPOINTS:
+    the POST /api/post, /api/reply, /api/burn, /api/signal routes currently broadcast immediately.
+    modify them to: validate → estimate cost → create invoice → return invoice to client.
+    add a new endpoint or webhook handler that fires on payment settlement to do the actual broadcast.
+
+  TESTING:
+    on signet, Lightning payments work with signet LND. the VPS already has LND setup per creds.txt.
+    alternatively, use a mock payment mode where all invoices auto-settle (for development).
+
+to test, we use 'npx next build'; no need to run the dev server. the prisma database has valuable live data, please append-only to .env.
