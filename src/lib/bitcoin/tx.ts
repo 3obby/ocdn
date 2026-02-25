@@ -774,18 +774,29 @@ export async function broadcastCommitReveal(
   revealHex: string,
 ): Promise<{ commitTxid: string; revealTxid: string }> {
   const rpc = getRpc();
-  const result = await rpc.submitPackage([commitHex, revealHex]);
 
-  if (result.package_msg !== "success") {
-    const errors = Object.entries(result.tx_results)
-      .filter(([, v]) => v.error)
-      .map(([k, v]) => `${k}: ${v.error}`)
-      .join("; ");
-    throw new Error(`Package broadcast failed: ${result.package_msg} — ${errors}`);
+  try {
+    const result = await rpc.submitPackage([commitHex, revealHex]);
+
+    if (result.package_msg === "success" && result.tx_results) {
+      const txids = Object.values(result.tx_results).map((r) => r.txid);
+      return { commitTxid: txids[0], revealTxid: txids[1] };
+    }
+
+    if (result.tx_results) {
+      const errors = Object.entries(result.tx_results)
+        .filter(([, v]) => v.error)
+        .map(([k, v]) => `${k}: ${v.error}`)
+        .join("; ");
+      throw new Error(`Package broadcast failed: ${result.package_msg} — ${errors}`);
+    }
+
+    throw new Error(`Package broadcast failed: ${result.package_msg}`);
+  } catch {
+    const commitTxid = await rpc.sendRawTransaction(commitHex);
+    const revealTxid = await rpc.sendRawTransaction(revealHex);
+    return { commitTxid, revealTxid };
   }
-
-  const txids = Object.values(result.tx_results).map((r) => r.txid);
-  return { commitTxid: txids[0], revealTxid: txids[1] };
 }
 
 /** Broadcast a single transaction. */
