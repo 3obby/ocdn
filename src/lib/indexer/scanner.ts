@@ -17,12 +17,19 @@ export interface IndexerConfig {
   stateFlushInterval?: number;
 }
 
+// ═══ STRUCTURED LOGGER ═══
+
+function ilog(msg: string, data?: Record<string, unknown>) {
+  const entry = JSON.stringify({ ts: new Date().toISOString(), level: "info", ctx: "indexer", msg, ...(data ? { data } : {}) });
+  console.log(entry);
+}
+function elog(msg: string, data?: Record<string, unknown>) {
+  const entry = JSON.stringify({ ts: new Date().toISOString(), level: "error", ctx: "indexer", msg, ...(data ? { data } : {}) });
+  console.error(entry);
+}
+
 // ═══ MAIN LOOP ═══
 
-/**
- * Run the indexer: backfill from the last-processed height to the chain tip,
- * then enter real-time mode polling for new blocks.
- */
 export async function runIndexer(config: IndexerConfig): Promise<void> {
   const {
     rpc,
@@ -32,48 +39,28 @@ export async function runIndexer(config: IndexerConfig): Promise<void> {
     stateFlushInterval = 50,
   } = config;
 
-  // Verify RPC connectivity
   const info = await rpc.getBlockchainInfo();
-  console.log(
-    `connected to ${info.chain} — node height ${info.blocks}`,
-  );
+  ilog("connected", { chain: info.chain, nodeHeight: info.blocks });
 
-  // Determine where to resume
   const state = await getIndexerState(prisma);
   let nextHeight = state ? state.height + 1 : startHeight;
-  console.log(
-    state
-      ? `resuming from height ${nextHeight} (tip was ${state.height})`
-      : `first run — starting from height ${startHeight}`,
-  );
+  ilog(state ? "resuming" : "first run", { nextHeight, lastTip: state?.height ?? null });
 
-  // ─── BACKFILL ───
   const chainTip = info.blocks;
   if (nextHeight <= chainTip) {
-    console.log(
-      `backfilling ${chainTip - nextHeight + 1} blocks (${nextHeight} → ${chainTip})`,
-    );
-    nextHeight = await backfill(
-      rpc,
-      prisma,
-      nextHeight,
-      chainTip,
-      stateFlushInterval,
-    );
-    console.log("backfill complete");
+    ilog("backfill start", { from: nextHeight, to: chainTip, blocks: chainTip - nextHeight + 1 });
+    nextHeight = await backfill(rpc, prisma, nextHeight, chainTip, stateFlushInterval);
+    ilog("backfill complete");
   }
 
-  // ─── REAL-TIME ───
-  console.log(
-    `entering real-time mode (polling every ${pollIntervalMs / 1000}s)`,
-  );
+  ilog("real-time mode", { pollIntervalMs });
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
     try {
       nextHeight = await pollOnce(rpc, prisma, nextHeight);
     } catch (e) {
-      console.error(`poll error: ${(e as Error).message}`);
+      elog("poll error", { error: (e as Error).message });
     }
     await sleep(pollIntervalMs);
   }
@@ -103,12 +90,9 @@ async function backfill(
     totalSignals += result.signals;
 
     if (result.posts + result.burns + result.signals > 0) {
-      console.log(
-        `  block ${height}: ${result.posts} posts, ${result.burns} burns, ${result.signals} signals`,
-      );
+      ilog("block indexed", { height, posts: result.posts, burns: result.burns, signals: result.signals });
     }
 
-    // Flush indexer state periodically to checkpoint progress
     if ((height - fromHeight) % flushEvery === 0 || height === toHeight) {
       await updateIndexerState(
         { hash: block.hash, height: block.height },
@@ -121,10 +105,7 @@ async function backfill(
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   const scanned = toHeight - fromHeight + 1;
-  console.log(
-    `  scanned ${scanned} blocks in ${elapsed}s — ` +
-      `${totalPosts} posts, ${totalBurns} burns, ${totalSignals} signals`,
-  );
+  ilog("backfill summary", { scanned, elapsedSec: elapsed, totalPosts, totalBurns, totalSignals });
 
   return height;
 }
@@ -136,7 +117,6 @@ async function pollOnce(
   prisma: PrismaClient,
   nextHeight: number,
 ): Promise<number> {
-  // Check for reorgs before processing
   const reorgResume = await handleReorg(rpc, prisma);
   if (reorgResume !== null) {
     nextHeight = reorgResume;
@@ -153,9 +133,7 @@ async function pollOnce(
 
     const items = result.posts + result.burns + result.signals;
     if (items > 0) {
-      console.log(
-        `  block ${nextHeight}: ${result.posts} posts, ${result.burns} burns, ${result.signals} signals`,
-      );
+      ilog("block indexed", { height: nextHeight, posts: result.posts, burns: result.burns, signals: result.signals });
     }
 
     nextHeight++;

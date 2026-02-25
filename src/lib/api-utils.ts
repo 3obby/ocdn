@@ -9,6 +9,110 @@ export function bigintToNumber(v: bigint): number {
   return Number(v);
 }
 
+// ═══ STRUCTURED LOGGING ═══
+
+type LogLevel = "info" | "warn" | "error";
+
+export function log(level: LogLevel, ctx: string, msg: string, data?: Record<string, unknown>) {
+  const entry = {
+    ts: new Date().toISOString(),
+    level,
+    ctx,
+    msg,
+    ...(data ? { data } : {}),
+  };
+  const out = JSON.stringify(entry);
+  if (level === "error") console.error(out);
+  else if (level === "warn") console.warn(out);
+  else console.log(out);
+}
+
+// ═══ INPUT VALIDATION ═══
+
+const MAX_CONTENT_BYTES = 50_000;
+const MAX_TOPIC_LENGTH = 100;
+
+export function validateContent(content: unknown): { ok: true; value: string } | { ok: false; error: string } {
+  if (!content || typeof content !== "string") {
+    return { ok: false, error: "content is required and must be a non-empty string" };
+  }
+  const trimmed = content.trim();
+  if (trimmed.length === 0) {
+    return { ok: false, error: "content must not be empty" };
+  }
+  const byteLen = new TextEncoder().encode(trimmed).length;
+  if (byteLen > MAX_CONTENT_BYTES) {
+    return { ok: false, error: `content exceeds maximum size (${MAX_CONTENT_BYTES} bytes)` };
+  }
+  if (/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(trimmed)) {
+    return { ok: false, error: "content contains invalid control characters" };
+  }
+  try {
+    new TextEncoder().encode(trimmed);
+  } catch {
+    return { ok: false, error: "content contains invalid UTF-8" };
+  }
+  return { ok: true, value: trimmed };
+}
+
+export function validateTopic(topic: unknown): { ok: true; value: string } | { ok: false; error: string } {
+  if (topic === undefined || topic === null || topic === "") {
+    return { ok: true, value: "" };
+  }
+  if (typeof topic !== "string") {
+    return { ok: false, error: "topic must be a string" };
+  }
+  const trimmed = topic.trim();
+  if (trimmed.length > MAX_TOPIC_LENGTH) {
+    return { ok: false, error: `topic exceeds maximum length (${MAX_TOPIC_LENGTH} characters)` };
+  }
+  if (/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(trimmed)) {
+    return { ok: false, error: "topic contains invalid control characters" };
+  }
+  return { ok: true, value: trimmed };
+}
+
+export function validateHex(value: unknown, name: string, length: number): { ok: true; value: string } | { ok: false; error: string } {
+  if (!value || typeof value !== "string") {
+    return { ok: false, error: `${name} is required and must be a string` };
+  }
+  if (value.length !== length) {
+    return { ok: false, error: `${name} must be exactly ${length} hex characters` };
+  }
+  if (!/^[0-9a-f]+$/i.test(value)) {
+    return { ok: false, error: `${name} must be a valid hex string` };
+  }
+  return { ok: true, value: value.toLowerCase() };
+}
+
+// ═══ FEE SPIKE HANDLING ═══
+
+const MAX_FEE_RATE_SAT_VB = Number(process.env.MAX_FEE_RATE ?? "100");
+
+export function checkFeeSpike(feeRate: number): NextResponse | null {
+  if (feeRate > MAX_FEE_RATE_SAT_VB) {
+    log("warn", "fee-spike", `Fee rate ${feeRate} sat/vB exceeds threshold ${MAX_FEE_RATE_SAT_VB}`, { feeRate, threshold: MAX_FEE_RATE_SAT_VB });
+    return NextResponse.json(
+      { error: `Fee rate too high (${feeRate} sat/vB). Try again when fees drop below ${MAX_FEE_RATE_SAT_VB} sat/vB.` },
+      { status: 503 },
+    );
+  }
+  return null;
+}
+
+// ═══ API KEY AUTH ═══
+
+const API_WRITE_KEY = process.env.API_WRITE_KEY;
+
+export function requireWriteAuth(request: Request): NextResponse | null {
+  if (!API_WRITE_KEY) return null;
+  const provided = request.headers.get("x-api-key") ?? new URL(request.url).searchParams.get("key");
+  if (provided !== API_WRITE_KEY) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  return null;
+}
+
 // ═══ DB → FRONTEND TYPE MAPPERS ═══
 
 export function mapPost(
@@ -90,7 +194,6 @@ function checkLimit(buckets: Map<string, RateBucket>, ip: string, limit: number)
   return true;
 }
 
-// Periodically clean up stale buckets
 setInterval(() => {
   const now = Date.now();
   for (const [k, v] of readBuckets) if (now >= v.resetAt) readBuckets.delete(k);
@@ -102,6 +205,7 @@ export function rateLimit(request: Request, type: "read" | "write"): NextRespons
   const buckets = type === "read" ? readBuckets : writeBuckets;
   const limit = type === "read" ? READ_LIMIT : WRITE_LIMIT;
   if (!checkLimit(buckets, ip, limit)) {
+    log("warn", "rate-limit", `${type} limit exceeded`, { ip, type });
     return NextResponse.json(
       { error: "Rate limit exceeded. Try again later." },
       { status: 429 },

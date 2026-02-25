@@ -67,6 +67,8 @@ model Post {
   @@index([parentHash])
   @@index([txid])
   @@index([protocol])
+  @@index([createdAt])
+  @@index([blockHeight, contentHash])
   @@map("posts")
 }
 

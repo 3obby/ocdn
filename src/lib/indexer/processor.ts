@@ -225,9 +225,8 @@ async function indexReply(
   });
 
   if (!parentExists) {
-    console.warn(
-      `  orphaned reply ${contentHashHex.slice(0, 12)}… — parent ${parentHashHex.slice(0, 12)}… not found`,
-    );
+    const entry = JSON.stringify({ ts: new Date().toISOString(), level: "warn", ctx: "indexer", msg: "orphaned reply", data: { contentHash: contentHashHex.slice(0, 12), parentHash: parentHashHex.slice(0, 12) } });
+    console.warn(entry);
   }
 
   await upsertAuthorPost(authorPubkey, block.height, prisma);
@@ -280,9 +279,8 @@ async function indexBurn(
       },
     });
   } catch (e) {
-    console.warn(
-      `  burn skip tx ${item.txid.slice(0, 12)}…: ${(e as Error).message}`,
-    );
+    const entry = JSON.stringify({ ts: new Date().toISOString(), level: "warn", ctx: "indexer", msg: "burn skip", data: { txid: item.txid.slice(0, 12), error: (e as Error).message } });
+    console.warn(entry);
     return false;
   }
 

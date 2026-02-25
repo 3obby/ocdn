@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { mapPost, getTipHeight, rateLimit, parsePageSize, parseProtocolFilter, errorResponse } from "@/lib/api-utils";
+import { mapPost, getTipHeight, rateLimit, parsePageSize, parseProtocolFilter, errorResponse, log } from "@/lib/api-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +21,10 @@ export async function GET(request: Request) {
   const protocolFilter = parseProtocolFilter(searchParams.get("protocol"));
 
   if (!q || q.length < 2) {
-    return errorResponse("Query parameter 'q' must be at least 2 characters");
+    return errorResponse("query parameter 'q' must be at least 2 characters");
+  }
+  if (q.length > 200) {
+    return errorResponse("query parameter 'q' must not exceed 200 characters");
   }
 
   try {
@@ -102,7 +105,7 @@ export async function GET(request: Request) {
       query: q,
     });
   } catch (err) {
-    console.error("GET /api/search error:", err);
+    log("error", "api/search", "search failed", { query: q, error: String(err) });
     return errorResponse("Internal server error", 500);
   }
 }

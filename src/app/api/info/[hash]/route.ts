@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getTipHeight, rateLimit, notFound, errorResponse, bigintToNumber } from "@/lib/api-utils";
+import { getTipHeight, rateLimit, notFound, errorResponse, bigintToNumber, log } from "@/lib/api-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -59,7 +59,7 @@ export async function GET(
       createdAt: post.createdAt.toISOString(),
     });
   } catch (err) {
-    console.error("GET /api/info error:", err);
+    log("error", "api/info", "info query failed", { hash, error: String(err) });
     return errorResponse("Internal server error", 500);
   }
 }

@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { rateLimit, errorResponse } from "@/lib/api-utils";
+import {
+  rateLimit,
+  requireWriteAuth,
+  validateContent,
+  validateHex,
+  checkFeeSpike,
+  errorResponse,
+  log,
+} from "@/lib/api-utils";
 import { createReplyEnvelope } from "@/lib/protocol/create";
 import { loadPortalKey, reserveUtxo, releaseUtxo, markUtxoSpent } from "@/lib/bitcoin/wallet";
 import { buildCommitRevealTxs, broadcastCommitReveal } from "@/lib/bitcoin/tx";
@@ -8,45 +16,35 @@ import { getRpc } from "@/lib/bitcoin/rpc";
 
 export const dynamic = "force-dynamic";
 
-/**
- * POST /api/reply
- *
- * Submit text + parent_hash. Portal constructs the reply envelope,
- * builds commit/reveal txs, broadcasts, records PendingTx.
- *
- * Body: { content: string, parentHash: string }
- */
 export async function POST(request: Request) {
+  const auth = requireWriteAuth(request);
+  if (auth) return auth;
+
   const limited = rateLimit(request, "write");
   if (limited) return limited;
 
-  let body: { content?: string; parentHash?: string };
+  let body: { content?: unknown; parentHash?: unknown };
   try {
     body = await request.json();
   } catch {
     return errorResponse("Invalid JSON body");
   }
 
-  const { content, parentHash } = body;
-  if (!content || typeof content !== "string" || content.trim().length === 0) {
-    return errorResponse("content is required and must be a non-empty string");
-  }
-  if (content.length > 50_000) {
-    return errorResponse("content exceeds maximum length (50,000 bytes)");
-  }
-  if (!parentHash || typeof parentHash !== "string" || parentHash.length !== 64) {
-    return errorResponse("parentHash is required and must be a 64-character hex string");
-  }
+  const contentResult = validateContent(body.content);
+  if (!contentResult.ok) return errorResponse(contentResult.error);
+
+  const hashResult = validateHex(body.parentHash, "parentHash", 64);
+  if (!hashResult.ok) return errorResponse(hashResult.error);
 
   let utxoId: number | null = null;
 
   try {
     const portal = loadPortalKey();
-    const parentHashBytes = new Uint8Array(Buffer.from(parentHash, "hex"));
+    const parentHashBytes = new Uint8Array(Buffer.from(hashResult.value, "hex"));
 
     const { envelope, contentHash } = createReplyEnvelope(
       new Uint8Array(portal.privkey),
-      content.trim(),
+      contentResult.value,
       parentHashBytes,
     );
 
@@ -57,6 +55,9 @@ export async function POST(request: Request) {
     const feeRate = feeEst.feerate
       ? Math.ceil(feeEst.feerate * 1e8 / 1000)
       : 2;
+
+    const spiked = checkFeeSpike(feeRate);
+    if (spiked) return spiked;
 
     const utxo = await reserveUtxo(BigInt(10_000));
     utxoId = utxo.id;
@@ -81,12 +82,14 @@ export async function POST(request: Request) {
         commitTxid,
         revealTxid,
         txType: "reply",
-        payload: { contentHash: contentHashHex, parentHash },
+        payload: { contentHash: contentHashHex, parentHash: hashResult.value },
         status: "revealed",
         feeRate,
         attempts: 1,
       },
     });
+
+    log("info", "api/reply", "reply broadcast", { contentHash: contentHashHex, parentHash: hashResult.value, commitTxid, revealTxid, feeRate });
 
     return NextResponse.json({
       contentHash: contentHashHex,
@@ -99,8 +102,8 @@ export async function POST(request: Request) {
     if (utxoId !== null) {
       try { await releaseUtxo(utxoId); } catch { /* best effort */ }
     }
-    console.error("POST /api/reply error:", err);
     const message = err instanceof Error ? err.message : "Internal server error";
+    log("error", "api/reply", message, { error: String(err) });
     return errorResponse(message, 500);
   }
 }

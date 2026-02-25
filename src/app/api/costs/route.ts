@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { rateLimit, errorResponse } from "@/lib/api-utils";
+import { rateLimit, errorResponse, log } from "@/lib/api-utils";
 import { createPostEnvelope, createReplyEnvelope } from "@/lib/protocol/create";
 import { generateNonce, generateKeyPair } from "@/lib/protocol/crypto";
 import { HASH_LENGTH } from "@/lib/protocol/constants";
@@ -95,7 +95,7 @@ export async function GET(request: Request) {
       },
     });
   } catch (err) {
-    console.error("GET /api/costs error:", err);
+    log("error", "api/costs", "cost estimate failed", { error: String(err) });
     return errorResponse("Internal server error", 500);
   }
 }

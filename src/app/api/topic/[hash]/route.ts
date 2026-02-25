@@ -9,6 +9,7 @@ import {
   parseProtocolFilter,
   notFound,
   errorResponse,
+  log,
 } from "@/lib/api-utils";
 
 export const dynamic = "force-dynamic";
@@ -65,7 +66,7 @@ export async function GET(
       nextCursor,
     });
   } catch (err) {
-    console.error("GET /api/topic error:", err);
+    log("error", "api/topic", "topic query failed", { hash, error: String(err) });
     return errorResponse("Internal server error", 500);
   }
 }

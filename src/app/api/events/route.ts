@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { mapPost, getTipHeight, bigintToNumber } from "@/lib/api-utils";
+import { mapPost, getTipHeight, bigintToNumber, log } from "@/lib/api-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -119,7 +119,7 @@ export async function GET(request: Request) {
             heartbeatCounter = 0;
           }
         } catch (err) {
-          console.error("SSE poll error:", err);
+          log("error", "sse", "poll error", { error: String(err) });
         }
 
         if (!closed) {

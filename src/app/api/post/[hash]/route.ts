@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { mapPost, getTipHeight, rateLimit, notFound, errorResponse } from "@/lib/api-utils";
+import { mapPost, getTipHeight, rateLimit, notFound, errorResponse, log } from "@/lib/api-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +28,7 @@ export async function GET(
 
     return NextResponse.json({ post: mapPost(post, tipHeight) });
   } catch (err) {
-    console.error("GET /api/post error:", err);
+    log("error", "api/post", "post query failed", { hash, error: String(err) });
     return errorResponse("Internal server error", 500);
   }
 }

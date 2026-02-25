@@ -134,12 +134,12 @@ export async function handleReorg(
   const state = await getIndexerState(prisma);
   if (!state) return null;
 
-  console.log(`  reorg detected at height ${state.height}`);
+  const entry1 = JSON.stringify({ ts: new Date().toISOString(), level: "warn", ctx: "indexer", msg: "reorg detected", data: { height: state.height } });
+  console.warn(entry1);
   const forkHeight = await findForkPoint(rpc, prisma, state.height);
   const rewound = await rewindToHeight(forkHeight, prisma);
-  console.log(
-    `  rewound ${rewound} blocks to fork point ${forkHeight}`,
-  );
+  const entry2 = JSON.stringify({ ts: new Date().toISOString(), level: "info", ctx: "indexer", msg: "reorg rewound", data: { rewound, forkHeight } });
+  console.log(entry2);
 
   await updateIndexerState(
     { hash: await rpc.getBlockHash(forkHeight), height: forkHeight },

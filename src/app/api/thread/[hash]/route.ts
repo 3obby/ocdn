@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { mapPost, getTipHeight, rateLimit, notFound, errorResponse } from "@/lib/api-utils";
+import { mapPost, getTipHeight, rateLimit, notFound, errorResponse, log } from "@/lib/api-utils";
 import type { Post as PrismaPost } from "@/generated/prisma/client";
 import type { ThreadItem } from "@/lib/mock-data";
 
@@ -49,7 +49,7 @@ export async function GET(
 
     return NextResponse.json({ thread: items });
   } catch (err) {
-    console.error("GET /api/thread error:", err);
+    log("error", "api/thread", "thread query failed", { hash, error: String(err) });
     return errorResponse("Internal server error", 500);
   }
 }

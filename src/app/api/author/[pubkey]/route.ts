@@ -9,6 +9,7 @@ import {
   notFound,
   errorResponse,
   bigintToNumber,
+  log,
 } from "@/lib/api-utils";
 
 export const dynamic = "force-dynamic";
@@ -83,7 +84,7 @@ export async function GET(
       nextCursor,
     });
   } catch (err) {
-    console.error("GET /api/author error:", err);
+    log("error", "api/author", "author query failed", { pubkey, error: String(err) });
     return errorResponse("Internal server error", 500);
   }
 }

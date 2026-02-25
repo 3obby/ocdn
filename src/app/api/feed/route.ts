@@ -8,7 +8,7 @@ import {
   parsePageSize,
   parseProtocolFilter,
   errorResponse,
-  bigintToNumber,
+  log,
 } from "@/lib/api-utils";
 import type { TopicGroup, Post as FrontendPost } from "@/lib/mock-data";
 
@@ -48,7 +48,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json(await getFlatFeed(sort as "new" | "top", topicFilter, protocolFilter, cursor, limit, tipHeight));
   } catch (err) {
-    console.error("GET /api/feed error:", err);
+    log("error", "api/feed", "feed query failed", { error: String(err) });
     return errorResponse("Internal server error", 500);
   }
 }

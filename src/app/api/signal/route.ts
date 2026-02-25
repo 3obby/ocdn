@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { rateLimit, errorResponse } from "@/lib/api-utils";
+import {
+  rateLimit,
+  requireWriteAuth,
+  checkFeeSpike,
+  errorResponse,
+  log,
+} from "@/lib/api-utils";
 import { createSignalPayload } from "@/lib/protocol/create";
 import type { SignalRef } from "@/lib/protocol/types";
 import { loadPortalKey, reserveUtxo, releaseUtxo, markUtxoSpent } from "@/lib/bitcoin/wallet";
@@ -9,19 +15,17 @@ import { getRpc } from "@/lib/bitcoin/rpc";
 
 export const dynamic = "force-dynamic";
 
-/**
- * POST /api/signal
- *
- * Submit an array of refs for a signal transaction.
- * Each ref is { kind: "text", value: string } or { kind: "content", hashPrefix: string (hex) }.
- *
- * Body: { refs: Array<{ kind: "text", value: string } | { kind: "content", hashPrefix: string }> }
- */
+const MAX_REFS = 10;
+const MAX_TEXT_REF_LENGTH = 200;
+
 export async function POST(request: Request) {
+  const auth = requireWriteAuth(request);
+  if (auth) return auth;
+
   const limited = rateLimit(request, "write");
   if (limited) return limited;
 
-  let body: { refs?: Array<{ kind: string; value?: string; hashPrefix?: string }> };
+  let body: { refs?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -32,18 +36,26 @@ export async function POST(request: Request) {
   if (!refs || !Array.isArray(refs) || refs.length === 0) {
     return errorResponse("refs is required and must be a non-empty array");
   }
+  if (refs.length > MAX_REFS) {
+    return errorResponse(`refs must not exceed ${MAX_REFS} items`);
+  }
 
-  // Validate and convert refs
   const protocolRefs: SignalRef[] = [];
   for (const ref of refs) {
+    if (!ref || typeof ref !== "object" || typeof ref.kind !== "string") {
+      return errorResponse("each ref must have a 'kind' field");
+    }
     if (ref.kind === "text") {
       if (!ref.value || typeof ref.value !== "string") {
         return errorResponse("text refs must have a non-empty 'value' string");
       }
+      if (ref.value.length > MAX_TEXT_REF_LENGTH) {
+        return errorResponse(`text ref value must not exceed ${MAX_TEXT_REF_LENGTH} characters`);
+      }
       protocolRefs.push({ kind: "text", value: ref.value });
     } else if (ref.kind === "content") {
-      if (!ref.hashPrefix || typeof ref.hashPrefix !== "string") {
-        return errorResponse("content refs must have a 'hashPrefix' hex string");
+      if (!ref.hashPrefix || typeof ref.hashPrefix !== "string" || !/^[0-9a-f]+$/i.test(ref.hashPrefix)) {
+        return errorResponse("content refs must have a valid hex 'hashPrefix'");
       }
       protocolRefs.push({
         kind: "content",
@@ -66,6 +78,9 @@ export async function POST(request: Request) {
       ? Math.ceil(feeEst.feerate * 1e8 / 1000)
       : 2;
 
+    const spiked = checkFeeSpike(feeRate);
+    if (spiked) return spiked;
+
     const utxo = await reserveUtxo(BigInt(5_000));
     utxoId = utxo.id;
 
@@ -81,8 +96,7 @@ export async function POST(request: Request) {
     await markUtxoSpent(utxo.id, txid);
     utxoId = null;
 
-    // Store refs in serializable form for the PendingTx payload
-    const serializableRefs = refs.map((r) =>
+    const serializableRefs = refs.map((r: { kind: string; value?: string; hashPrefix?: string }) =>
       r.kind === "text"
         ? { kind: "text", value: r.value }
         : { kind: "content", hashPrefix: r.hashPrefix },
@@ -99,6 +113,8 @@ export async function POST(request: Request) {
       },
     });
 
+    log("info", "api/signal", "signal broadcast", { txid, refCount: refs.length, feeRate });
+
     return NextResponse.json({
       txid,
       fee: Number(txResult.fee),
@@ -108,8 +124,8 @@ export async function POST(request: Request) {
     if (utxoId !== null) {
       try { await releaseUtxo(utxoId); } catch { /* best effort */ }
     }
-    console.error("POST /api/signal error:", err);
     const message = err instanceof Error ? err.message : "Internal server error";
+    log("error", "api/signal", message, { error: String(err) });
     return errorResponse(message, 500);
   }
 }

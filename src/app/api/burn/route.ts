@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { rateLimit, errorResponse } from "@/lib/api-utils";
+import {
+  rateLimit,
+  requireWriteAuth,
+  validateHex,
+  checkFeeSpike,
+  errorResponse,
+  log,
+} from "@/lib/api-utils";
 import { createBurnPayload } from "@/lib/protocol/create";
 import { loadPortalKey, reserveUtxo, releaseUtxo, markUtxoSpent } from "@/lib/bitcoin/wallet";
 import { buildBurnTx, broadcastTx } from "@/lib/bitcoin/tx";
@@ -8,38 +15,38 @@ import { getRpc } from "@/lib/bitcoin/rpc";
 
 export const dynamic = "force-dynamic";
 
-/**
- * POST /api/burn
- *
- * Submit target_hash + desired burn amount.
- * Portal constructs the OP_RETURN burn tx, broadcasts, records PendingTx.
- *
- * Body: { targetHash: string, amount: number }
- */
+const MAX_BURN_SATS = 10_000_000;
+
 export async function POST(request: Request) {
+  const auth = requireWriteAuth(request);
+  if (auth) return auth;
+
   const limited = rateLimit(request, "write");
   if (limited) return limited;
 
-  let body: { targetHash?: string; amount?: number };
+  let body: { targetHash?: unknown; amount?: unknown };
   try {
     body = await request.json();
   } catch {
     return errorResponse("Invalid JSON body");
   }
 
-  const { targetHash, amount } = body;
-  if (!targetHash || typeof targetHash !== "string" || targetHash.length !== 64) {
-    return errorResponse("targetHash is required and must be a 64-character hex string");
-  }
-  if (!amount || typeof amount !== "number" || amount < 546) {
+  const hashResult = validateHex(body.targetHash, "targetHash", 64);
+  if (!hashResult.ok) return errorResponse(hashResult.error);
+
+  const amount = body.amount;
+  if (!amount || typeof amount !== "number" || !Number.isFinite(amount) || amount < 546) {
     return errorResponse("amount is required and must be >= 546 sats");
+  }
+  if (amount > MAX_BURN_SATS) {
+    return errorResponse(`amount must not exceed ${MAX_BURN_SATS} sats`);
   }
 
   let utxoId: number | null = null;
 
   try {
     const portal = loadPortalKey();
-    const targetHashBytes = new Uint8Array(Buffer.from(targetHash, "hex"));
+    const targetHashBytes = new Uint8Array(Buffer.from(hashResult.value, "hex"));
     const payload = createBurnPayload(targetHashBytes);
 
     const rpc = getRpc();
@@ -47,6 +54,9 @@ export async function POST(request: Request) {
     const feeRate = feeEst.feerate
       ? Math.ceil(feeEst.feerate * 1e8 / 1000)
       : 2;
+
+    const spiked = checkFeeSpike(feeRate);
+    if (spiked) return spiked;
 
     const desiredBurn = BigInt(amount);
     const utxo = await reserveUtxo(desiredBurn + BigInt(1_000));
@@ -69,16 +79,18 @@ export async function POST(request: Request) {
       data: {
         commitTxid: txid,
         txType: "burn",
-        payload: { targetHash, amount },
+        payload: { targetHash: hashResult.value, amount },
         status: "revealed",
         feeRate,
         attempts: 1,
       },
     });
 
+    log("info", "api/burn", "burn broadcast", { txid, targetHash: hashResult.value, amount, feeRate });
+
     return NextResponse.json({
       txid,
-      targetHash,
+      targetHash: hashResult.value,
       amount,
       fee: Number(txResult.fee),
       status: "revealed",
@@ -87,8 +99,8 @@ export async function POST(request: Request) {
     if (utxoId !== null) {
       try { await releaseUtxo(utxoId); } catch { /* best effort */ }
     }
-    console.error("POST /api/burn error:", err);
     const message = err instanceof Error ? err.message : "Internal server error";
+    log("error", "api/burn", message, { error: String(err) });
     return errorResponse(message, 500);
   }
 }
