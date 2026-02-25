@@ -5,7 +5,13 @@ import { prisma } from "../db";
 
 bitcoin.initEccLib(ecc);
 
-export const NETWORK = bitcoin.networks.testnet;
+function resolveNetwork(): bitcoin.Network {
+  const net = process.env.BITCOIN_NETWORK;
+  if (net === "regtest") return bitcoin.networks.regtest;
+  if (net === "mainnet" || net === "bitcoin") return bitcoin.networks.bitcoin;
+  return bitcoin.networks.testnet;
+}
+export const NETWORK = resolveNetwork();
 export const DUST_LIMIT = 546;
 export const RBF_SEQUENCE = 0xfffffffd;
 
