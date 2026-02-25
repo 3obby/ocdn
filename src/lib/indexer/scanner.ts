@@ -82,7 +82,7 @@ async function backfill(
   const startTime = Date.now();
 
   while (height <= toHeight) {
-    const block = await rpc.getBlock(height, 2);
+    const block = await rpc.getBlock(height, 3);
     const result = await processBlock(block, prisma);
 
     totalPosts += result.posts;
@@ -124,7 +124,7 @@ async function pollOnce(
 
   const tipHeight = await rpc.getBlockCount();
   while (nextHeight <= tipHeight) {
-    const block = await rpc.getBlock(nextHeight, 2);
+    const block = await rpc.getBlock(nextHeight, 3);
     const result = await processBlock(block, prisma);
     await updateIndexerState(
       { hash: block.hash, height: block.height },
