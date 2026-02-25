@@ -1,0 +1,154 @@
+OCDN — MVP TASK LIST (zero to launch)
+
+═══ SPRINT 1: PROTOCOL LIBRARY ═══
+
+[ ] tagged_hash("ocdn/*", msg) — BIP-340 tagged hash helper
+[ ] content_hash(pubkey, nonce, parent_ref, content) → 32 bytes
+[ ] topic_hash(topic_string) → 32 bytes
+[ ] sign_msg(version, type, content_hash) → 34-byte preimage
+[ ] BIP-340 Schnorr sign/verify over sign_msg using @noble/curves
+[ ] POST envelope serializer: tag + version + type + nonce + pubkey + sig + topic + content
+[ ] REPLY envelope serializer: tag + version + type + nonce + pubkey + sig + parent_hash + content
+[ ] BURN OP_RETURN serializer: tag + version + 0x03 + target_hash (38 bytes)
+[ ] SIGNAL OP_RETURN serializer: tag + version + 0x06 + ordered refs (≤80 bytes)
+[ ] envelope parser: detect "ocdn" tag, extract fields by type byte
+[ ] OP_RETURN parser: detect "ocdn" prefix, parse BURN/SIGNAL payloads
+[ ] content_hash verification: recompute from parsed fields, compare
+[ ] author signature verification: recompute sign_msg, BIP-340 verify
+[ ] unit tests: round-trip serialize→parse→verify for all four tx types
+[ ] unit tests: invalid envelopes silently rejected
+
+═══ SPRINT 2: BITCOIN INFRASTRUCTURE ═══
+
+[ ] Bitcoin Core node setup (archival, unpruned, -txindex=1, -rest=1)
+[ ] signet node for development/testing
+[ ] RPC client wrapper: getblock (verbosity 2+), getblockcount, getbestblockhash
+[ ] REST client wrapper: block iteration without JSON-RPC overhead
+[ ] fee estimation wrapper: estimatesmartfee, mempool info
+[ ] tx broadcast wrapper: sendrawtransaction, testmempoolaccept
+[ ] block subscription: zmq or polling for new blocks
+
+═══ SPRINT 3: WALLET + TX CONSTRUCTION ═══
+
+[ ] portal keypair generation and secure storage
+[ ] UTXO pool: track portal-owned UTXOs in DB
+[ ] UTXO fan-out: pre-split into concurrent-ready outputs
+[ ] UTXO consolidation: background defragmentation
+[ ] Taproot script-path spend: envelope → commit tx (P2TR output with script tree)
+[ ] Taproot reveal tx: spend commit output via script-path, envelope in witness
+[ ] commit/reveal as package broadcast (1P1C relay)
+[ ] key-path recovery on all commit outputs (portal internal key)
+[ ] RBF signaling on all txs
+[ ] fee bumping: RBF escalation for stuck txs
+[ ] BURN tx construction: OP_RETURN + change
+[ ] SIGNAL tx construction: OP_RETURN + change (self-signed mode)
+[ ] retry pipeline: mempool eviction → rebroadcast → RBF bump → key-path recovery
+[ ] cost estimator: vbyte calculation for each tx type at current feerate
+
+═══ SPRINT 4: INDEXER ═══
+
+[ ] PostgreSQL schema: posts, replies, topics, burns, signals, blocks, reorgs
+[ ] block scanner: iterate blocks from genesis (or start height)
+[ ] witness envelope detector: scan Taproot script-path spends for "ocdn" tag
+[ ] multi-envelope support: parse ALL envelopes per witness, not just first
+[ ] OP_RETURN scanner: detect "ocdn"-prefixed outputs
+[ ] POST indexing: parse envelope, verify sig, store content + topic_hash
+[ ] REPLY indexing: parse envelope, verify sig, validate parent exists, store
+[ ] BURN indexing: parse OP_RETURN, compute tx fee (input values - output values), record
+[ ] SIGNAL indexing: parse ref list, extract signer pubkey, compute fee, record
+[ ] topic normalization: lowercase + trim + NFC for canonical topic hashes
+[ ] thread tree builder: parent_hash chains → nested structure
+[ ] ranking computation: total sats burned per content_hash and topic_hash
+[ ] reorg handler: chain tip cursor, rewind on fork, re-process new chain
+[ ] real-time mode: subscribe to new blocks, index incrementally
+[ ] backfill mode: full historical scan
+[ ] external protocol detection: recognize EternityWall and other known inscription formats
+[ ] confirmation tracking: 0-conf display, 1-conf indicator, 6+ settled
+
+═══ SPRINT 5: PORTAL API ═══
+
+[ ] Next.js API routes or separate service
+[ ] GET /api/feed — grouped by topic, ranked by burns, paginated
+[ ] GET /api/feed?sort=new|top — flat feed, sorted
+[ ] GET /api/topic/:hash — posts under topic, ranked
+[ ] GET /api/post/:hash — single post with full metadata
+[ ] GET /api/thread/:hash — full ancestor/descendant chain with depths
+[ ] GET /api/search?q= — full-text search over indexed content
+[ ] GET /api/author/:pubkey — post history, burn totals, key age
+[ ] GET /api/info/:hash — complete metadata (content_hash, block, tx, confirmations, burns)
+[ ] POST /api/post — submit text + topic, portal constructs + broadcasts
+[ ] POST /api/reply — submit text + parent_hash, portal constructs + broadcasts
+[ ] POST /api/burn — submit target_hash + amount, portal constructs + broadcasts
+[ ] POST /api/signal — submit refs list, portal constructs + broadcasts
+[ ] cost estimation endpoint: return expected sats for a given action at current feerate
+[ ] SSE /api/events — real-time feed updates on new blocks/content
+[ ] rate limiting + abuse prevention
+
+═══ SPRINT 6: PAYMENTS ═══
+
+[ ] BTCPayServer instance setup
+[ ] Lightning invoice generation per write action (post/reply/burn/signal)
+[ ] invoice amount = miner fee estimate + portal rake
+[ ] payment verification: invoice settled → queue tx for broadcast
+[ ] payment webhook: BTCPayServer → portal pipeline trigger
+[ ] fiat on-ramp: "pay $X to post" with BTCPayServer fiat conversion
+[ ] payment status tracking: pending → paid → queued → broadcast → confirmed
+[ ] refund path: payment received but tx failed → credit or LN refund
+
+═══ SPRINT 7: FRONTEND (REAL DATA) ═══
+
+[ ] replace mock data with API calls to portal backend
+[ ] feed: fetch grouped/sorted feed from /api/feed
+[ ] thread mode: fetch /api/thread/:hash, render with 2D depth-scroll
+[ ] search: wire to /api/search
+[ ] author view: fetch /api/author/:pubkey on search tab
+[ ] info modal: fetch /api/info/:hash on ⓘ tap
+[ ] compose → payment flow: text input → cost display → Lightning invoice → payment → confirmation
+[ ] burn flow: tap burn area → amount input → invoice → payment → counter update
+[ ] SSE integration: real-time feed/thread updates without polling
+[ ] confirmation indicator: visual state for 0-conf, 1-conf, 6+ settled
+[ ] pending state: post submitted, payment confirmed, awaiting on-chain confirmation
+[ ] error states: payment failed, tx rejected, mempool eviction
+[ ] topic page: dedicated route for filtered topic view
+[ ] external content display: render EternityWall/other-protocol posts with source indicator
+[ ] OG meta tags: /post/:hash renders rich social preview
+
+═══ SPRINT 8: SIGNET VALIDATION ═══
+
+[ ] deploy full stack against signet
+[ ] construct and broadcast a POST on signet, verify indexer picks it up
+[ ] construct and broadcast a REPLY, verify threading
+[ ] construct and broadcast a BURN, verify ranking update
+[ ] construct and broadcast a SIGNAL, verify ref indexing
+[ ] test commit/reveal package broadcast
+[ ] test RBF fee bumping on stuck tx
+[ ] test reorg handling: signet reorg simulation
+[ ] test multi-envelope batching (multiple posts in one tx)
+[ ] end-to-end: compose in UI → payment → broadcast → indexed → visible in feed
+[ ] load test: many concurrent posts, verify UTXO pool handles contention
+
+═══ SPRINT 9: HARDENING ═══
+
+[ ] input validation: content size, UTF-8 correctness, topic length
+[ ] rate limiting per pubkey per time window
+[ ] UTXO pool monitoring: alert on low available outputs
+[ ] fee spike handling: queue posts during high-fee periods, drain when fees drop
+[ ] database indexes for query performance (topic_hash, content_hash, block_height, timestamp)
+[ ] indexer health: detect if falling behind chain tip
+[ ] backup: PostgreSQL automated backups
+[ ] logging: structured logs for tx pipeline, indexer, payments
+[ ] error recovery: portal restart resumes from last indexed block
+[ ] security audit: key storage, RPC access, API auth
+
+═══ SPRINT 10: DEPLOY + LAUNCH ═══
+
+[ ] production Bitcoin Core node (mainnet, archival, -txindex=1)
+[ ] production PostgreSQL
+[ ] production BTCPayServer with Lightning
+[ ] production Next.js deployment (Caddy/nginx + Node)
+[ ] Docker compose for full stack
+[ ] DNS + TLS
+[ ] seed content: first real posts on mainnet
+[ ] seed topics: initial topic hierarchy via burns
+[ ] monitoring: uptime, block tip lag, payment pipeline health, UTXO pool depth
+[ ] launch
