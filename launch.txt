@@ -1,0 +1,142 @@
+OCDN MAINNET LAUNCH — STEP-BY-STEP
+====================================
+
+Current state:
+  - App live at https://ocdn.is (regtest, 3 test posts)
+  - Full pipeline proven: compose → broadcast → mine → index → display
+  - Neon Postgres (cloud) with working schema + indexes
+  - Docker deployment working (Next.js + Caddy + auto-TLS)
+  - Indexer backfill + real-time polling proven
+  - Sprint 9 hardening in place (validation, rate limiting, logging, health)
+
+Blockers to resolve before delegating to next agent:
+  - [x] Mainnet Bitcoin RPC — QuickNode provisioned (see below)
+  - Portal wallet needs real BTC funding
+
+QuickNode mainnet endpoint:
+  URL:  https://silent-quick-aura.btc.quiknode.pro/071c4637bd51f261f2d4246311f1d17222768fde/
+  NOTE: QuickNode uses a single authenticated URL (no separate user/pass).
+        The RPC client (src/lib/bitcoin/rpc.ts) needs a small update to accept
+        BITCOIN_RPC_URL as an alternative to host/port/user/pass.
+        The next agent should handle this.
+
+═══ PHASE 1: INFRASTRUCTURE (you do this) ═══
+
+1. BITCOIN RPC — DONE (QuickNode free tier, mainnet, archival, txindex, verbosity 3)
+
+3. GENERATE A NEW MAINNET PORTAL KEYPAIR — DO NOT reuse the signet key:
+     ssh into VPS, then:
+       cd ~/ocdn-indexer
+       npx tsx -e "import('@noble/curves/secp256k1.js').then(m=>console.log(Buffer.from(m.schnorr.utils.randomSecretKey()).toString('hex')))"
+     Save the hex output securely — this is PORTAL_PRIVKEY for mainnet.
+     Derive the mainnet address:
+       npx tsx -e "
+       import { schnorr } from '@noble/curves/secp256k1.js';
+       import * as bitcoin from 'bitcoinjs-lib';
+       import * as ecc from '@bitcoinerlab/secp256k1';
+       bitcoin.initEccLib(ecc);
+       const priv = Buffer.from('<PRIVKEY_HEX>', 'hex');
+       const xpub = Buffer.from(schnorr.getPublicKey(priv));
+       const { address } = bitcoin.payments.p2tr({ internalPubkey: xpub, network: bitcoin.networks.bitcoin });
+       console.log(address);
+       "
+     The address starts with bc1p... — this is where you send funding BTC.
+
+4. FUND THE PORTAL WALLET:
+     - Send BTC to the bc1p... address from step 3
+     - Recommended: 0.001 BTC (100,000 sats) to start — enough for ~100 posts at 2 sat/vB
+     - Each post costs ~300-700 sats in miner fees (depends on fee market)
+     - Wait for 1 confirmation
+
+5. CLEAR THE TEST DATA FROM NEON:
+     The Neon DB currently has regtest test data. Before mainnet launch:
+       - Option: wipe all tables (agent can do this)
+       - Option: create a fresh Neon database (free tier allows multiple)
+     Tell the next agent which approach you prefer.
+
+═══ PHASE 2: DEPLOY (delegate to next agent) ═══
+
+Once you have:
+  ✓ Bitcoin RPC (QuickNode mainnet — done)
+  ✓ New PORTAL_PRIVKEY generated
+  ✓ Portal address funded with BTC
+  ✓ Decision on DB (wipe vs fresh)
+
+Tell the next agent:
+  "We have a working OCDN deployment at ocdn.is. VPS creds are in creds.txt.
+   launch.txt has the full context. Sprints 1-9 are done, regtest validated.
+   QuickNode mainnet RPC: https://silent-quick-aura.btc.quiknode.pro/071c4637bd51f261f2d4246311f1d17222768fde/
+   New portal privkey: <hex>. Portal mainnet address: <bc1p...> (funded).
+   Please:
+   1. Update src/lib/bitcoin/rpc.ts to accept BITCOIN_RPC_URL (single authenticated URL)
+   2. Clean the Neon database (wipe regtest data)
+   3. Update deploy/.env on VPS for mainnet:
+        BITCOIN_RPC_URL=https://silent-quick-aura.btc.quiknode.pro/071c4637bd51f261f2d4246311f1d17222768fde/
+        BITCOIN_NETWORK=mainnet
+        PORTAL_PRIVKEY=<new mainnet key>
+   4. Run scripts/add-search-indexes.sql against the Neon DB
+   5. Run scripts/fund-pool.ts to register the portal UTXOs
+   6. Rebuild and restart the Docker stack
+   7. Start the indexer against mainnet (backfill — will find EW posts)
+   8. Create the first real OCDN mainnet post
+   9. Verify the feed at https://ocdn.is shows real content"
+
+═══ PHASE 3: SEED + LAUNCH (same or next agent) ═══
+
+Once the indexer has backfilled and the first post is live:
+
+  Seed content:
+    POST /api/post { content: "ocdn: free speech on bitcoin", topic: "ocdn" }
+    POST /api/post { content: "...", topic: "bitcoin" }
+    POST /api/post { content: "...", topic: "free speech" }
+    (create 5-10 seed posts across a few topics)
+
+  Seed topics via burns (optional — gives topics ranking weight):
+    POST /api/burn { targetHash: <topic_hash>, amount: 1000 }
+
+  Monitor:
+    curl https://ocdn.is/api/health
+    — check indexer lag, UTXO pool depth, post count
+
+═══ REMAINING TASKS (from tasks.txt) ═══
+
+Sprint 9 (HARDENING) — DONE in this session:
+  [x] input validation (content size, UTF-8, topic length)
+  [x] rate limiting (IP-based, 60 read/min, 10 write/min)
+  [x] UTXO pool monitoring (health endpoint)
+  [x] fee spike handling (MAX_FEE_RATE threshold, 503 response)
+  [x] database indexes (schema + SQL script for GIN)
+  [x] indexer health (lag detection in health endpoint)
+  [x] logging (structured JSON logs everywhere)
+  [x] error recovery (indexer resumes from checkpoint, stale UTXO release)
+  [x] security (API_WRITE_KEY auth, env-based config)
+  [ ] backup: Neon handles backups automatically (managed Postgres)
+
+Sprint 10 (DEPLOY + LAUNCH) — PARTIALLY DONE:
+  [x] Next.js deployment (Docker + standalone output)
+  [x] Docker compose (deploy/compose.yml)
+  [x] DNS + TLS (ocdn.is → Caddy → auto-TLS)
+  [x] monitoring (GET /api/health)
+  [x] production Bitcoin RPC (QuickNode mainnet endpoint)
+  [ ] production PostgreSQL — Neon works, just need to wipe test data
+  [ ] BTCPayServer — DEFERRED (Sprint 6, add payment gate later)
+  [ ] seed content — after mainnet deploy
+  [ ] seed topics — after mainnet deploy
+
+═══ BUGS FIXED DURING REGTEST VALIDATION ═══
+
+These are already committed and will be present for the next agent:
+  1. submitpackage fallback — graceful degradation to individual sendrawtransaction
+  2. Neon WebSocket — db.ts configures ws for Prisma adapter transactions
+  3. getblock verbosity 3 — required for prevout data on Bitcoin Core 25+
+  4. OP_1..OP_16 parsing — script.compile optimizes small ints to OP_N opcodes
+  5. Dynamic network selection — BITCOIN_NETWORK env var instead of hardcoded testnet
+
+═══ ESTIMATED TIMELINE ═══
+
+  Your prep (Phase 1):     generate key + fund address (~30 min)
+  Agent deploy (Phase 2):  ~1 hour (includes RPC client update + rebuild)
+  Indexer backfill:         hours (880K mainnet blocks via QuickNode — rate limits may apply)
+  Seed + launch (Phase 3): 30 minutes
+
+  Total time-to-live: a few hours (backfill can run in background)
