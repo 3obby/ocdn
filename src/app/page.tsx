@@ -5,12 +5,12 @@ import {
   formatSats,
   topicLabel,
   type SortMode,
-  type Topic,
   type TopicGroup,
   type Post,
+  type FeedFilter,
 } from "@/lib/mock-data";
 import { type TextSize, TextSizeCtx } from "@/lib/text-size";
-import { TopicStrip } from "@/components/topic-strip";
+import { TopicSearchPill } from "@/components/topic-search-pill";
 import { FeedCard } from "@/components/feed-card";
 import { ThreadView } from "@/components/thread-view";
 import { ComposeSheet } from "@/components/compose-sheet";
@@ -36,7 +36,7 @@ const HELLO_WORLD: Post = {
 
 export default function Home() {
   const [tab, setTab] = useState<"feed" | "search">("feed");
-  const [topicFilter, setTopicFilter] = useState<string | null>(null);
+  const [feedFilter, setFeedFilter] = useState<FeedFilter>({ type: "all" });
   const [sortMode, setSortMode] = useState<SortMode>("topics");
   const [threadPostId, setThreadPostId] = useState<string | null>(null);
   const [textSize, setTextSize] = useState<TextSize>("sm");
@@ -45,7 +45,6 @@ export default function Home() {
     topicName: string | null;
   } | null>(null);
 
-  const [topics, setTopics] = useState<Topic[]>([]);
   const [groups, setGroups] = useState<TopicGroup[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -55,25 +54,38 @@ export default function Home() {
 
   const tipHeightRef = useRef(0);
   const sortRef = useRef(sortMode);
-  const topicRef = useRef(topicFilter);
+  const filterRef = useRef<FeedFilter>(feedFilter);
   const fetchVersionRef = useRef(0);
   const loadingMoreRef = useRef(false);
 
   sortRef.current = sortMode;
-  topicRef.current = topicFilter;
+  filterRef.current = feedFilter;
 
-  const activeTopic = topics.find((t) => t.hash === topicFilter);
+  const feedFilterKey =
+    feedFilter.type === "all" ? "all" :
+    feedFilter.type === "topic" ? `t:${feedFilter.hash}` :
+    feedFilter.type === "topicless" ? "topicless" :
+    `p:${feedFilter.protocol}`;
+
+  const activeTopicLabel =
+    feedFilter.type === "topic"
+      ? (feedFilter.name ?? feedFilter.hash.slice(0, 8))
+      : null;
+
   const inThread = tab === "feed" && threadPostId !== null;
   const sz = textSize === "lg" ? "text-[24px]" : "text-[14px]";
 
-  // ── fetch feed on sort/topic/refresh change ──
+  // ── fetch feed on sort/filter/refresh change ──
   useEffect(() => {
     const version = ++fetchVersionRef.current;
     setLoading(true);
     setError(null);
 
+    const f = filterRef.current;
     const params = new URLSearchParams({ sort: sortMode });
-    if (topicFilter) params.set("topic", topicFilter);
+    if (f.type === "topic") params.set("topic", f.hash);
+    else if (f.type === "topicless") params.set("topicless", "true");
+    else if (f.type === "protocol") params.set("protocol", f.protocol);
 
     fetch(`/api/feed?${params}`)
       .then((r) => {
@@ -86,13 +98,6 @@ export default function Home() {
           setGroups(data.groups ?? []);
           setPosts([]);
           setNextCursor(null);
-          if (!topicFilter && data.groups) {
-            setTopics(
-              data.groups
-                .filter((g: TopicGroup) => g.topic)
-                .map((g: TopicGroup) => g.topic!),
-            );
-          }
         } else {
           setPosts(data.posts ?? []);
           setGroups([]);
@@ -113,7 +118,7 @@ export default function Home() {
         if (version !== fetchVersionRef.current) return;
         setLoading(false);
       });
-  }, [sortMode, topicFilter, refreshKey]);
+  }, [sortMode, feedFilterKey, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── load more (cursor pagination) ──
   const loadMore = useCallback(() => {
@@ -125,7 +130,10 @@ export default function Home() {
       sort: sortMode,
       cursor: nextCursor,
     });
-    if (topicFilter) params.set("topic", topicFilter);
+    const f = filterRef.current;
+    if (f.type === "topic") params.set("topic", f.hash);
+    else if (f.type === "topicless") params.set("topicless", "true");
+    else if (f.type === "protocol") params.set("protocol", f.protocol);
 
     fetch(`/api/feed?${params}`)
       .then((r) => r.json())
@@ -138,7 +146,7 @@ export default function Home() {
       .finally(() => {
         loadingMoreRef.current = false;
       });
-  }, [nextCursor, sortMode, topicFilter]);
+  }, [nextCursor, sortMode]);
 
   // ── SSE real-time updates ──
   useEffect(() => {
@@ -161,20 +169,14 @@ export default function Home() {
 
           if (sortRef.current === "topics") {
             const params = new URLSearchParams({ sort: "topics" });
-            if (topicRef.current) params.set("topic", topicRef.current);
+            const f = filterRef.current;
+            if (f.type === "topic") params.set("topic", f.hash);
+            else if (f.type === "topicless") params.set("topicless", "true");
+            else if (f.type === "protocol") params.set("protocol", f.protocol);
             fetch(`/api/feed?${params}`)
               .then((r) => r.json())
               .then((d) => {
-                if (d.groups) {
-                  setGroups(d.groups);
-                  if (!topicRef.current) {
-                    setTopics(
-                      d.groups
-                        .filter((g: TopicGroup) => g.topic)
-                        .map((g: TopicGroup) => g.topic!),
-                    );
-                  }
-                }
+                if (d.groups) setGroups(d.groups);
               })
               .catch(() => {});
           } else {
@@ -259,12 +261,6 @@ export default function Home() {
 
   // ── handlers ──
 
-  const handleTopicClick = (hash: string) => {
-    setTopicFilter(hash);
-    setThreadPostId(null);
-    setTab("feed");
-  };
-
   const handleFeedScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
       if (sortMode === "topics" || !nextCursor) return;
@@ -283,10 +279,9 @@ export default function Home() {
       <div className="flex h-dvh flex-col bg-black text-white">
         {tab === "feed" && !inThread && (
           <>
-            <TopicStrip
-              topics={topics}
-              active={topicFilter}
-              onSelect={(hash) => setTopicFilter(hash)}
+            <TopicSearchPill
+              feedFilter={feedFilter}
+              onSelect={setFeedFilter}
             />
             <SortMenu
               active={sortMode}
@@ -337,11 +332,11 @@ export default function Home() {
                   ) : (
                     groups.map((group) => (
                       <div key={group.topic?.hash ?? "_standalone"}>
-                        {!topicFilter && (
+                        {feedFilter.type === "all" && (
                           <button
                             onClick={() =>
                               group.topic &&
-                              handleTopicClick(group.topic.hash)
+                              setFeedFilter({ type: "topic", hash: group.topic.hash, name: group.topic.name })
                             }
                             className="flex w-full items-center border-b border-border transition-colors hover:bg-white/[0.03]"
                           >
@@ -414,13 +409,13 @@ export default function Home() {
             onClick={() =>
               setComposing({
                 replyToId: null,
-                topicName: activeTopic?.name ?? null,
+                topicName: feedFilter.type === "topic" ? feedFilter.name : null,
               })
             }
             className={`absolute bottom-18 right-4 z-10 flex items-center gap-2 bg-white text-black px-4 py-2.5 ${sz} hover:bg-white/90 transition-colors`}
           >
             <Plus size={textSize === "lg" ? 20 : 14} strokeWidth={1.5} />
-            {activeTopic ? topicLabel(activeTopic) : "post"}
+            {activeTopicLabel ?? "post"}
           </button>
         )}
 

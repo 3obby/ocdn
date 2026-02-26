@@ -31,6 +31,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const sort = searchParams.get("sort") ?? "topics";
   const topicFilter = searchParams.get("topic");
+  const topicless = searchParams.get("topicless") === "true";
   const protocolFilter = parseProtocolFilter(searchParams.get("protocol"));
   const cursor = searchParams.get("cursor");
   const limit = parsePageSize(searchParams.get("limit"));
@@ -43,10 +44,10 @@ export async function GET(request: Request) {
     const tipHeight = await getTipHeight(prisma);
 
     if (sort === "topics") {
-      return NextResponse.json(await getGroupedFeed(topicFilter, protocolFilter, limit, tipHeight));
+      return NextResponse.json(await getGroupedFeed(topicFilter, topicless, protocolFilter, limit, tipHeight));
     }
 
-    return NextResponse.json(await getFlatFeed(sort as "new" | "top", topicFilter, protocolFilter, cursor, limit, tipHeight));
+    return NextResponse.json(await getFlatFeed(sort as "new" | "top", topicFilter, topicless, protocolFilter, cursor, limit, tipHeight));
   } catch (err) {
     log("error", "api/feed", "feed query failed", { error: String(err) });
     return errorResponse("Internal server error", 500);
@@ -55,11 +56,25 @@ export async function GET(request: Request) {
 
 async function getGroupedFeed(
   topicFilter: string | null,
+  topicless: boolean,
   protocolFilter: string | null,
   postsPerTopic: number,
   tipHeight: number,
 ): Promise<{ groups: TopicGroup[] }> {
   const protoWhere = protocolFilter ? { protocol: protocolFilter } : {};
+
+  if (topicless) {
+    const standalone = await prisma.post.findMany({
+      where: { topicHash: null, parentHash: null, ...protoWhere },
+      include: { burns: { select: { amount: true } } },
+      orderBy: { blockHeight: "desc" },
+      take: postsPerTopic,
+    });
+    const mapped = standalone
+      .map((p) => mapPost(p, tipHeight))
+      .sort((a, b) => b.burnTotal - a.burnTotal);
+    return { groups: [{ topic: null, posts: mapped }] };
+  }
 
   if (topicFilter) {
     const topicAgg = await prisma.topicAggregate.findUnique({
@@ -125,6 +140,7 @@ async function getGroupedFeed(
 async function getFlatFeed(
   sort: "new" | "top",
   topicFilter: string | null,
+  topicless: boolean,
   protocolFilter: string | null,
   cursor: string | null,
   limit: number,
@@ -132,6 +148,7 @@ async function getFlatFeed(
 ): Promise<{ posts: FrontendPost[]; nextCursor: string | null }> {
   const where: Record<string, unknown> = {};
   if (topicFilter) where.topicHash = topicFilter;
+  if (topicless) where.topicHash = null;
   if (protocolFilter) where.protocol = protocolFilter;
 
   if (sort === "new") {

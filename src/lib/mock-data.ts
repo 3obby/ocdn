@@ -32,6 +32,12 @@ export type TopicGroup = {
 
 export type SortMode = "topics" | "new" | "top";
 
+export type FeedFilter =
+  | { type: "all" }
+  | { type: "topic"; hash: string; name: string | null }
+  | { type: "topicless" }
+  | { type: "protocol"; protocol: string; label: string };
+
 export function formatSats(sats: number): string {
   if (sats >= 1_000_000) return `${(sats / 1_000_000).toFixed(1)}M`;
   if (sats >= 10_000) return `${Math.round(sats / 1_000)}K`;
