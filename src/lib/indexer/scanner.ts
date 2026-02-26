@@ -68,7 +68,8 @@ export async function runIndexer(config: IndexerConfig): Promise<void> {
 
 // ═══ BACKFILL ═══
 
-const BATCH_SIZE = Number(process.env.INDEXER_BATCH_SIZE ?? "50");
+const BATCH_SIZE = Number(process.env.INDEXER_BATCH_SIZE ?? "30");
+const BATCH_DELAY_MS = Number(process.env.INDEXER_BATCH_DELAY_MS ?? "0");
 const MAX_RETRIES = 10;
 const PROGRESS_INTERVAL = 5000;
 
@@ -144,6 +145,7 @@ async function backfill(
     }
 
     height = batchEnd + 1;
+    if (BATCH_DELAY_MS > 0) await sleep(BATCH_DELAY_MS);
   }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
