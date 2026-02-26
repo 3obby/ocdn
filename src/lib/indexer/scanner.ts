@@ -68,9 +68,9 @@ export async function runIndexer(config: IndexerConfig): Promise<void> {
 
 // ═══ BACKFILL ═══
 
-const BACKFILL_DELAY_MS = Number(process.env.INDEXER_BACKFILL_DELAY_MS ?? "60");
-const MAX_RETRIES = 8;
-const PROGRESS_INTERVAL = 1000;
+const BATCH_SIZE = Number(process.env.INDEXER_BATCH_SIZE ?? "50");
+const MAX_RETRIES = 10;
+const PROGRESS_INTERVAL = 5000;
 
 async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
   let attempt = 0;
@@ -80,10 +80,10 @@ async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code;
       const msg = (e as Error).message;
-      const isRateLimit = code === "429" || msg.includes("429") || msg.includes("rate limit");
+      const isRateLimit = code === "429" || msg.includes("429") || msg.includes("rate limit") || msg.includes("daily request");
       const isServerError = code === "503" || msg.includes("503");
       if ((isRateLimit || isServerError) && attempt < MAX_RETRIES) {
-        const delay = Math.min(1000 * Math.pow(2, attempt), 60_000);
+        const delay = Math.min(1000 * Math.pow(2, attempt), 120_000);
         elog("rate limited, backing off", { label, attempt, delayMs: delay });
         await sleep(delay);
         attempt++;
@@ -108,33 +108,42 @@ async function backfill(
   const startTime = Date.now();
 
   while (height <= toHeight) {
-    const block = await withRetry(() => rpc.getBlock(height, 3), `getblock ${height}`);
-    const result = await processBlock(block, prisma);
+    const batchEnd = Math.min(height + BATCH_SIZE - 1, toHeight);
+    const heights = Array.from({ length: batchEnd - height + 1 }, (_, i) => height + i);
 
-    totalPosts += result.posts;
-    totalBurns += result.burns;
-    totalSignals += result.signals;
+    const blocks = await Promise.all(
+      heights.map((h) => withRetry(() => rpc.getBlock(h, 3), `getblock ${h}`)),
+    );
 
-    if (result.posts + result.burns + result.signals > 0) {
-      ilog("block indexed", { height, posts: result.posts, burns: result.burns, signals: result.signals });
+    for (const block of blocks) {
+      const result = await processBlock(block, prisma);
+
+      totalPosts += result.posts;
+      totalBurns += result.burns;
+      totalSignals += result.signals;
+
+      if (result.posts + result.burns + result.signals > 0) {
+        ilog("block indexed", { height: block.height, posts: result.posts, burns: result.burns, signals: result.signals });
+      }
     }
 
-    if ((height - fromHeight) % flushEvery === 0 || height === toHeight) {
+    const lastBlock = blocks[blocks.length - 1];
+    if ((height - fromHeight) % flushEvery < BATCH_SIZE || batchEnd === toHeight) {
       await updateIndexerState(
-        { hash: block.hash, height: block.height },
+        { hash: lastBlock.hash, height: lastBlock.height },
         prisma,
       );
     }
 
-    if ((height - fromHeight) % PROGRESS_INTERVAL === 0 && height > fromHeight) {
-      const pct = (((height - fromHeight) / (toHeight - fromHeight)) * 100).toFixed(2);
+    const scannedSoFar = batchEnd - fromHeight + 1;
+    if (scannedSoFar % PROGRESS_INTERVAL < BATCH_SIZE && scannedSoFar >= PROGRESS_INTERVAL) {
+      const pct = ((scannedSoFar / (toHeight - fromHeight + 1)) * 100).toFixed(2);
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
-      const bps = ((height - fromHeight) / ((Date.now() - startTime) / 1000)).toFixed(1);
-      ilog("backfill progress", { height, pct: `${pct}%`, blocksPerSec: bps, elapsedSec: elapsed, totalPosts, totalBurns });
+      const bps = (scannedSoFar / ((Date.now() - startTime) / 1000)).toFixed(1);
+      ilog("backfill progress", { height: batchEnd, pct: `${pct}%`, blocksPerSec: bps, elapsedSec: elapsed, totalPosts, totalBurns });
     }
 
-    if (BACKFILL_DELAY_MS > 0) await sleep(BACKFILL_DELAY_MS);
-    height++;
+    height = batchEnd + 1;
   }
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
