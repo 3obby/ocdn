@@ -81,11 +81,15 @@ async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
     } catch (e) {
       const code = (e as NodeJS.ErrnoException).code;
       const msg = (e as Error).message;
+      const name = (e as Error).name;
       const isRateLimit = code === "429" || msg.includes("429") || msg.includes("rate limit") || msg.includes("daily request");
       const isServerError = code === "503" || msg.includes("503");
-      if ((isRateLimit || isServerError) && attempt < MAX_RETRIES) {
-        const delay = Math.min(1000 * Math.pow(2, attempt), 120_000);
-        elog("rate limited, backing off", { label, attempt, delayMs: delay });
+      const isNetworkError = name === "TypeError" || msg.includes("fetch failed") || msg.includes("ECONNRESET") || msg.includes("ETIMEDOUT") || msg.includes("UND_ERR");
+      if ((isRateLimit || isServerError || isNetworkError) && attempt < MAX_RETRIES) {
+        const delay = isNetworkError
+          ? Math.min(2000 * Math.pow(2, attempt), 60_000)
+          : Math.min(1000 * Math.pow(2, attempt), 120_000);
+        if (attempt > 0 || !isRateLimit) elog("retrying", { label, attempt, delayMs: delay, reason: isNetworkError ? "network" : "rate-limit" });
         await sleep(delay);
         attempt++;
         continue;
