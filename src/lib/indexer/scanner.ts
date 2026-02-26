@@ -68,6 +68,32 @@ export async function runIndexer(config: IndexerConfig): Promise<void> {
 
 // ═══ BACKFILL ═══
 
+const BACKFILL_DELAY_MS = Number(process.env.INDEXER_BACKFILL_DELAY_MS ?? "60");
+const MAX_RETRIES = 8;
+const PROGRESS_INTERVAL = 1000;
+
+async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await fn();
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      const msg = (e as Error).message;
+      const isRateLimit = code === "429" || msg.includes("429") || msg.includes("rate limit");
+      const isServerError = code === "503" || msg.includes("503");
+      if ((isRateLimit || isServerError) && attempt < MAX_RETRIES) {
+        const delay = Math.min(1000 * Math.pow(2, attempt), 60_000);
+        elog("rate limited, backing off", { label, attempt, delayMs: delay });
+        await sleep(delay);
+        attempt++;
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+
 async function backfill(
   rpc: BitcoinRpc,
   prisma: PrismaClient,
@@ -82,7 +108,7 @@ async function backfill(
   const startTime = Date.now();
 
   while (height <= toHeight) {
-    const block = await rpc.getBlock(height, 3);
+    const block = await withRetry(() => rpc.getBlock(height, 3), `getblock ${height}`);
     const result = await processBlock(block, prisma);
 
     totalPosts += result.posts;
@@ -100,6 +126,14 @@ async function backfill(
       );
     }
 
+    if ((height - fromHeight) % PROGRESS_INTERVAL === 0 && height > fromHeight) {
+      const pct = (((height - fromHeight) / (toHeight - fromHeight)) * 100).toFixed(2);
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
+      const bps = ((height - fromHeight) / ((Date.now() - startTime) / 1000)).toFixed(1);
+      ilog("backfill progress", { height, pct: `${pct}%`, blocksPerSec: bps, elapsedSec: elapsed, totalPosts, totalBurns });
+    }
+
+    if (BACKFILL_DELAY_MS > 0) await sleep(BACKFILL_DELAY_MS);
     height++;
   }
 
@@ -122,9 +156,9 @@ async function pollOnce(
     nextHeight = reorgResume;
   }
 
-  const tipHeight = await rpc.getBlockCount();
+  const tipHeight = await withRetry(() => rpc.getBlockCount(), "getblockcount");
   while (nextHeight <= tipHeight) {
-    const block = await rpc.getBlock(nextHeight, 3);
+    const block = await withRetry(() => rpc.getBlock(nextHeight, 3), `getblock ${nextHeight}`);
     const result = await processBlock(block, prisma);
     await updateIndexerState(
       { hash: block.hash, height: block.height },

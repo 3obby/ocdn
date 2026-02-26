@@ -3,6 +3,7 @@ interface RpcConfig {
   port: number;
   user: string;
   password: string;
+  url?: string;
 }
 
 interface RpcResponse<T> {
@@ -17,30 +18,44 @@ export class BitcoinRpc {
   private idCounter = 0;
 
   constructor(config?: Partial<RpcConfig>) {
-    const host = config?.host ?? process.env.BITCOIN_RPC_HOST ?? "127.0.0.1";
-    const port = config?.port ?? Number(process.env.BITCOIN_RPC_PORT ?? "38332");
-    const user = config?.user ?? process.env.BITCOIN_RPC_USER ?? "ocdn";
-    const password = config?.password ?? process.env.BITCOIN_RPC_PASSWORD ?? "";
+    const envUrl = config?.url ?? process.env.BITCOIN_RPC_URL;
 
-    this.url = `http://${host}:${port}`;
-    this.auth = "Basic " + Buffer.from(`${user}:${password}`).toString("base64");
+    if (envUrl) {
+      const parsed = new URL(envUrl);
+      if (parsed.username) {
+        this.auth = "Basic " + Buffer.from(`${decodeURIComponent(parsed.username)}:${decodeURIComponent(parsed.password)}`).toString("base64");
+        parsed.username = "";
+        parsed.password = "";
+        this.url = parsed.toString().replace(/\/$/, "");
+      } else {
+        this.url = envUrl.replace(/\/$/, "");
+        this.auth = "";
+      }
+    } else {
+      const host = config?.host ?? process.env.BITCOIN_RPC_HOST ?? "127.0.0.1";
+      const port = config?.port ?? Number(process.env.BITCOIN_RPC_PORT ?? "38332");
+      const user = config?.user ?? process.env.BITCOIN_RPC_USER ?? "ocdn";
+      const password = config?.password ?? process.env.BITCOIN_RPC_PASSWORD ?? "";
+
+      this.url = `http://${host}:${port}`;
+      this.auth = "Basic " + Buffer.from(`${user}:${password}`).toString("base64");
+    }
   }
 
   async call<T>(method: string, params: unknown[] = []): Promise<T> {
     const id = `ocdn-${++this.idCounter}`;
     const body = JSON.stringify({ jsonrpc: "1.0", id, method, params });
 
-    const res = await fetch(this.url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: this.auth,
-      },
-      body,
-    });
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (this.auth) headers["Authorization"] = this.auth;
+
+    const res = await fetch(this.url, { method: "POST", headers, body });
 
     if (!res.ok) {
-      throw new Error(`Bitcoin RPC HTTP ${res.status}: ${await res.text()}`);
+      const text = await res.text();
+      const err = new Error(`Bitcoin RPC HTTP ${res.status}: ${text}`);
+      (err as NodeJS.ErrnoException).code = String(res.status);
+      throw err;
     }
 
     const json = (await res.json()) as RpcResponse<T>;
