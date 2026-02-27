@@ -10,12 +10,13 @@ function isPubkey(q: string): boolean {
 }
 
 export function SearchView({
+  query,
   onExpand,
 }: {
+  query: string;
   onExpand: (id: string) => void;
 }) {
   const sz = useTextSize();
-  const [query, setQuery] = useState("");
   const [results, setResults] = useState<Post[]>([]);
   const [loading, setLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -52,15 +53,6 @@ export function SearchView({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="shrink-0 border-b border-border px-4 py-3">
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="search or pubkey"
-          className={`w-full bg-transparent ${ts(sz)} text-white placeholder:text-white/15 outline-none`}
-        />
-      </div>
       <div className="flex-1 overflow-y-auto">
         {loading ? (
           <div

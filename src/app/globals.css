@@ -29,6 +29,7 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
   --color-burn: #f7931a;
+  --color-elevated: var(--elevated);
 }
 
 :root {
@@ -51,6 +52,7 @@
   --border: rgba(255, 255, 255, 0.08);
   --input: rgba(255, 255, 255, 0.12);
   --ring: rgba(255, 255, 255, 0.2);
+  --elevated: #0c0c0c;
 }
 
 .dark {
@@ -72,6 +74,7 @@
   --border: rgba(255, 255, 255, 0.08);
   --input: rgba(255, 255, 255, 0.12);
   --ring: rgba(255, 255, 255, 0.2);
+  --elevated: #0c0c0c;
 }
 
 @layer base {
