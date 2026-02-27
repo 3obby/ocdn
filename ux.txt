@@ -1,0 +1,69 @@
+SPRINT 6: PAYMENT GATE — TASK LIST
+===================================
+
+Current state: compose → submit → "PORTAL_PRIVKEY NOT SET". Full pipeline
+proven on regtest. No user-facing payment flow. No free tier planned.
+
+Model: every post starts as an ephemeral preview. Pay to make it durable (on-chain).
+Unpaid posts optionally publish to Nostr as the "free" tier — visually weak,
+indexed alongside durable content if found, upgradeable to on-chain at any time.
+
+UX FLOW (mobile-first, 4 steps):
+  1. compose   — type text, pick topic, tap send
+  2. preview   — instantly cache + display as preview of durable state
+                 subtle countdown: time remaining to pay before cache expires
+  3. pay       — QR code (bitcoin: URI), copy address, "open in wallet"
+                 poll for payment (0-conf mempool detection → seconds, not minutes)
+  4. confirm   — payment detected → broadcast → "posted" + txid link
+
+UNPAID PATH (nostr fallback):
+  - on compose submit: immediately cache locally + display in feed as "ephemeral"
+  - publish to nostr relay(s) as NIP-01 note (kind 1) with ocdn topic tag
+  - ephemeral posts render visually weak: faded, smaller, no burn counter
+  - indexer: scan nostr for ocdn-tagged notes, display alongside on-chain content
+  - "upgrade to permanent" button on any ephemeral post → pay flow (step 3)
+  - cache TTL: ~24h, then pruned from portal DB (still on nostr relays)
+
+PAID PATH (on-chain, durable):
+  - preview step shows cost breakdown: miner fee + rake = total sats
+  - generate fresh taproot address per payment request
+  - detect payment in mempool (0-conf), immediately queue broadcast
+  - portal constructs commit/reveal, broadcasts, records PendingTx
+  - received payment UTXO enters portal pool → self-sustaining
+
+TASKS:
+
+  [ ] refactor ComposeSheet into multi-step: compose → preview → pay → status
+  [ ] local cache layer: store pending posts in DB with TTL + ephemeral flag
+  [ ] display cached/ephemeral posts in feed (visually distinct — faded, "ephemeral" tag)
+  [ ] countdown timer component: time remaining to pay before expiry
+  [ ] preview card: render post exactly as it will appear when durable
+  [ ] dynamic cost estimate: /api/costs with actual content length
+  [ ] cost breakdown display: miner fee / portal rake / total
+
+  [ ] POST /api/payment/create — validate action, estimate cost, generate address, return QR data
+  [ ] GET /api/payment/[id]/status — poll endpoint for frontend
+  [ ] PaymentRequest prisma model (address, key, amount, status, expiry, actionPayload)
+  [ ] payment detection: mempool polling for txs to watched addresses (0-conf)
+  [ ] payment detection: block-level confirmation (belt + suspenders)
+  [ ] settlement: payment detected → construct tx → broadcast → mark confirmed
+  [ ] UTXO integration: incoming payment → add to portal pool after 1-conf
+  [ ] rake config: PORTAL_RAKE_SATS env var (default 1000)
+  [ ] expiry cleanup: mark expired payment requests, prune stale cache
+
+  [ ] QR code component (bitcoin: URI with amount)
+  [ ] "open in wallet" deep link (bitcoin: URI scheme)
+  [ ] copy address + copy amount tap targets
+  [ ] payment status polling UI: waiting → detected → broadcasting → confirmed
+  [ ] timeout UX: "payment not received — try again?"
+
+  [ ] nostr publish: NIP-01 kind 1 note on submit (before payment)
+  [ ] nostr relay config: NOSTR_RELAYS env var
+  [ ] nostr indexer: scan relays for ocdn-tagged notes, ingest as ephemeral
+  [ ] ephemeral → durable upgrade button + flow
+  [ ] visual treatment: ephemeral posts faded/muted vs durable posts solid
+
+  LATER (sprint 7+):
+  [ ] BTCPayServer + Lightning (instant payments, dual QR)
+  [ ] self-publish escape hatch (client-side tx builder, user's own wallet)
+  [ ] burn payment flow (same QR pattern, amount = burn + fee)
