@@ -87,19 +87,44 @@ export default function Home() {
     else if (f.type === "protocol") params.set("protocol", f.protocol);
     else if (!includeTopicless) params.set("excludeTopicless", "true");
 
-    fetch(`/api/feed?${params}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`${r.status}`);
-        return r.json();
-      })
-      .then((data) => {
+    const feedPromise = fetch(`/api/feed?${params}`).then((r) => {
+      if (!r.ok) throw new Error(`${r.status}`);
+      return r.json();
+    });
+
+    const ephPromise = fetch("/api/ephemeral")
+      .then((r) => (r.ok ? r.json() : { posts: [] }))
+      .catch(() => ({ posts: [] }));
+
+    Promise.all([feedPromise, ephPromise])
+      .then(([data, ephData]) => {
         if (version !== fetchVersionRef.current) return;
+
+        const ephPosts: Post[] = (ephData.posts ?? []).map(
+          (e: { id: string; content: string; topic: string | null; parentHash: string | null; expiresAt: string; createdAt: string }) => ({
+            id: `eph_${e.id}`,
+            contentHash: `eph_${e.id}`,
+            protocol: "ocdn",
+            authorPubkey: "0000000000000000000000000000000000000000000000000000000000000000",
+            text: e.content,
+            topicHash: null,
+            topicName: e.topic,
+            parentId: e.parentHash,
+            burnTotal: 0,
+            timestamp: new Date(e.createdAt).getTime(),
+            blockHeight: 0,
+            confirmations: 0,
+            ephemeral: true,
+            expiresAt: e.expiresAt,
+          }),
+        );
+
         if (sortMode === "topics") {
           setGroups(data.groups ?? []);
-          setPosts([]);
+          setPosts(ephPosts);
           setNextCursor(null);
         } else {
-          setPosts(data.posts ?? []);
+          setPosts([...ephPosts, ...(data.posts ?? [])]);
           setGroups([]);
           setNextCursor(data.nextCursor ?? null);
         }
@@ -341,7 +366,7 @@ export default function Home() {
                 onScroll={handleFeedScroll}
               >
                 {sortMode === "topics" ? (
-                  groups.length === 0 ? (
+                  groups.length === 0 && posts.length === 0 ? (
                     (excludedTopicHashes.length > 0 || !includeTopicless) ? (
                       <div className={`flex h-32 items-center justify-center ${sz} text-white/10`}>—</div>
                     ) : (
@@ -351,7 +376,11 @@ export default function Home() {
                       />
                     )
                   ) : (
-                    groups.map((group) => (
+                    <>
+                    {posts.filter((p) => p.ephemeral).map((p) => (
+                      <FeedCard key={p.id} post={p} onExpand={() => {}} />
+                    ))}
+                    {groups.map((group) => (
                       <div key={group.topic?.hash ?? "_standalone"}>
                         {feedFilter.type === "all" && (
                           <button
@@ -397,7 +426,8 @@ export default function Home() {
                           />
                         ))}
                       </div>
-                    ))
+                    ))}
+                    </>
                   )
                 ) : posts.length === 0 ? (
                   (excludedTopicHashes.length > 0 || !includeTopicless) ? (

@@ -85,6 +85,11 @@ export function validateHex(value: unknown, name: string, length: number): { ok:
   return { ok: true, value: value.toLowerCase() };
 }
 
+// ═══ PORTAL RAKE ═══
+
+export const PORTAL_RAKE_SATS = Number(process.env.PORTAL_RAKE_SATS ?? "1000");
+export const PAYMENT_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
+
 // ═══ FEE SPIKE HANDLING ═══
 
 const MAX_FEE_RATE_SAT_VB = Number(process.env.MAX_FEE_RATE ?? "100");

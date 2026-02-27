@@ -9,7 +9,12 @@ import {
 import { useTextSize, ts } from "@/lib/text-size";
 import { Pencil } from "lucide-react";
 
-function ConfirmBadge({ confirmations }: { confirmations: number }) {
+function ConfirmBadge({ confirmations, ephemeral }: { confirmations: number; ephemeral?: boolean }) {
+  if (ephemeral) {
+    return (
+      <span className="animate-pulse text-white/15 text-[10px]">ephemeral</span>
+    );
+  }
   if (confirmations >= 6) return null;
   if (confirmations === 0) {
     return (
@@ -39,33 +44,37 @@ export function FeedCard({
 }) {
   const sz = useTextSize();
 
+  const isEphemeral = post.ephemeral === true;
+
   return (
     <div
-      onClick={() => onExpand(post.id)}
-      className="flex cursor-pointer items-center border-b border-border transition-colors hover:bg-white/[0.03]"
+      onClick={() => !isEphemeral && onExpand(post.id)}
+      className={`flex items-center border-b border-border transition-colors ${
+        isEphemeral
+          ? "opacity-40 cursor-default"
+          : "cursor-pointer hover:bg-white/[0.03]"
+      }`}
     >
       <div className="w-[14%] shrink-0 py-3 pl-3 pr-3 text-right">
         <span
-          className={`${ts(sz)} leading-tight text-burn/60 tabular-nums`}
+          className={`${ts(sz)} leading-tight ${isEphemeral ? "text-white/10" : "text-burn/60"} tabular-nums`}
         >
-          {formatSats(post.burnTotal)}
+          {isEphemeral ? "\u2014" : formatSats(post.burnTotal)}
         </span>
       </div>
 
       <div className="min-w-0 flex-1 py-3 pl-2 pr-4">
         <span
-          className={`${ts(sz)} leading-tight text-white/90 block truncate`}
+          className={`${ts(sz)} leading-tight ${isEphemeral ? "text-white/40" : "text-white/90"} block truncate`}
         >
           {post.text}
         </span>
       </div>
 
-      {(post.protocol !== "ocdn" || post.confirmations < 6) && (
-        <div className="shrink-0 flex items-center gap-1.5 pr-3">
-          <ProtocolBadge protocol={post.protocol} />
-          <ConfirmBadge confirmations={post.confirmations} />
-        </div>
-      )}
+      <div className="shrink-0 flex items-center gap-1.5 pr-3">
+        {!isEphemeral && <ProtocolBadge protocol={post.protocol} />}
+        <ConfirmBadge confirmations={post.confirmations} ephemeral={isEphemeral} />
+      </div>
     </div>
   );
 }
