@@ -97,7 +97,7 @@ export async function GET(request: Request) {
   try {
     const ephemerals = await prisma.ephemeralPost.findMany({
       where: {
-        status: { in: ["cached", "paying"] },
+        status: { in: ["cached", "paying", "upgraded"] },
         expiresAt: { gt: new Date() },
       },
       orderBy: { createdAt: "desc" },

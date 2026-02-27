@@ -9,8 +9,8 @@ import {
 import { useTextSize, ts } from "@/lib/text-size";
 import { Pencil } from "lucide-react";
 
-function ConfirmBadge({ confirmations, ephemeral }: { confirmations: number; ephemeral?: boolean }) {
-  if (ephemeral) {
+function ConfirmBadge({ confirmations, ephemeral, ephemeralStatus }: { confirmations: number; ephemeral?: boolean; ephemeralStatus?: string }) {
+  if (ephemeral && ephemeralStatus !== "upgraded") {
     return (
       <span className="animate-pulse text-white/15 text-[10px]">ephemeral</span>
     );
@@ -45,35 +45,37 @@ export function FeedCard({
   const sz = useTextSize();
 
   const isEphemeral = post.ephemeral === true;
+  const isPaid = isEphemeral && post.ephemeralStatus === "upgraded";
+  const isUnpaid = isEphemeral && !isPaid;
 
   return (
     <div
-      onClick={() => !isEphemeral && onExpand(post.id)}
+      onClick={() => !isUnpaid && onExpand(post.id)}
       className={`flex items-center border-b border-border transition-colors ${
-        isEphemeral
+        isUnpaid
           ? "opacity-40 cursor-default"
           : "cursor-pointer hover:bg-white/[0.03]"
       }`}
     >
       <div className="w-[14%] shrink-0 py-3 pl-3 pr-3 text-right">
         <span
-          className={`${ts(sz)} leading-tight ${isEphemeral ? "text-white/10" : "text-burn/60"} tabular-nums`}
+          className={`${ts(sz)} leading-tight ${isUnpaid ? "text-white/10" : "text-burn/60"} tabular-nums`}
         >
-          {isEphemeral ? "\u2014" : formatSats(post.burnTotal)}
+          {isUnpaid ? "\u2014" : formatSats(post.burnTotal)}
         </span>
       </div>
 
       <div className="min-w-0 flex-1 py-3 pl-2 pr-4">
         <span
-          className={`${ts(sz)} leading-tight ${isEphemeral ? "text-white/40" : "text-white/90"} block truncate`}
+          className={`${ts(sz)} leading-tight ${isUnpaid ? "text-white/40" : "text-white/90"} block truncate`}
         >
           {post.text}
         </span>
       </div>
 
       <div className="shrink-0 flex items-center gap-1.5 pr-3">
-        {!isEphemeral && <ProtocolBadge protocol={post.protocol} />}
-        <ConfirmBadge confirmations={post.confirmations} ephemeral={isEphemeral} />
+        {!isUnpaid && <ProtocolBadge protocol={post.protocol} />}
+        <ConfirmBadge confirmations={post.confirmations} ephemeral={isEphemeral} ephemeralStatus={post.ephemeralStatus} />
       </div>
     </div>
   );

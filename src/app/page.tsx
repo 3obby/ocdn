@@ -71,7 +71,7 @@ export default function Home() {
     `p:${feedFilter.protocol}`;
 
   const inThread = threadPostId !== null;
-  const showFeed = searchQuery.trim().length === 0;
+  const showFeed = searchQuery.trim().length === 0 || feedFilter.type !== "all";
   const sz = textSize === "lg" ? "text-[24px]" : "text-[14px]";
 
   // ── fetch feed on sort/filter/refresh change ──
@@ -101,7 +101,7 @@ export default function Home() {
         if (version !== fetchVersionRef.current) return;
 
         const ephPosts: Post[] = (ephData.posts ?? []).map(
-          (e: { id: string; content: string; topic: string | null; parentHash: string | null; expiresAt: string; createdAt: string }) => ({
+          (e: { id: string; content: string; topic: string | null; parentHash: string | null; status: string; expiresAt: string; createdAt: string }) => ({
             id: `eph_${e.id}`,
             contentHash: `eph_${e.id}`,
             protocol: "ocdn",
@@ -115,6 +115,7 @@ export default function Home() {
             blockHeight: 0,
             confirmations: 0,
             ephemeral: true,
+            ephemeralStatus: e.status as "cached" | "paying" | "upgraded",
             expiresAt: e.expiresAt,
           }),
         );
@@ -384,10 +385,11 @@ export default function Home() {
                       <div key={group.topic?.hash ?? "_standalone"}>
                         {feedFilter.type === "all" && (
                           <button
-                            onClick={() =>
-                              group.topic &&
-                              setFeedFilter({ type: "topic", hash: group.topic.hash, name: group.topic.name })
-                            }
+                            onClick={() => {
+                              if (!group.topic) return;
+                              setFeedFilter({ type: "topic", hash: group.topic.hash, name: group.topic.name });
+                              setSearchQuery(group.topic.name ?? group.topic.hash.slice(0, 8));
+                            }}
                             className="flex w-full items-center border-b border-border transition-colors hover:bg-white/[0.03]"
                           >
                             {group.topic ? (
