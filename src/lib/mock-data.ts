@@ -12,6 +12,7 @@ export type Post = {
   blockHeight: number;
   confirmations: number;
   ephemeral?: boolean;
+  ephemeralStatus?: "cached" | "paying" | "upgraded";
   expiresAt?: string;
 };
 

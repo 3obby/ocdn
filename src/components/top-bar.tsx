@@ -69,7 +69,9 @@ export function TopBar({
   const containerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
+  const hasFilter = feedFilter.type !== "all";
   const hasQuery = searchQuery.trim().length > 0;
+  const showClear = hasQuery || hasFilter;
   const isPubkeyQuery = isPubkey(searchQuery.trim());
   const showTopicList = open && !isPubkeyQuery;
 
@@ -150,7 +152,15 @@ export function TopBar({
 
   const selectTopic = (filter: FeedFilter) => {
     onFeedFilterChange(filter);
-    onSearchQueryChange("");
+    if (filter.type === "topic") {
+      onSearchQueryChange(filter.name ?? filter.hash.slice(0, 8));
+    } else if (filter.type === "protocol") {
+      onSearchQueryChange(filter.label);
+    } else if (filter.type === "topicless") {
+      onSearchQueryChange("untagged");
+    } else {
+      onSearchQueryChange("");
+    }
     setOpen(false);
     setDeselected(new Set());
     onExcludedTopicHashesChange([]);
@@ -202,7 +212,7 @@ export function TopBar({
       <div className="flex items-center gap-2 px-3 py-2">
         {/* Search row: [×] [input] [🔍] */}
         <div className="flex min-w-0 flex-1 items-center rounded-full bg-white/[0.06]">
-          {hasQuery && (
+          {showClear && (
             <button
               onClick={handleClear}
               aria-label="Clear"

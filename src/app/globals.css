@@ -52,7 +52,7 @@
   --border: rgba(255, 255, 255, 0.08);
   --input: rgba(255, 255, 255, 0.12);
   --ring: rgba(255, 255, 255, 0.2);
-  --elevated: #0c0c0c;
+  --elevated: #333131;
 }
 
 .dark {
@@ -74,7 +74,7 @@
   --border: rgba(255, 255, 255, 0.08);
   --input: rgba(255, 255, 255, 0.12);
   --ring: rgba(255, 255, 255, 0.2);
-  --elevated: #0c0c0c;
+  --elevated: #333131;
 }
 
 @layer base {
