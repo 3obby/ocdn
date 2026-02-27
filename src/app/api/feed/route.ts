@@ -32,6 +32,11 @@ export async function GET(request: Request) {
   const sort = searchParams.get("sort") ?? "topics";
   const topicFilter = searchParams.get("topic");
   const topicless = searchParams.get("topicless") === "true";
+  const excludeTopicless = searchParams.get("excludeTopicless") === "true";
+  const excludeTopicsParam = searchParams.get("excludeTopics");
+  const excludeTopics = excludeTopicsParam
+    ? excludeTopicsParam.split(",").map((h) => h.trim()).filter(Boolean)
+    : [];
   const protocolFilter = parseProtocolFilter(searchParams.get("protocol"));
   const cursor = searchParams.get("cursor");
   const limit = parsePageSize(searchParams.get("limit"));
@@ -44,10 +49,10 @@ export async function GET(request: Request) {
     const tipHeight = await getTipHeight(prisma);
 
     if (sort === "topics") {
-      return NextResponse.json(await getGroupedFeed(topicFilter, topicless, protocolFilter, limit, tipHeight));
+      return NextResponse.json(await getGroupedFeed(topicFilter, topicless, excludeTopicless, excludeTopics, protocolFilter, limit, tipHeight));
     }
 
-    return NextResponse.json(await getFlatFeed(sort as "new" | "top", topicFilter, topicless, protocolFilter, cursor, limit, tipHeight));
+    return NextResponse.json(await getFlatFeed(sort as "new" | "top", topicFilter, topicless, excludeTopicless, excludeTopics, protocolFilter, cursor, limit, tipHeight));
   } catch (err) {
     log("error", "api/feed", "feed query failed", { error: String(err) });
     return errorResponse("Internal server error", 500);
@@ -57,6 +62,8 @@ export async function GET(request: Request) {
 async function getGroupedFeed(
   topicFilter: string | null,
   topicless: boolean,
+  excludeTopicless: boolean,
+  excludeTopics: string[],
   protocolFilter: string | null,
   postsPerTopic: number,
   tipHeight: number,
@@ -97,10 +104,14 @@ async function getGroupedFeed(
     };
   }
 
-  const topics = await prisma.topicAggregate.findMany({
+  const topicsRaw = await prisma.topicAggregate.findMany({
     orderBy: { totalBurned: "desc" },
     take: 50,
   });
+
+  const topics = excludeTopics.length > 0
+    ? topicsRaw.filter((t) => !excludeTopics.includes(t.topicHash))
+    : topicsRaw;
 
   const groups: TopicGroup[] = [];
 
@@ -120,18 +131,20 @@ async function getGroupedFeed(
     }
   }
 
-  const standalone = await prisma.post.findMany({
-    where: { topicHash: null, parentHash: null, ...protoWhere },
-    include: { burns: { select: { amount: true } } },
-    orderBy: { blockHeight: "desc" },
-    take: 3,
-  });
+  if (!excludeTopicless) {
+    const standalone = await prisma.post.findMany({
+      where: { topicHash: null, parentHash: null, ...protoWhere },
+      include: { burns: { select: { amount: true } } },
+      orderBy: { blockHeight: "desc" },
+      take: 3,
+    });
 
-  if (standalone.length > 0) {
-    const mapped = standalone
-      .map((p) => mapPost(p, tipHeight))
-      .sort((a, b) => b.burnTotal - a.burnTotal);
-    groups.push({ topic: null, posts: mapped });
+    if (standalone.length > 0) {
+      const mapped = standalone
+        .map((p) => mapPost(p, tipHeight))
+        .sort((a, b) => b.burnTotal - a.burnTotal);
+      groups.push({ topic: null, posts: mapped });
+    }
   }
 
   return { groups };
@@ -141,6 +154,8 @@ async function getFlatFeed(
   sort: "new" | "top",
   topicFilter: string | null,
   topicless: boolean,
+  excludeTopicless: boolean,
+  excludeTopics: string[],
   protocolFilter: string | null,
   cursor: string | null,
   limit: number,
@@ -149,6 +164,18 @@ async function getFlatFeed(
   const where: Record<string, unknown> = {};
   if (topicFilter) where.topicHash = topicFilter;
   if (topicless) where.topicHash = null;
+  if ((excludeTopicless || excludeTopics.length > 0) && !topicFilter && !topicless) {
+    if (excludeTopicless && excludeTopics.length > 0) {
+      where.AND = [
+        { topicHash: { not: null } },
+        { topicHash: { notIn: excludeTopics } },
+      ];
+    } else if (excludeTopicless) {
+      where.topicHash = { not: null };
+    } else {
+      where.topicHash = { notIn: excludeTopics };
+    }
+  }
   if (protocolFilter) where.protocol = protocolFilter;
 
   if (sort === "new") {

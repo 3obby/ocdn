@@ -10,14 +10,11 @@ import {
   type FeedFilter,
 } from "@/lib/mock-data";
 import { type TextSize, TextSizeCtx } from "@/lib/text-size";
-import { TopicSearchPill } from "@/components/topic-search-pill";
+import { TopBar } from "@/components/top-bar";
 import { FeedCard } from "@/components/feed-card";
 import { ThreadView } from "@/components/thread-view";
 import { ComposeSheet } from "@/components/compose-sheet";
-import { BottomNav } from "@/components/bottom-nav";
 import { SearchView } from "@/components/search-view";
-import { SortMenu } from "@/components/sort-menu";
-import { Plus } from "lucide-react";
 
 const HELLO_WORLD: Post = {
   id: "_hello",
@@ -35,8 +32,10 @@ const HELLO_WORLD: Post = {
 };
 
 export default function Home() {
-  const [tab, setTab] = useState<"feed" | "search">("feed");
+  const [searchQuery, setSearchQuery] = useState("");
   const [feedFilter, setFeedFilter] = useState<FeedFilter>({ type: "all" });
+  const [includeTopicless, setIncludeTopicless] = useState(true);
+  const [excludedTopicHashes, setExcludedTopicHashes] = useState<string[]>([]);
   const [sortMode, setSortMode] = useState<SortMode>("topics");
   const [threadPostId, setThreadPostId] = useState<string | null>(null);
   const [textSize, setTextSize] = useState<TextSize>("sm");
@@ -55,24 +54,24 @@ export default function Home() {
   const tipHeightRef = useRef(0);
   const sortRef = useRef(sortMode);
   const filterRef = useRef<FeedFilter>(feedFilter);
+  const includeTopiclessRef = useRef(includeTopicless);
+  const excludedTopicHashesRef = useRef(excludedTopicHashes);
   const fetchVersionRef = useRef(0);
   const loadingMoreRef = useRef(false);
 
   sortRef.current = sortMode;
   filterRef.current = feedFilter;
+  includeTopiclessRef.current = includeTopicless;
+  excludedTopicHashesRef.current = excludedTopicHashes;
 
   const feedFilterKey =
-    feedFilter.type === "all" ? "all" :
+    feedFilter.type === "all" ? `all:${includeTopicless}:${excludedTopicHashes.join(",")}` :
     feedFilter.type === "topic" ? `t:${feedFilter.hash}` :
     feedFilter.type === "topicless" ? "topicless" :
     `p:${feedFilter.protocol}`;
 
-  const activeTopicLabel =
-    feedFilter.type === "topic"
-      ? (feedFilter.name ?? feedFilter.hash.slice(0, 8))
-      : null;
-
-  const inThread = tab === "feed" && threadPostId !== null;
+  const inThread = threadPostId !== null;
+  const showFeed = searchQuery.trim().length === 0;
   const sz = textSize === "lg" ? "text-[24px]" : "text-[14px]";
 
   // ── fetch feed on sort/filter/refresh change ──
@@ -86,6 +85,7 @@ export default function Home() {
     if (f.type === "topic") params.set("topic", f.hash);
     else if (f.type === "topicless") params.set("topicless", "true");
     else if (f.type === "protocol") params.set("protocol", f.protocol);
+    else if (!includeTopicless) params.set("excludeTopicless", "true");
 
     fetch(`/api/feed?${params}`)
       .then((r) => {
@@ -118,7 +118,7 @@ export default function Home() {
         if (version !== fetchVersionRef.current) return;
         setLoading(false);
       });
-  }, [sortMode, feedFilterKey, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sortMode, feedFilterKey, includeTopicless, excludedTopicHashes, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── load more (cursor pagination) ──
   const loadMore = useCallback(() => {
@@ -134,6 +134,10 @@ export default function Home() {
     if (f.type === "topic") params.set("topic", f.hash);
     else if (f.type === "topicless") params.set("topicless", "true");
     else if (f.type === "protocol") params.set("protocol", f.protocol);
+    else {
+      if (!includeTopicless) params.set("excludeTopicless", "true");
+      if (excludedTopicHashes.length > 0) params.set("excludeTopics", excludedTopicHashes.join(","));
+    }
 
     fetch(`/api/feed?${params}`)
       .then((r) => r.json())
@@ -146,7 +150,7 @@ export default function Home() {
       .finally(() => {
         loadingMoreRef.current = false;
       });
-  }, [nextCursor, sortMode]);
+  }, [nextCursor, sortMode, includeTopicless, excludedTopicHashes]);
 
   // ── SSE real-time updates ──
   useEffect(() => {
@@ -173,6 +177,11 @@ export default function Home() {
             if (f.type === "topic") params.set("topic", f.hash);
             else if (f.type === "topicless") params.set("topicless", "true");
             else if (f.type === "protocol") params.set("protocol", f.protocol);
+            else {
+              if (!includeTopiclessRef.current) params.set("excludeTopicless", "true");
+              const excl = excludedTopicHashesRef.current;
+              if (excl.length > 0) params.set("excludeTopics", excl.join(","));
+            }
             fetch(`/api/feed?${params}`)
               .then((r) => r.json())
               .then((d) => {
@@ -277,32 +286,40 @@ export default function Home() {
   return (
     <TextSizeCtx.Provider value={textSize}>
       <div className="flex h-dvh flex-col bg-black text-white">
-        {tab === "feed" && !inThread && (
-          <>
-            <TopicSearchPill
-              feedFilter={feedFilter}
-              onSelect={setFeedFilter}
-            />
-            <SortMenu
-              active={sortMode}
-              onChange={setSortMode}
-              textSize={textSize}
-              onTextSizeChange={setTextSize}
-            />
-          </>
+        {!inThread && (
+          <TopBar
+            feedFilter={feedFilter}
+            onFeedFilterChange={setFeedFilter}
+            searchQuery={searchQuery}
+            onSearchQueryChange={setSearchQuery}
+            sortMode={sortMode}
+            onSortChange={setSortMode}
+            textSize={textSize}
+            onTextSizeChange={setTextSize}
+            onCompose={() =>
+              setComposing({
+                replyToId: null,
+                topicName: feedFilter.type === "topic" ? feedFilter.name : null,
+              })
+            }
+            includeTopicless={includeTopicless}
+            onIncludeTopiclessChange={setIncludeTopicless}
+            excludedTopicHashes={excludedTopicHashes}
+            onExcludedTopicHashesChange={setExcludedTopicHashes}
+          />
         )}
 
         <div className="relative flex-1 overflow-hidden">
-          {tab === "feed" ? (
-            inThread ? (
-              <ThreadView
-                postId={threadPostId!}
-                onBack={() => setThreadPostId(null)}
-                onReply={(id) =>
-                  setComposing({ replyToId: id, topicName: null })
-                }
-              />
-            ) : loading && groups.length === 0 && posts.length === 0 ? (
+          {inThread ? (
+            <ThreadView
+              postId={threadPostId!}
+              onBack={() => setThreadPostId(null)}
+              onReply={(id) =>
+                setComposing({ replyToId: id, topicName: null })
+              }
+            />
+          ) : showFeed ? (
+            loading && groups.length === 0 && posts.length === 0 ? (
               <div
                 className={`flex h-32 items-center justify-center ${sz} text-white/10 animate-pulse`}
               >
@@ -325,10 +342,14 @@ export default function Home() {
               >
                 {sortMode === "topics" ? (
                   groups.length === 0 ? (
-                    <FeedCard
-                      post={HELLO_WORLD}
-                      onExpand={() => {}}
-                    />
+                    (excludedTopicHashes.length > 0 || !includeTopicless) ? (
+                      <div className={`flex h-32 items-center justify-center ${sz} text-white/10`}>—</div>
+                    ) : (
+                      <FeedCard
+                        post={HELLO_WORLD}
+                        onExpand={() => {}}
+                      />
+                    )
                   ) : (
                     groups.map((group) => (
                       <div key={group.topic?.hash ?? "_standalone"}>
@@ -379,10 +400,14 @@ export default function Home() {
                     ))
                   )
                 ) : posts.length === 0 ? (
-                  <FeedCard
-                    post={HELLO_WORLD}
-                    onExpand={() => {}}
-                  />
+                  (excludedTopicHashes.length > 0 || !includeTopicless) ? (
+                    <div className={`flex h-32 items-center justify-center ${sz} text-white/10`}>—</div>
+                  ) : (
+                    <FeedCard
+                      post={HELLO_WORLD}
+                      onExpand={() => {}}
+                    />
+                  )
                 ) : (
                   posts.map((p) => (
                     <FeedCard
@@ -396,28 +421,13 @@ export default function Home() {
             )
           ) : (
             <SearchView
+              query={searchQuery}
               onExpand={(id) => {
-                setTab("feed");
                 setThreadPostId(id);
               }}
             />
           )}
         </div>
-
-        {tab === "feed" && !inThread && !composing && (
-          <button
-            onClick={() =>
-              setComposing({
-                replyToId: null,
-                topicName: feedFilter.type === "topic" ? feedFilter.name : null,
-              })
-            }
-            className={`absolute bottom-18 right-4 z-10 flex items-center gap-2 bg-white text-black px-4 py-2.5 ${sz} hover:bg-white/90 transition-colors`}
-          >
-            <Plus size={textSize === "lg" ? 20 : 14} strokeWidth={1.5} />
-            {activeTopicLabel ?? "post"}
-          </button>
-        )}
 
         {composing && (
           <ComposeSheet
@@ -427,14 +437,6 @@ export default function Home() {
             onSubmitted={refreshFeed}
           />
         )}
-
-        <BottomNav
-          tab={tab}
-          onTabChange={(t) => {
-            setTab(t);
-            if (t === "feed") setThreadPostId(null);
-          }}
-        />
       </div>
     </TextSizeCtx.Provider>
   );
