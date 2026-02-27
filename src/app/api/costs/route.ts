@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { rateLimit, errorResponse, log } from "@/lib/api-utils";
+import { rateLimit, errorResponse, log, PORTAL_RAKE_SATS } from "@/lib/api-utils";
 import { createPostEnvelope, createReplyEnvelope } from "@/lib/protocol/create";
 import { generateNonce, generateKeyPair } from "@/lib/protocol/crypto";
 import { HASH_LENGTH } from "@/lib/protocol/constants";
@@ -37,11 +37,15 @@ export async function GET(request: Request) {
         return errorResponse("feeRate must be a positive number");
       }
     } else {
-      const rpc = getRpc();
-      const feeEst = await rpc.estimateSmartFee(6);
-      feeRate = feeEst.feerate
-        ? Math.ceil(feeEst.feerate * 1e8 / 1000)
-        : 2;
+      try {
+        const rpc = getRpc();
+        const feeEst = await rpc.estimateSmartFee(6);
+        feeRate = feeEst.feerate
+          ? Math.ceil(feeEst.feerate * 1e8 / 1000)
+          : 2;
+      } catch {
+        feeRate = 2;
+      }
     }
 
     const sampleContent = contentParam ?? "A".repeat(280);
@@ -70,28 +74,31 @@ export async function GET(request: Request) {
     // Signal cost estimate
     const signalCost = estimateSignalCost(feeRate);
 
+    const rake = PORTAL_RAKE_SATS;
+
     return NextResponse.json({
       feeRate,
+      rake,
       post: {
-        commitVsize: postCost.commitVsize,
-        revealVsize: postCost.revealVsize,
-        totalVsize: postCost.totalVsize,
-        totalFeeSats: Number(postCost.totalFeeSats),
+        minerFee: Number(postCost.totalFeeSats),
+        rake,
+        totalSats: Number(postCost.totalFeeSats) + rake,
       },
       reply: {
-        commitVsize: replyCost.commitVsize,
-        revealVsize: replyCost.revealVsize,
-        totalVsize: replyCost.totalVsize,
-        totalFeeSats: Number(replyCost.totalFeeSats),
+        minerFee: Number(replyCost.totalFeeSats),
+        rake,
+        totalSats: Number(replyCost.totalFeeSats) + rake,
       },
       burn: {
-        vsize: burnCost.vsize,
-        feeSats: Number(burnCost.feeSats),
-        note: "fee shown is the tx mining fee; the 'amount' you specify is the additional sats burned",
+        minerFee: Number(burnCost.feeSats),
+        rake,
+        totalSats: Number(burnCost.feeSats) + rake,
+        note: "total excludes the burn amount itself",
       },
       signal: {
-        vsize: signalCost.vsize,
-        feeSats: Number(signalCost.feeSats),
+        minerFee: Number(signalCost.feeSats),
+        rake,
+        totalSats: Number(signalCost.feeSats) + rake,
       },
     });
   } catch (err) {

@@ -11,6 +11,8 @@ export type Post = {
   timestamp: number;
   blockHeight: number;
   confirmations: number;
+  ephemeral?: boolean;
+  expiresAt?: string;
 };
 
 export type Topic = {
