@@ -12,6 +12,21 @@ import {
 } from "@/lib/api-utils";
 import type { TopicGroup, Post as FrontendPost } from "@/lib/mock-data";
 
+/** Batch-fetch ephemeral counts for a list of content hashes. */
+async function batchEphemeralCounts(hashes: string[]): Promise<Map<string, number>> {
+  if (hashes.length === 0) return new Map();
+  const rows = await prisma.ephemeralPost.groupBy({
+    by: ["parentContentHash"],
+    where: { parentContentHash: { in: hashes }, expiresAt: { gt: new Date() } },
+    _count: { parentContentHash: true },
+  });
+  return new Map(rows.map((r) => [r.parentContentHash!, r._count.parentContentHash]));
+}
+
+function withEphCount(posts: FrontendPost[], countMap: Map<string, number>): FrontendPost[] {
+  return posts.map((p) => ({ ...p, ephemeralCount: countMap.get(p.contentHash) ?? 0 }));
+}
+
 export const dynamic = "force-dynamic";
 
 /**
@@ -178,11 +193,15 @@ async function getGroupedFeed(
   const ewPage = ewHasMore ? ewRaw.slice(0, sectionLimit) : ewRaw;
   const ewPosts = ewPage.map((p) => mapPost(p, tipHeight));
 
+  // Batch ephemeral counts for all posts
+  const allPosts = [...groups.flatMap((g) => g.posts), ...untagged, ...ewPosts];
+  const ephCounts = await batchEphemeralCounts(allPosts.map((p) => p.contentHash));
+
   return {
-    groups,
-    untagged,
+    groups: groups.map((g) => ({ ...g, posts: withEphCount(g.posts, ephCounts) })),
+    untagged: withEphCount(untagged, ephCounts),
     untaggedHasMore,
-    ewPosts,
+    ewPosts: withEphCount(ewPosts, ephCounts),
     ewHasMore,
   };
 }
@@ -223,7 +242,9 @@ async function getSectionFeed(
 
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
-  return { posts: page.map((p) => mapPost(p, tipHeight)), hasMore };
+  const mapped = page.map((p) => mapPost(p, tipHeight));
+  const ephCounts = await batchEphemeralCounts(mapped.map((p) => p.contentHash));
+  return { posts: withEphCount(mapped, ephCounts), hasMore };
 }
 
 async function getFlatFeed(
@@ -286,9 +307,10 @@ async function getFlatFeed(
     const hasMore = posts.length > limit;
     const page = hasMore ? posts.slice(0, limit) : posts;
     const mapped = page.map((p) => mapPost(p, tipHeight));
+    const ephCounts = await batchEphemeralCounts(mapped.map((p) => p.contentHash));
     const nextCursor = hasMore ? page[page.length - 1].contentHash : null;
 
-    return { posts: mapped, nextCursor };
+    return { posts: withEphCount(mapped, ephCounts), nextCursor };
   }
 
   // sort === "top" — rank by burn total
@@ -300,11 +322,11 @@ async function getFlatFeed(
   const mapped = posts.map((p) => mapPost(p, tipHeight));
   mapped.sort((a, b) => (order === "desc" ? b.burnTotal - a.burnTotal : a.burnTotal - b.burnTotal));
 
-  // Simple offset pagination for "top" since ordering is by computed value
   const cursorIdx = cursor ? mapped.findIndex((p) => p.contentHash === cursor) : -1;
   const startIdx = cursorIdx >= 0 ? cursorIdx + 1 : 0;
   const page = mapped.slice(startIdx, startIdx + limit);
   const nextCursor = startIdx + limit < mapped.length ? page[page.length - 1]?.contentHash ?? null : null;
+  const ephCounts = await batchEphemeralCounts(page.map((p) => p.contentHash));
 
-  return { posts: page, nextCursor };
+  return { posts: withEphCount(page, ephCounts), nextCursor };
 }

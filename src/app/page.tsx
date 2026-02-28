@@ -8,6 +8,7 @@ import {
   type TopicGroup,
   type Post,
   type FeedFilter,
+  type EphemeralPost,
 } from "@/lib/mock-data";
 import { ChevronRight, ChevronDown, Loader2 } from "lucide-react";
 import { type TextSize, TextSizeCtx } from "@/lib/text-size";
@@ -16,6 +17,8 @@ import { FeedCard } from "@/components/feed-card";
 import { ThreadView } from "@/components/thread-view";
 import { ComposeSheet } from "@/components/compose-sheet";
 import { SearchView } from "@/components/search-view";
+import { EphemeralPostCard } from "@/components/ephemeral-post-card";
+import { ProfileIcon, ProfileSheet } from "@/components/profile-icon";
 
 const HELLO_WORLD: Post = {
   id: "_hello",
@@ -187,6 +190,10 @@ export default function Home() {
     replyToId: string | null;
     topicName: string | null;
   } | null>(null);
+
+  // Session-local ephemeral posts (optimistic, cleared on reload)
+  const [myEphemeralPosts, setMyEphemeralPosts] = useState<EphemeralPost[]>([]);
+  const [showProfile, setShowProfile] = useState(false);
 
   const [groups, setGroups] = useState<TopicGroup[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
@@ -459,6 +466,16 @@ export default function Home() {
 
   const refreshFeed = useCallback(() => setRefreshKey((k) => k + 1), []);
 
+  // Called by ComposeSheet on successful Nostr post
+  const handleSubmitted = useCallback((ephPost?: EphemeralPost) => {
+    if (ephPost) {
+      setMyEphemeralPosts((prev) => [ephPost, ...prev]);
+    } else {
+      refreshFeed();
+    }
+    setComposing(null);
+  }, [refreshFeed]);
+
   const resetHome = useCallback(() => {
     setFeedFilter({ type: "all" });
     setSearchQuery("");
@@ -549,6 +566,7 @@ export default function Home() {
                 topicName: feedFilter.type === "topic" ? feedFilter.name : null,
               })
             }
+            onOpenProfile={() => setShowProfile(true)}
             includeTopicless={includeTopicless}
             onIncludeTopiclessChange={setIncludeTopicless}
             excludedTopicHashes={excludedTopicHashes}
@@ -564,6 +582,9 @@ export default function Home() {
               onReply={(id) =>
                 setComposing({ replyToId: id, topicName: null })
               }
+              initialEphemeralPosts={myEphemeralPosts.filter(
+                (e) => e.parentContentHash === threadPostId,
+              )}
             />
           ) : showFeed ? (
             loading && groups.length === 0 && posts.length === 0 ? (
@@ -585,6 +606,17 @@ export default function Home() {
                 className="h-full overflow-y-auto"
                 onScroll={handleFeedScroll}
               >
+                {/* Optimistic: my own ephemeral root posts, always at top in any sort/feed mode */}
+                {myEphemeralPosts.filter((e) => !e.parentContentHash).length > 0 && (
+                  <div className="divide-y divide-white/[0.04]">
+                    {myEphemeralPosts
+                      .filter((e) => !e.parentContentHash)
+                      .map((ep) => (
+                        <EphemeralPostCard key={ep.nostrEventId} post={ep} optimistic />
+                      ))}
+                  </div>
+                )}
+
                 {sortMode === "topics" && feedFilter.type === "all"
                   ? <TopicsFeed
                       groups={groups}
@@ -667,7 +699,14 @@ export default function Home() {
             replyToId={composing.replyToId}
             topicName={composing.topicName}
             onClose={() => setComposing(null)}
-            onSubmitted={refreshFeed}
+            onSubmitted={handleSubmitted}
+          />
+        )}
+
+        {showProfile && (
+          <ProfileSheet
+            onClose={() => setShowProfile(false)}
+            onExpand={(id) => { setShowProfile(false); expandPost(id); }}
           />
         )}
       </div>

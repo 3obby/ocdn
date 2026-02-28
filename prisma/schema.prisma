@@ -57,10 +57,11 @@ model Post {
   createdAt     DateTime @map("created_at") // block timestamp
   indexedAt      DateTime @default(now()) @map("indexed_at")
 
-  block         IndexedBlock @relation(fields: [blockHash], references: [hash], onDelete: Cascade)
-  parent        Post?     @relation("ThreadTree", fields: [parentHash], references: [contentHash])
-  children      Post[]    @relation("ThreadTree")
-  burns         Burn[]    @relation("ContentBurns")
+  block            IndexedBlock    @relation(fields: [blockHash], references: [hash], onDelete: Cascade)
+  parent           Post?           @relation("ThreadTree", fields: [parentHash], references: [contentHash])
+  children         Post[]          @relation("ThreadTree")
+  burns            Burn[]          @relation("ContentBurns")
+  ephemeralChildren EphemeralPost[] @relation("EphemeralBitcoinParent")
 
   @@index([blockHeight])
   @@index([authorPubkey])
@@ -210,20 +211,48 @@ model PaymentRequest {
   @@map("payment_requests")
 }
 
-// ═══ EPHEMERAL POSTS (local cache, pre-payment) ═══
+// ═══ EPHEMERAL POSTS (Nostr layer) ═══
 
 model EphemeralPost {
-  id            String   @id @default(cuid())
-  content       String
-  topic         String?
-  parentHash    String?  @map("parent_hash")
-  authorIp      String   @map("author_ip")
-  paymentId     String?  @map("payment_id")       // linked PaymentRequest
-  status        String   @default("cached")        // cached, paying, upgraded, expired
-  expiresAt     DateTime @map("expires_at")
-  createdAt     DateTime @default(now()) @map("created_at")
+  nostrEventId      String   @id @map("nostr_event_id")
+  nostrPubkey       String   @map("nostr_pubkey")
+  content           String
+  topic             String?
+  topicHash         String?  @map("topic_hash")
+  parentContentHash String?  @map("parent_content_hash")
+  parentNostrId     String?  @map("parent_nostr_id")
+  powDifficulty     Int      @default(0) @map("pow_difficulty")
+  upvoteWeight      BigInt   @default(0) @map("upvote_weight")
+  rawEvent          Json     @map("raw_event")
+  expiresAt         DateTime @map("expires_at")
+  promotedToHash    String?  @map("promoted_to_hash")
+  createdAt         DateTime @default(now()) @map("created_at")
 
-  @@index([status])
+  bitcoinParent     Post?          @relation("EphemeralBitcoinParent", fields: [parentContentHash], references: [contentHash])
+  children          EphemeralPost[] @relation("EphemeralThread")
+  parentEphemeral   EphemeralPost?  @relation("EphemeralThread", fields: [parentNostrId], references: [nostrEventId])
+
+  @@index([topicHash])
+  @@index([parentContentHash])
+  @@index([parentNostrId])
   @@index([expiresAt])
+  @@index([nostrPubkey])
   @@map("ephemeral_posts")
+}
+
+model NostrBoost {
+  id                Int      @id @default(autoincrement())
+  nostrEventId      String   @unique @map("nostr_event_id")
+  nostrPubkey       String   @map("nostr_pubkey")
+  targetNostrId     String?  @map("target_nostr_id")
+  targetContentHash String?  @map("target_content_hash")
+  powDifficulty     Int      @map("pow_difficulty")
+  powWeight         BigInt   @map("pow_weight")
+  rawEvent          Json     @map("raw_event")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([targetNostrId])
+  @@index([targetContentHash])
+  @@index([nostrPubkey])
+  @@map("nostr_boosts")
 }

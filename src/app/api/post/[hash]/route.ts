@@ -26,7 +26,11 @@ export async function GET(
 
     if (!post) return notFound("Post not found");
 
-    return NextResponse.json({ post: mapPost(post, tipHeight) });
+    const ephemeralCount = await prisma.ephemeralPost.count({
+      where: { parentContentHash: hash, expiresAt: { gt: new Date() } },
+    });
+
+    return NextResponse.json({ post: { ...mapPost(post, tipHeight), ephemeralCount } });
   } catch (err) {
     log("error", "api/post", "post query failed", { hash, error: String(err) });
     return errorResponse("Internal server error", 500);

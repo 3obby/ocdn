@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import type { Post as PrismaPost } from "@/generated/prisma/client";
-import type { Post as FrontendPost, Topic } from "./mock-data";
+import type { Post as PrismaPost, EphemeralPost as PrismaEphemeralPost } from "@/generated/prisma/client";
+import type { Post as FrontendPost, Topic, EphemeralPost as FrontendEphemeralPost } from "./mock-data";
 
 // ═══ BIGINT SERIALIZATION ═══
 
@@ -261,4 +261,23 @@ export function errorResponse(message: string, status: number = 400) {
 
 export function notFound(message: string = "Not found") {
   return NextResponse.json({ error: message }, { status: 404 });
+}
+
+// ═══ EPHEMERAL POST MAPPER ═══
+
+export function mapEphemeralPost(p: PrismaEphemeralPost): FrontendEphemeralPost {
+  return {
+    nostrEventId: p.nostrEventId,
+    nostrPubkey: p.nostrPubkey,
+    content: p.content,
+    topic: p.topic ?? null,
+    topicHash: p.topicHash ?? null,
+    parentContentHash: p.parentContentHash ?? null,
+    parentNostrId: p.parentNostrId ?? null,
+    powDifficulty: p.powDifficulty,
+    upvoteWeight: Number(p.upvoteWeight),
+    expiresAt: p.expiresAt.toISOString(),
+    promotedToHash: p.promotedToHash ?? null,
+    createdAt: p.createdAt.toISOString(),
+  };
 }
