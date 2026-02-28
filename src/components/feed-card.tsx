@@ -89,7 +89,12 @@ export function FeedCard({
 
       {!isUnpaid && (
         <div className="absolute right-0 inset-y-0 flex items-center justify-end pr-3 pl-8 bg-gradient-to-r from-transparent to-[#0d0d0d] pointer-events-none">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
+            {(post.ephemeralCount ?? 0) > 0 && (
+              <span className="text-[10px] tabular-nums text-white/20">
+                💬{post.ephemeralCount}
+              </span>
+            )}
             <Eye size={12} strokeWidth={2} className="text-purple-300 shrink-0" />
             <span className="text-[11px] tabular-nums text-purple-200">{post.viewCount || 0}</span>
           </div>

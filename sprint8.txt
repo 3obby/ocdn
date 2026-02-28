@@ -1,0 +1,455 @@
+SPRINT 8: EPHEMERAL LAYER — NOSTR + PROOF-OF-WORK
+==================================================
+
+Current state: sprints 1-7 done. Bitcoin durable posts work end-to-end.
+Payment gate (sprint 6) handles the paid path. Frontend wired to real data
+(sprint 7). No free posting tier exists.
+
+═══ THE NEW MODEL ═══
+
+Every compose action produces an ephemeral post by default. No wallet,
+no sats, no account required. Ephemeral posts live on Nostr relays and
+in the portal cache with a TTL. A CTA on each ephemeral post offers two
+upgrade actions:
+
+  1. BOOST (PoW) — browser mines NIP-13 proof-of-work in a WebWorker.
+     User can run this for any duration. Higher difficulty = more weight =
+     longer cache TTL + higher ephemeral ranking. Free, costs only compute.
+
+  2. MAKE PERMANENT — pay sats → Bitcoin inscription → durable forever.
+     Follows the existing Sprint 6 payment gate flow.
+
+Bitcoin-layer posts (durable) are the canonical anchors. Nostr-layer posts
+(ephemeral) are the living debate attached to them. A post can begin
+ephemeral and be promoted to durable at any time by anyone willing to pay.
+
+Two ranking dimensions coexist on every post:
+  - economic weight: total sats burned (Bitcoin layer, existing)
+  - compute weight:  sum of 2^difficulty across all PoW reactions (Nostr layer)
+
+═══ EPHEMERAL VISIBILITY RULES ═══
+
+The home/default feed is a paid-content-only surface. Ephemeral posts from
+other users never appear in it. The rules are:
+
+  Home feed (default — collapsed topic cards):
+    - Shows durable Bitcoin posts only.
+    - Exception: YOUR OWN ephemeral posts appear immediately after you post,
+      optimistically inserted at the correct position. No one else sees them
+      here. They disappear from this view if you reload and the session key
+      is gone (true ephemeral UX — no promises).
+    - Ephemeral count badges ("💬 12") are shown on durable FeedCards to
+      signal that discussion exists inside — but the discussion is never
+      surfaced unprompted in the home feed.
+
+  Placement of YOUR ephemeral post (optimistic, immediate):
+    - No topic selected → injected at the top of the "new" sort feed,
+      rendered as EphemeralPostCard above the durable content.
+    - Topic selected → injected inline at the top of that topic's collapsed
+      group, as if it were a child of the topic anchor. Does not push durable
+      posts down — it appears inside the topic's thread context.
+    - Reply to a specific post → injected at the top of that post's ephemeral
+      section within ThreadView, immediately visible when the thread is open.
+
+  Thread view (expanded — user opened a specific post):
+    - Durable Bitcoin reply chain renders as before.
+    - Below it: a collapsed "N ephemeral replies" section, expandable on tap.
+    - Inside that section: ALL ephemeral replies (yours and others), sorted
+      by upvoteWeight desc (highest PoW first). Others' posts are visible
+      here because the user has opted into the thread context.
+    - Your own new reply appears optimistically at top of this section
+      immediately on post, before server confirmation.
+
+  Topic view (user tapped a topic chip — filtered topic feed):
+    - Shows durable posts for that topic.
+    - A "show ephemeral" toggle at the top of the topic feed (off by default).
+    - When toggled on: ephemeral posts for that topic appear interleaved,
+      styled as EphemeralPostCards. The toggle state persists per-session.
+    - Your own ephemeral posts for this topic always show regardless of toggle.
+
+  Profile view (user has a linked Bitcoin identity — see below):
+    - Shows all durable posts by that pubkey.
+    - Shows all ephemeral posts by the linked Nostr pubkey(s) for this session.
+    - No visibility restrictions — it is your own history view.
+
+  Summary table:
+    Context               | Your ephemeral | Others' ephemeral
+    ─────────────────────────────────────────────────────────────
+    Home feed             | Yes (optimistic) | No (num indicator only)
+    Topic feed            | Yes (optimistic) | (expandable bottom/replies only)
+    Thread view           | Yes (optimistic) | Yes (collapsed, expandable)
+    Profile view          | Yes              | No
+
+═══ SESSION IDENTITY & PROFILE ═══
+
+When a user completes a payment (Sprint 6 flow), they have demonstrated a
+Bitcoin identity (the portal signed a tx attributable to a pubkey). At that
+moment, associate their current session's Nostr pubkey with that Bitcoin
+pubkey and persist it in localStorage.
+
+  localStorage key: "ocdn_identity"
+  Value: { bitcoinPubkey: string, nostrPubkeys: string[], linkedAt: number }
+  nostrPubkeys is an array — each new session that completes a payment adds
+  its Nostr pubkey to the list (capped at last 10 sessions).
+
+On app load:
+  - Check localStorage for "ocdn_identity"
+  - If found: show a profile icon in the nav (bottom nav or top bar)
+  - Profile icon tap → opens profile view filtered to bitcoinPubkey
+  - Profile view shows: all durable posts by this pubkey, all ephemeral posts
+    from any linked nostrPubkey, total burns given/received, pubkey (shortened)
+
+Sprint 6 retrofit (new task in sprint 8):
+  - In the payment completion handler (ComposeSheet or wherever sprint 6
+    calls the success callback), call linkSessionIdentity(bitcoinPubkey)
+  - linkSessionIdentity(bitcoinPubkey): reads current session Nostr pubkey
+    from sessionStorage ("ocdn_nostr_priv"), derives its pubkey, appends to
+    localStorage "ocdn_identity" record
+  - This is a client-only operation — no new API route needed
+
+New component: ProfileIcon (src/components/profile-icon.tsx)
+  - Renders in BottomNav (or top bar) only if localStorage has ocdn_identity
+  - Shows a small avatar-like icon: first 4 chars of bitcoinPubkey as monogram
+  - Tap → opens profile sheet (full-screen slide-up, same pattern as ThreadView)
+  - Profile sheet: "your posts" feed (GET /api/author/[bitcoinPubkey]),
+    ephemeral posts list from linked nostrPubkeys, stats row
+
+═══ NOSTR PROTOCOL CONVENTIONS ═══
+
+All OCDN Nostr events use the following tag conventions:
+
+  Post / reply (kind 1):
+    ["t", "ocdn"]                              — required, for relay filter
+    ["t", "<topic>"]                           — optional, topic name
+    ["ocdn-ref", "<content-hash>"]             — Bitcoin-layer parent hash (if replying to durable post)
+    ["e", "<parent-nostr-id>", "", "reply"]    — NIP-10 thread reference (if replying to ephemeral)
+    ["nonce", "<nonce>", "<difficulty>"]       — NIP-13 PoW (required, minimum difficulty 8)
+
+  PoW upvote / boost (kind 7, NIP-25):
+    ["e", "<target-nostr-event-id>"]           — target ephemeral post
+    ["ocdn-ref", "<content-hash>"]             — or target Bitcoin-layer post
+    ["nonce", "<nonce>", "<difficulty>"]       — NIP-13 PoW (minimum difficulty 12 to count)
+
+Relay list (configurable via NOSTR_RELAYS env):
+  wss://relay.damus.io
+  wss://relay.nostr.band
+  wss://nos.lol
+  wss://relay.primal.net
+
+═══ DATA MODEL ═══
+
+New Prisma models to add to prisma/schema.prisma:
+
+  EphemeralPost {
+    nostrEventId     String    @id                 -- Nostr event ID (hex, 32 bytes)
+    nostrPubkey      String                        -- author's Nostr pubkey (ephemeral per-session)
+    content          String
+    topic            String?
+    topicHash        String?
+    parentContentHash String?                      -- references Post.contentHash (if child of durable)
+    parentNostrId    String?                       -- references EphemeralPost.nostrEventId (if nested)
+    powDifficulty    Int       @default(0)         -- difficulty achieved by author at post time
+    upvoteWeight     BigInt    @default(0)         -- sum of 2^difficulty across all boosts received
+    rawEvent         Json                          -- full signed Nostr event object
+    expiresAt        DateTime                      -- createdAt + TTL (see TTL rules below)
+    promotedToHash   String?                       -- contentHash if promoted to Bitcoin layer
+    createdAt        DateTime  @default(now())
+
+    parent           Post?     @relation(fields: [parentContentHash], references: [contentHash])
+    children         EphemeralPost[] @relation("EphemeralThread")
+    parentEphemeral  EphemeralPost?  @relation("EphemeralThread", fields: [parentNostrId], references: [nostrEventId])
+  }
+
+  NostrBoost {
+    id               Int       @id @default(autoincrement())
+    nostrEventId     String    @unique                -- the kind:7 reaction event ID
+    nostrPubkey      String
+    targetNostrId    String?                          -- ephemeral target
+    targetContentHash String?                         -- Bitcoin-layer target
+    powDifficulty    Int
+    powWeight        BigInt                           -- 2^powDifficulty, precomputed
+    rawEvent         Json
+    createdAt        DateTime  @default(now())
+  }
+
+  indexes: topicHash, parentContentHash, parentNostrId, expiresAt, targetNostrId, targetContentHash
+
+TTL rules (expiresAt):
+  base TTL:                      24 hours
+  per difficulty point above 8:  +1 hour (difficulty 20 → base + 12h = 36h)
+  per boost received (difficulty ≥ 12): +30 minutes, capped at 7 days total
+  promoted posts:                TTL cleared (never pruned, kept as shadow record)
+
+═══ API ROUTES ═══
+
+New endpoints:
+
+  POST /api/ephemeral/publish
+    Body: { signedEvent: NostrEvent }  — client-built, signed, ready to broadcast
+    Actions:
+      1. Validate Nostr event signature (verify schnorr, check id hash)
+      2. Check minimum PoW difficulty (≥ 8 bits required to post)
+      3. Store in EphemeralPost table
+      4. Relay to configured Nostr relays (server broadcasts on behalf of client)
+      5. Return { nostrEventId, expiresAt, powDifficulty }
+    Rate limit: 30/min per IP
+
+  POST /api/ephemeral/boost
+    Body: { signedEvent: NostrEvent }  — kind:7 reaction event with PoW
+    Actions:
+      1. Validate event signature
+      2. Require minimum difficulty ≥ 12 bits (prevents trivial spam)
+      3. Store in NostrBoost table
+      4. Update EphemeralPost.upvoteWeight (add 2^difficulty)
+      5. Extend EphemeralPost.expiresAt per TTL rules
+      6. Relay to Nostr
+      7. Return { upvoteWeight, expiresAt }
+    Rate limit: 60/min per IP (PoW is its own rate limiter)
+
+  GET /api/ephemeral/[nostrEventId]
+    Returns: { post: EphemeralPost, boosts: NostrBoost[], children: EphemeralPost[] }
+
+  GET /api/ephemeral?parentHash=<contentHash>&topicHash=<hash>&sort=new|top&cursor=&limit=
+    Returns ephemeral posts for a given parent or topic.
+    parentHash: ephemeral children of a specific Bitcoin-layer post (for ThreadView)
+    topicHash: ephemeral posts under a topic (for topic feed toggle)
+    sort=new: by createdAt desc
+    sort=top: by upvoteWeight desc
+    Returns: { posts: EphemeralPost[], nextCursor }
+    Note: this endpoint is never called for the home feed — home feed is durable-only.
+
+  DELETE /api/ephemeral/[nostrEventId]  (internal, called by cleanup job)
+    Prune expired posts. Only callable with API_WRITE_KEY.
+
+Modify existing endpoints:
+
+  GET /api/post/[hash]
+    Add: ephemeralCount (count of EphemeralPost where parentContentHash = hash)
+
+  GET /api/thread/[hash]
+    Add: ephemeralReplies array on each ThreadItem
+    (top N ephemeral children by upvoteWeight, not full recursive tree — keep it fast)
+
+  GET /api/feed (all sorts)
+    Add: ephemeralCount on each Post in response
+
+═══ NOSTR CLIENT LIBRARY ═══
+
+New file: src/lib/nostr/
+
+  client.ts
+    - generateEphemeralKeypair(): { privkey: Uint8Array, pubkey: string }
+      generate a fresh secp256k1 keypair using @noble/curves. store privkey in
+      sessionStorage (ephemeral per-tab, not persisted). this is the author identity
+      for the session — NOT linked to any Bitcoin key.
+    - buildPostEvent(content, topic?, parentContentHash?, parentNostrId?): UnsignedEvent
+      construct kind:1 Nostr event with correct ocdn tags
+    - buildBoostEvent(targetNostrId?, targetContentHash?): UnsignedEvent
+      construct kind:7 Nostr event
+    - signEvent(event: UnsignedEvent, privkey: Uint8Array): SignedEvent
+      schnorr sign, compute event ID (sha256 of canonical JSON)
+    - verifyEvent(event: SignedEvent): boolean
+    - broadcastToRelays(event: SignedEvent, relays: string[]): Promise<BroadcastResult[]>
+      open WebSocket connections to each relay, send EVENT message, await OK/NOTICE
+
+  pow.worker.ts  (WebWorker — runs off main thread)
+    Input message:  { eventTemplate: UnsignedEvent, targetDifficulty: number }
+    Output messages: { type: "progress", currentDifficulty: number, nonce: number }
+                     { type: "done", event: UnsignedEvent, difficulty: number, nonce: number }
+    Algorithm:
+      loop {
+        set tags.nonce = [nonce.toString(), targetDifficulty.toString()]
+        serialized = canonical_json(eventTemplate with nonce tag)
+        id = sha256(serialized)
+        bits = leading_zero_bits(id)
+        if bits >= targetDifficulty → post "done" message, stop
+        post "progress" every 10000 iterations
+        nonce++
+      }
+    Note: use @noble/hashes/sha256 (already a dep). No WASM needed — JS SHA256
+    is fast enough for difficulty ≤ 25 in-browser.
+
+  pow.ts  (main thread interface to the worker)
+    - startMining(event, targetDifficulty, onProgress): MiningHandle
+      spawns pow.worker.ts, wires up message handlers
+    - MiningHandle: { stop(): SignedEvent | null, currentDifficulty: number }
+      calling stop() terminates the worker and returns the best event found so far
+      (even if targetDifficulty not yet reached — partial PoW is fine)
+
+  relay-sub.ts  (server-side, Node — for the portal/indexer)
+    - subscribeToOcdnEvents(relays, onEvent): Subscription
+      opens persistent WebSocket connections, sends REQ filter:
+        { kinds: [1, 7], "#t": ["ocdn"], since: <last-seen-timestamp> }
+      reconnects with exponential backoff on disconnect
+      calls onEvent(signedEvent) for each incoming event
+    - Used by the indexer process to ingest ephemeral content into EphemeralPost table
+
+  index.ts  — barrel export
+
+Dependencies to add:
+  nostr-tools  (NIP parsing utilities, event ID computation, relay WebSocket handling)
+  — use its EventTemplate / getEventHash / validateEvent / verifySignature
+  — do NOT use its key generation (use @noble/curves already in project)
+
+═══ FRONTEND CHANGES ═══
+
+ComposeSheet (src/components/compose-sheet.tsx):
+  [ ] On submit: build Nostr event client-side (buildPostEvent), start PoW mining
+      at difficulty 8 (fast, ~100ms). Show "signing..." spinner during PoW.
+  [ ] On PoW complete: POST to /api/ephemeral/publish with the signed event.
+  [ ] Optimistic UI: immediately render ephemeral post in feed/thread before
+      server round-trip completes.
+  [ ] After server confirms: update local record with expiresAt + nostrEventId.
+  [ ] Remove direct call to POST /api/post (that becomes the "make permanent" path).
+  [ ] Keep topic picker, parent context (reply vs root post).
+
+New component: EphemeralPostCard (src/components/ephemeral-post-card.tsx)
+  Visual treatment:
+    - slightly dimmed (opacity ~70%), thin dashed border (1px dashed #333)
+    - small "ephemeral" badge top-right, styled as a countdown chip:
+        "expires in 18h" → "expires in 2h" (color shifts orange → red as deadline approaches)
+    - author shown as truncated Nostr pubkey: "nostr:ab3f…" (different from Bitcoin pubkey format)
+    - no burn counter (no sats committed)
+    - PoW weight shown: "⚡ 2^14" or "⚡ 16,384" — the sum of all boost weights
+  CTA strip (bottom of card, two buttons):
+    - [Boost] — triggers PoW mining flow (see below)
+    - [Make permanent] — triggers Sprint 6 payment gate with content pre-filled
+  On expired post: (deleted, nothing)
+
+New component: BoostButton (src/components/boost-button.tsx)
+  States:
+    idle:      [+⚡]  — tap to start mining
+    mining:    [⚡… x14 ↑]  — live difficulty counter, pulsing
+               [Stop & submit]  — secondary tap target to broadcast current best
+    submitted: [⚡ Boosted — weight 2^16]  — final state
+  Implementation:
+    - On tap: instantiate pow.ts startMining(event, targetDifficulty=20, onProgress)
+    - onProgress: update displayed current difficulty
+    - On "Stop & submit": call handle.stop(), POST /api/ephemeral/boost with result
+    - After server confirms: show final weight, update parent card's displayed weight
+  Note: targetDifficulty=20 means the user can mine indefinitely — they stop when
+  satisfied. Difficulty 20 ≈ 10-60 seconds depending on device. Difficulty 24 ≈ minutes.
+  The UI should communicate "longer = more weight = post lives longer."
+
+FeedCard (src/components/feed-card.tsx):
+  [ ] Add ephemeralCount badge: "💬 12 replies" below burn total (if > 0)
+  [ ] Tap on reply count → opens thread with ephemeral section expanded
+
+ThreadView (src/components/thread-view.tsx):
+  [ ] After the confirmed Bitcoin reply chain: render expandable ephemeral section
+      "Show N ephemeral replies" → expands to render EphemeralPostCard list
+      sorted by upvoteWeight desc (top PoW replies first)
+  [ ] Ephemeral replies are NOT indented further — they form a flat section
+      visually separated from the durable thread above
+
+Page / Feed (src/app/page.tsx):
+  [ ] Home feed shows ONLY durable posts to all users (no ephemeral in global feed)
+  [ ] Exception: optimistic own-post injection (see visibility rules above)
+      — track "my ephemeral posts this session" in a local React state array
+      — on compose success: prepend to local array, render at top of new feed
+        or inline under the correct topic group
+      — these local entries are cleared on page reload (true ephemeral)
+  [ ] Durable FeedCards show ephemeralCount badge ("💬 N") if > 0
+  [ ] In "topics" grouped mode: show ephemeralCount on each topic group header
+  [ ] Topic feed: add "show ephemeral" toggle at top, off by default
+      when toggled: fetch /api/ephemeral?topicHash=&sort=top and interleave
+
+Session keypair management:
+  [ ] On first compose action: generateEphemeralKeypair(), store privkey in
+      sessionStorage under key "ocdn_nostr_priv"
+  [ ] On subsequent actions in same session: reuse keypair (consistent author)
+  [ ] Do NOT persist across sessions — true ephemeral identity by default
+  [ ] Display a subtle "session: ab3f…" label in compose sheet footer
+
+Session-payment identity link (Sprint 6 retrofit):
+  [ ] In payment success callback: call linkSessionIdentity(bitcoinPubkey)
+      — reads sessionStorage "ocdn_nostr_priv", derives Nostr pubkey
+      — reads/writes localStorage "ocdn_identity" (append nostrPubkey to array)
+  [ ] On app boot: read localStorage "ocdn_identity", expose via React context
+      so ProfileIcon and profile view can access it
+
+Profile (new):
+  [ ] ProfileIcon component — renders in top nav bar (near text size change button) only if ocdn_identity exists
+      shows 4-char monogram of bitcoinPubkey
+  [ ] Profile sheet — slide-up, shows:
+        durable posts: GET /api/author/[bitcoinPubkey]
+        ephemeral posts: client-filter of session's own ephemeral posts
+        stats row: post count, total burns given/received
+        pubkey display: shortened, copyable
+  [ ] No new API routes needed — reuses /api/author/[pubkey]
+
+═══ SERVER-SIDE NOSTR RELAY SUBSCRIPTION ═══
+
+Extend scripts/indexer.ts (or run as separate process):
+  [ ] Import relay-sub.ts, subscribe to ocdn-tagged events on configured relays
+  [ ] On incoming kind:1 event: validate, store as EphemeralPost (dedup by nostrEventId)
+  [ ] On incoming kind:7 event: validate PoW ≥ 12, store as NostrBoost, update upvoteWeight
+  [ ] This means ephemeral posts created by OTHER clients (native Nostr apps) also
+      appear on ocdn.is — the portal is a lens over both Bitcoin and Nostr
+
+New env vars (append-only to .env):
+  NOSTR_RELAYS=wss://relay.damus.io,wss://relay.nostr.band,wss://nos.lol
+  EPHEMERAL_TTL_HOURS=24
+  NOSTR_MIN_POW_POST=8
+  NOSTR_MIN_POW_BOOST=12
+
+═══ CLEANUP JOB ═══
+
+New script: scripts/ephemeral-cleanup.ts
+  - Run via cron (every 15 minutes via VPS crontab or a setInterval in the indexer)
+  - DELETE FROM EphemeralPost WHERE expiresAt < NOW() AND promotedToHash IS NULL
+  - DELETE FROM NostrBoost WHERE createdAt < NOW() - INTERVAL '7 days'
+  - Log count of pruned records
+
+═══ TASK CHECKLIST ═══
+
+Schema / DB:
+  [ ] Add EphemeralPost model to prisma/schema.prisma
+  [ ] Add NostrBoost model to prisma/schema.prisma
+  [ ] Add indexes: topicHash, parentContentHash, parentNostrId, expiresAt,
+      targetNostrId, targetContentHash
+  [ ] npx prisma migrate dev (or push to Neon via migrate deploy)
+
+Nostr library (src/lib/nostr/):
+  [ ] client.ts — keypair gen, event building, signing, relay broadcast
+  [ ] pow.worker.ts — NIP-13 WebWorker miner
+  [ ] pow.ts — main thread interface (startMining, MiningHandle, stop)
+  [ ] relay-sub.ts — server-side relay subscription
+  [ ] index.ts — barrel export
+  [ ] add nostr-tools to package.json
+
+API routes:
+  [ ] POST /api/ephemeral/publish
+  [ ] POST /api/ephemeral/boost
+  [ ] GET  /api/ephemeral/[nostrEventId]
+  [ ] GET  /api/ephemeral?parentHash=&sort=&cursor=&limit=
+  [ ] Patch GET /api/post/[hash] → add ephemeralCount
+  [ ] Patch GET /api/thread/[hash] → add ephemeralReplies per item
+  [ ] Patch GET /api/feed (all sorts) → add ephemeralCount per post
+
+Frontend components:
+  [ ] EphemeralPostCard — dashed border, countdown badge, CTA strip
+  [ ] BoostButton — idle / mining (live counter) / submitted states
+  [ ] ProfileIcon — monogram, only renders when ocdn_identity in localStorage
+  [ ] Profile sheet — author feed + ephemeral history + stats
+  [ ] Integrate into FeedCard (ephemeralCount badge "💬 N", reply tap)
+  [ ] Integrate into ThreadView (collapsed ephemeral section, expandable)
+  [ ] Refactor ComposeSheet — submit → PoW mine → /api/ephemeral/publish
+      + optimistic injection into local feed/topic state on success
+      + call linkSessionIdentity on payment completion (sprint 6 retrofit)
+  [ ] Session keypair management (sessionStorage, label in compose footer)
+  [ ] Feed page — home shows only durable; topic feed has ephemeral toggle
+  [ ] Local "my ephemeral posts" session state (cleared on reload)
+
+Indexer / relay subscription:
+  [ ] Extend scripts/indexer.ts with relay-sub.ts subscription loop
+  [ ] Ingest kind:1 → EphemeralPost, kind:7 → NostrBoost + upvoteWeight update
+
+Cleanup:
+  [ ] scripts/ephemeral-cleanup.ts
+  [ ] Wire into indexer setInterval or VPS crontab
+
+Config:
+  [ ] Append NOSTR_* and EPHEMERAL_* vars to .env
+
+To test: npx next build. The prisma database has valuable live data — append-only to .env.

@@ -8,10 +8,17 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { formatSats } from "@/lib/mock-data";
+import { formatSats, type EphemeralPost } from "@/lib/mock-data";
 import { useTextSize, ts } from "@/lib/text-size";
+import {
+  getOrCreateSessionKeypair,
+  buildPostEvent,
+  broadcastToRelays,
+  getSessionPubkey,
+} from "@/lib/nostr/client";
+import { mineAndSign } from "@/lib/nostr/pow";
 
-type Step = "compose" | "preview" | "pay" | "status";
+type Step = "compose" | "mining" | "preview" | "pay" | "status";
 type PaymentStatus =
   | "creating"
   | "waiting"
@@ -45,7 +52,7 @@ export function ComposeSheet({
   replyToId: string | null;
   topicName: string | null;
   onClose: () => void;
-  onSubmitted?: () => void;
+  onSubmitted?: (ephPost?: EphemeralPost) => void;
 }) {
   const sz = useTextSize();
   const [step, setStep] = useState<Step>("compose");
@@ -151,6 +158,60 @@ export function ComposeSheet({
     return () => clearInterval(iv);
   }, [step, payment?.id, payStatus, onSubmitted, onClose]);
 
+  const sessionPubkey = getSessionPubkey();
+
+  // ── Nostr free posting path ──────────────────────────────────────────────────
+  const handlePostFree = useCallback(async () => {
+    if (!text.trim()) return;
+    setStep("mining");
+
+    try {
+      const { privkey, pubkey } = getOrCreateSessionKeypair();
+      const template = buildPostEvent({
+        content: text.trim(),
+        pubkey,
+        topic: topicName ?? undefined,
+        parentContentHash: isReply ? replyToId : undefined,
+      });
+
+      const { promise } = mineAndSign(template, privkey, 8);
+      const signed = await promise;
+
+      // Publish to our portal (stores + relays)
+      const res = await fetch("/api/ephemeral/publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signedEvent: signed }),
+      });
+      const data = await res.json();
+
+      // Also broadcast directly from client (best-effort)
+      broadcastToRelays(signed).catch(() => {});
+
+      const ephPost: EphemeralPost = {
+        nostrEventId: signed.id,
+        nostrPubkey: signed.pubkey,
+        content: signed.content,
+        topic: topicName ?? null,
+        topicHash: null,
+        parentContentHash: isReply ? replyToId : null,
+        parentNostrId: null,
+        powDifficulty: 8,
+        upvoteWeight: 0,
+        expiresAt: data.expiresAt ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        promotedToHash: null,
+        createdAt: new Date().toISOString(),
+      };
+
+      onSubmitted?.(ephPost);
+      onClose();
+    } catch (err) {
+      // Fall back to compose on error
+      setStep("compose");
+      setErrorMsg(err instanceof Error ? err.message : "posting failed");
+    }
+  }, [text, topicName, isReply, replyToId, onSubmitted, onClose]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleNext = useCallback(() => {
     if (!text.trim()) return;
     setStep("preview");
@@ -241,13 +302,15 @@ export function ComposeSheet({
           >
             {step === "compose"
               ? label
-              : step === "preview"
-                ? "preview"
-                : step === "pay"
-                  ? "pay to post"
-                  : payStatus === "confirmed"
-                    ? "posted"
-                    : "broadcasting\u2026"}
+              : step === "mining"
+                ? "signing\u2026"
+                : step === "preview"
+                  ? "preview"
+                  : step === "pay"
+                    ? "pay to post"
+                    : payStatus === "confirmed"
+                      ? "posted"
+                      : "broadcasting\u2026"}
           </SheetTitle>
         </SheetHeader>
 
@@ -264,22 +327,48 @@ export function ComposeSheet({
               />
             </div>
             <div className="flex items-center justify-between px-4 py-3 border-t border-border shrink-0">
-              <span className={`${ts(sz)} text-white/20`}>
-                {cost ? `~${formatSats(cost.totalSats)} sats` : "\u2014"}
+              {/* Session label */}
+              <span className={`text-[10px] text-white/15 font-mono truncate max-w-[120px]`}>
+                {sessionPubkey ? sessionPubkey.slice(0, 8) + "…" : ""}
               </span>
-              <button
-                className={`px-5 py-2 ${ts(sz)} tracking-wide transition-colors ${
-                  text.trim()
-                    ? "text-black bg-white hover:bg-white/90"
-                    : "text-black/40 bg-white/20 cursor-not-allowed"
-                }`}
-                onClick={handleNext}
-                disabled={!text.trim()}
-              >
-                next
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Make permanent (secondary) */}
+                {cost && (
+                  <button
+                    className={`px-3 py-2 ${ts(sz)} tracking-wide transition-colors text-white/25 hover:text-white/50 ${
+                      !text.trim() ? "opacity-40 cursor-not-allowed" : ""
+                    }`}
+                    onClick={handleNext}
+                    disabled={!text.trim()}
+                    title={`${formatSats(cost.totalSats)} sats`}
+                  >
+                    ₿
+                  </button>
+                )}
+                {/* Post free (primary) */}
+                <button
+                  className={`px-5 py-2 ${ts(sz)} tracking-wide transition-colors ${
+                    text.trim()
+                      ? "text-black bg-white hover:bg-white/90"
+                      : "text-black/40 bg-white/20 cursor-not-allowed"
+                  }`}
+                  onClick={handlePostFree}
+                  disabled={!text.trim()}
+                >
+                  post
+                </button>
+              </div>
             </div>
           </>
+        )}
+
+        {/* ── STEP 1b: MINING (Nostr PoW) ── */}
+        {step === "mining" && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 p-4">
+            <span className="h-2 w-2 rounded-full bg-white/20 animate-pulse" />
+            <span className={`${ts(sz)} text-white/30 animate-pulse`}>signing\u2026</span>
+            <span className="text-[10px] text-white/15">proof-of-work</span>
+          </div>
         )}
 
         {/* ── STEP 2: PREVIEW ── */}

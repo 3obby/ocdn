@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { mapPost, getTipHeight, rateLimit, notFound, errorResponse, log } from "@/lib/api-utils";
+import { mapPost, mapEphemeralPost, getTipHeight, rateLimit, notFound, errorResponse, log } from "@/lib/api-utils";
 import type { Post as PrismaPost } from "@/generated/prisma/client";
 import type { ThreadItem } from "@/lib/mock-data";
 
@@ -47,7 +47,37 @@ export async function GET(
 
     flattenDescendants(descendants, selfDepth + 1, items, tipHeight);
 
-    return NextResponse.json({ thread: items });
+    // Attach ephemeral reply counts and top ephemeral replies to each item
+    const contentHashes = items.map((i) => i.contentHash);
+    const ephemeralCounts = await prisma.ephemeralPost.groupBy({
+      by: ["parentContentHash"],
+      where: {
+        parentContentHash: { in: contentHashes },
+        expiresAt: { gt: new Date() },
+      },
+      _count: { parentContentHash: true },
+    });
+    const countMap = new Map(
+      ephemeralCounts.map((r) => [r.parentContentHash!, r._count.parentContentHash]),
+    );
+
+    // Fetch top 5 ephemeral replies for the focal post
+    const focalEphemeral = await prisma.ephemeralPost.findMany({
+      where: {
+        parentContentHash: hash,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { upvoteWeight: "desc" },
+      take: 5,
+    });
+
+    const threadWithEph = items.map((item) => ({
+      ...item,
+      ephemeralCount: countMap.get(item.contentHash) ?? 0,
+      ephemeralReplies: item.contentHash === hash ? focalEphemeral.map(mapEphemeralPost) : [],
+    }));
+
+    return NextResponse.json({ thread: threadWithEph });
   } catch (err) {
     log("error", "api/thread", "thread query failed", { hash, error: String(err) });
     return errorResponse("Internal server error", 500);

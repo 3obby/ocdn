@@ -302,11 +302,7 @@ async function settlePayment(
       data: { status: "confirmed", contentHash: contentHashHex },
     });
 
-    // Update linked ephemeral post if any
-    await prisma.ephemeralPost.updateMany({
-      where: { paymentId },
-      data: { status: "upgraded" },
-    });
+    // Ephemeral-to-permanent promotion is handled client-side via nostrEventId
   } catch (err) {
     if (utxoId !== null) {
       try {

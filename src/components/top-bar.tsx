@@ -6,6 +6,11 @@ import { formatSats } from "@/lib/mock-data";
 import type { FeedFilter, SortMode } from "@/lib/mock-data";
 import type { TextSize } from "@/lib/text-size";
 import { useTextSize, ts } from "@/lib/text-size";
+import { ProfileIcon } from "@/components/profile-icon";
+
+function ProfileIconSlot({ onOpenProfile }: { onOpenProfile: () => void }) {
+  return <ProfileIcon onOpenProfile={onOpenProfile} />;
+}
 
 type TopicEntry = {
   hash: string;
@@ -38,6 +43,7 @@ export function TopBar({
   textSize,
   onTextSizeChange,
   onCompose,
+  onOpenProfile,
   includeTopicless,
   onIncludeTopiclessChange,
   excludedTopicHashes,
@@ -54,6 +60,7 @@ export function TopBar({
   textSize: TextSize;
   onTextSizeChange: (s: TextSize) => void;
   onCompose: () => void;
+  onOpenProfile?: () => void;
   includeTopicless: boolean;
   onIncludeTopiclessChange: (v: boolean) => void;
   excludedTopicHashes: string[];
@@ -221,6 +228,15 @@ export function TopBar({
   return (
     <div ref={containerRef} className="relative shrink-0 border-b border-border bg-elevated">
       <div className="flex items-center gap-2 px-3 py-2">
+        {/* Home button */}
+        <button
+          onClick={handleClear}
+          aria-label="Home"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white/70 hover:bg-white/[0.15] hover:text-white transition-colors"
+        >
+          <Home size={iconSize} strokeWidth={2} />
+        </button>
+
         {/* Search row: [×] [input] [🔍] */}
         <div className="flex min-w-0 flex-1 items-center rounded-full bg-white/[0.06]">
           {showClear && (
@@ -261,6 +277,8 @@ export function TopBar({
           <Plus size={iconSize} strokeWidth={2} className="mr-0.5" />
           <Pencil size={iconSize - 2} strokeWidth={2} />
         </button>
+
+        <ProfileIconSlot onOpenProfile={onOpenProfile ?? (() => {})} />
       </div>
 
       {/* Sort row */}
