@@ -53,6 +53,7 @@ model Post {
   parentHash    String?  @map("parent_hash") // content_hash of parent (REPLY only)
   content       String
 
+  viewCount     Int      @default(0) @map("view_count")
   createdAt     DateTime @map("created_at") // block timestamp
   indexedAt      DateTime @default(now()) @map("indexed_at")
 

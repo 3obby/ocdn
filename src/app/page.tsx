@@ -9,6 +9,7 @@ import {
   type Post,
   type FeedFilter,
 } from "@/lib/mock-data";
+import { ChevronRight, ChevronDown, Loader2 } from "lucide-react";
 import { type TextSize, TextSizeCtx } from "@/lib/text-size";
 import { TopBar } from "@/components/top-bar";
 import { FeedCard } from "@/components/feed-card";
@@ -26,10 +27,148 @@ const HELLO_WORLD: Post = {
   topicName: null,
   parentId: null,
   burnTotal: 0,
+  viewCount: 0,
   timestamp: Date.now(),
   blockHeight: 0,
   confirmations: 0,
 };
+
+function TopicsFeed({
+  groups,
+  posts,
+  collapsedTopics,
+  toggleTopic,
+  feedFilter,
+  setFeedFilter,
+  setSearchQuery,
+  expandPost,
+  excludedTopicHashes,
+  includeTopicless,
+  untaggedHasMore,
+  ewHasMore,
+  goToSection,
+  expandPreview,
+  sz,
+}: {
+  groups: TopicGroup[];
+  posts: Post[];
+  collapsedTopics: Set<string>;
+  toggleTopic: (key: string) => void;
+  feedFilter: FeedFilter;
+  setFeedFilter: (f: FeedFilter) => void;
+  setSearchQuery: (q: string) => void;
+  expandPost: (id: string) => void;
+  excludedTopicHashes: string[];
+  includeTopicless: boolean;
+  untaggedHasMore: boolean;
+  ewHasMore: boolean;
+  goToSection: (sectionKey: string, topic?: { hash: string; name: string | null; totalBurned: number } | null) => void;
+  expandPreview?: boolean;
+  sz: string;
+}) {
+  const ephPosts = posts.filter((p) => p.ephemeral);
+  const untaggedPosts = posts.filter((p) => p._section === "untagged");
+  const ewPosts = posts.filter((p) => p._section === "ew");
+  const hasContent = groups.length > 0 || ephPosts.length > 0 || untaggedPosts.length > 0 || ewPosts.length > 0;
+
+  if (!hasContent) {
+    return (excludedTopicHashes.length > 0 || !includeTopicless) ? (
+      <div className={`flex h-32 items-center justify-center ${sz} text-white/10`}>—</div>
+    ) : (
+      <FeedCard post={HELLO_WORLD} onExpand={() => {}} />
+    );
+  }
+
+  const renderSection = (
+    sectionKey: string,
+    label: string,
+    sectionPosts: Post[],
+    isTopic: boolean,
+    topic?: { hash: string; name: string | null; totalBurned: number } | null,
+  ) => {
+    const isCollapsed = collapsedTopics.has(sectionKey);
+    const totalBurned = topic?.totalBurned ?? 0;
+
+    return (
+      <div key={sectionKey}>
+        {feedFilter.type === "all" && (
+          <div className="flex items-center border-b border-border">
+            <button
+              onClick={() => toggleTopic(sectionKey)}
+              className="shrink-0 flex items-center justify-center w-10 h-10 text-white/20 hover:text-white/40 transition-colors"
+            >
+              {isCollapsed
+                ? <ChevronRight size={14} strokeWidth={1.5} />
+                : <ChevronDown size={14} strokeWidth={1.5} />
+              }
+            </button>
+            <button
+              onClick={() => goToSection(sectionKey, topic)}
+              className="min-w-0 flex-1 py-3 text-left hover:bg-white/[0.03] transition-colors"
+            >
+              <span className={`${sz} leading-tight ${isTopic ? "text-burn" : "text-white/25"} ${topic?.name ? "" : isTopic ? "font-mono" : ""}`}>
+                {label}
+              </span>
+            </button>
+            {totalBurned > 0 && (
+              <div className="shrink-0 pr-3">
+                <span className="text-[10px] text-white/15 tabular-nums">
+                  {formatSats(totalBurned)}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+        {!isCollapsed && sectionPosts.map((p) => (
+          <FeedCard key={p.id} post={p} onExpand={expandPost} expandPreview={expandPreview} />
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <>
+      {ephPosts.map((p) => (
+        <FeedCard key={p.id} post={p} onExpand={() => {}} expandPreview={expandPreview} />
+      ))}
+      {groups.map((group) =>
+        renderSection(
+          group.topic?.hash ?? "_standalone",
+          group.topic ? topicLabel(group.topic) : "untagged",
+          group.posts,
+          true,
+          group.topic,
+        ),
+      )}
+      {untaggedPosts.length > 0 && (
+        <>
+          {renderSection("_untagged", "untagged", untaggedPosts, false)}
+          {untaggedHasMore && !collapsedTopics.has("_untagged") && (
+            <button
+              onClick={() => goToSection("_untagged")}
+              className={`w-full py-2.5 ${sz} text-white/15 hover:text-white/30 transition-colors border-b border-border`}
+            >
+              more
+            </button>
+          )}
+        </>
+      )}
+      {ewPosts.length > 0 && (
+        <>
+          {renderSection("_ew", "eternitywall", ewPosts, false)}
+          {ewHasMore && !collapsedTopics.has("_ew") && (
+            <button
+              onClick={() => goToSection("_ew")}
+              className={`w-full py-2.5 ${sz} text-white/15 hover:text-white/30 transition-colors border-b border-border`}
+            >
+              more
+            </button>
+          )}
+        </>
+      )}
+    </>
+  );
+}
 
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -50,6 +189,10 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [collapsedTopics, setCollapsedTopics] = useState<Set<string>>(new Set());
+  const [untaggedHasMore, setUntaggedHasMore] = useState(false);
+  const [ewHasMore, setEwHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const tipHeightRef = useRef(0);
   const sortRef = useRef(sortMode);
@@ -81,11 +224,14 @@ export default function Home() {
     setError(null);
 
     const f = filterRef.current;
-    const params = new URLSearchParams({ sort: sortMode });
+    const hasFilter = f.type !== "all";
+    const effectiveSort = hasFilter ? "new" : sortMode;
+    const params = new URLSearchParams({ sort: effectiveSort });
     if (f.type === "topic") params.set("topic", f.hash);
     else if (f.type === "topicless") params.set("topicless", "true");
     else if (f.type === "protocol") params.set("protocol", f.protocol);
     else if (!includeTopicless) params.set("excludeTopicless", "true");
+    if (hasFilter) params.set("limit", "50");
 
     const feedPromise = fetch(`/api/feed?${params}`).then((r) => {
       if (!r.ok) throw new Error(`${r.status}`);
@@ -111,6 +257,7 @@ export default function Home() {
             topicName: e.topic,
             parentId: e.parentHash,
             burnTotal: 0,
+            viewCount: 0,
             timestamp: new Date(e.createdAt).getTime(),
             blockHeight: 0,
             confirmations: 0,
@@ -120,9 +267,13 @@ export default function Home() {
           }),
         );
 
-        if (sortMode === "topics") {
+        if (effectiveSort === "topics") {
           setGroups(data.groups ?? []);
-          setPosts(ephPosts);
+          const untaggedPosts: Post[] = (data.untagged ?? []).map((p: Post) => ({ ...p, _section: "untagged" }));
+          const ewPosts: Post[] = (data.ewPosts ?? []).map((p: Post) => ({ ...p, _section: "ew" }));
+          setPosts([...ephPosts, ...untaggedPosts, ...ewPosts]);
+          setUntaggedHasMore(data.untaggedHasMore ?? false);
+          setEwHasMore(data.ewHasMore ?? false);
           setNextCursor(null);
         } else {
           setPosts([...ephPosts, ...(data.posts ?? [])]);
@@ -148,12 +299,14 @@ export default function Home() {
 
   // ── load more (cursor pagination) ──
   const loadMore = useCallback(() => {
-    if (!nextCursor || loadingMoreRef.current || sortMode === "topics") return;
+    if (!nextCursor || loadingMoreRef.current || (sortMode === "topics" && feedFilter.type === "all")) return;
     loadingMoreRef.current = true;
+    setLoadingMore(true);
     const version = fetchVersionRef.current;
 
+    const effectiveSort = feedFilter.type !== "all" ? "new" : sortMode;
     const params = new URLSearchParams({
-      sort: sortMode,
+      sort: effectiveSort,
       cursor: nextCursor,
     });
     const f = filterRef.current;
@@ -164,6 +317,7 @@ export default function Home() {
       if (!includeTopicless) params.set("excludeTopicless", "true");
       if (excludedTopicHashes.length > 0) params.set("excludeTopics", excludedTopicHashes.join(","));
     }
+    if (feedFilter.type !== "all") params.set("limit", "50");
 
     fetch(`/api/feed?${params}`)
       .then((r) => r.json())
@@ -175,8 +329,9 @@ export default function Home() {
       .catch(() => {})
       .finally(() => {
         loadingMoreRef.current = false;
+        setLoadingMore(false);
       });
-  }, [nextCursor, sortMode, includeTopicless, excludedTopicHashes]);
+  }, [nextCursor, sortMode, feedFilter.type, includeTopicless, excludedTopicHashes]);
 
   // ── SSE real-time updates ──
   useEffect(() => {
@@ -298,22 +453,72 @@ export default function Home() {
 
   const handleFeedScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
-      if (sortMode === "topics" || !nextCursor) return;
+      if ((sortMode === "topics" && feedFilter.type === "all") || !nextCursor) return;
       const el = e.currentTarget;
       if (el.scrollHeight - el.scrollTop - el.clientHeight < 200) {
         loadMore();
       }
     },
-    [sortMode, nextCursor, loadMore],
+    [sortMode, feedFilter.type, nextCursor, loadMore],
   );
 
   const refreshFeed = useCallback(() => setRefreshKey((k) => k + 1), []);
 
+  const resetHome = useCallback(() => {
+    setFeedFilter({ type: "all" });
+    setSearchQuery("");
+    setExcludedTopicHashes([]);
+    setIncludeTopicless(true);
+    setSortMode("topics");
+    setCollapsedTopics(new Set());
+  }, []);
+
+  const goToSection = useCallback((sectionKey: string, topic?: { hash: string; name: string | null; totalBurned: number } | null) => {
+    if (sectionKey === "_untagged") {
+      setFeedFilter({ type: "topicless" });
+      setSearchQuery("untagged");
+    } else if (sectionKey === "_ew") {
+      setFeedFilter({ type: "protocol", protocol: "ew", label: "eternitywall" });
+      setSearchQuery("eternitywall");
+    } else if (topic) {
+      setFeedFilter({ type: "topic", hash: topic.hash, name: topic.name });
+      setSearchQuery(topic.name ?? topic.hash.slice(0, 8));
+    }
+  }, [setFeedFilter, setSearchQuery]);
+
+  const expandPost = useCallback((id: string) => {
+    if (!id.startsWith("_") && !id.startsWith("eph_")) {
+      fetch("/api/view", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contentHash: id }),
+      }).catch(() => {});
+    }
+    setThreadPostId(id);
+  }, []);
+
+  const trackView = useCallback((contentHash: string) => {
+    if (contentHash.startsWith("_") || contentHash.startsWith("eph_")) return;
+    fetch("/api/view", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contentHash }),
+    }).catch(() => {});
+  }, []);
+
+  const toggleTopic = useCallback((key: string) => {
+    setCollapsedTopics((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
   return (
     <TextSizeCtx.Provider value={textSize}>
       <div className="flex h-dvh flex-col bg-black text-white">
-        {!inThread && (
-          <TopBar
+        <TopBar
             feedFilter={feedFilter}
             onFeedFilterChange={setFeedFilter}
             searchQuery={searchQuery}
@@ -332,8 +537,8 @@ export default function Home() {
             onIncludeTopiclessChange={setIncludeTopicless}
             excludedTopicHashes={excludedTopicHashes}
             onExcludedTopicHashesChange={setExcludedTopicHashes}
+            onReset={resetHome}
           />
-        )}
 
         <div className="relative flex-1 overflow-hidden">
           {inThread ? (
@@ -366,89 +571,58 @@ export default function Home() {
                 className="h-full overflow-y-auto"
                 onScroll={handleFeedScroll}
               >
-                {sortMode === "topics" ? (
-                  groups.length === 0 && posts.length === 0 ? (
-                    (excludedTopicHashes.length > 0 || !includeTopicless) ? (
+                {sortMode === "topics" && feedFilter.type === "all"
+                  ? <TopicsFeed
+                      groups={groups}
+                      posts={posts}
+                      collapsedTopics={collapsedTopics}
+                      toggleTopic={toggleTopic}
+                      feedFilter={feedFilter}
+                      setFeedFilter={setFeedFilter}
+                      setSearchQuery={setSearchQuery}
+                      expandPost={expandPost}
+                      excludedTopicHashes={excludedTopicHashes}
+                      includeTopicless={includeTopicless}
+                      untaggedHasMore={untaggedHasMore}
+                      ewHasMore={ewHasMore}
+                      goToSection={goToSection}
+                      expandPreview={false}
+                      sz={sz}
+                    />
+                  : posts.length === 0 ? (
+                    (excludedTopicHashes.length > 0 || !includeTopicless) && feedFilter.type === "all" ? (
                       <div className={`flex h-32 items-center justify-center ${sz} text-white/10`}>—</div>
+                    ) : feedFilter.type === "all" ? (
+                      <FeedCard post={HELLO_WORLD} onExpand={() => {}} />
                     ) : (
-                      <FeedCard
-                        post={HELLO_WORLD}
-                        onExpand={() => {}}
-                      />
+                      <div className={`flex h-32 items-center justify-center ${sz} text-white/10`}>—</div>
                     )
                   ) : (
                     <>
-                    {posts.filter((p) => p.ephemeral).map((p) => (
-                      <FeedCard key={p.id} post={p} onExpand={() => {}} />
-                    ))}
-                    {groups.map((group) => (
-                      <div key={group.topic?.hash ?? "_standalone"}>
-                        {feedFilter.type === "all" && (
-                          <button
-                            onClick={() => {
-                              if (!group.topic) return;
-                              setFeedFilter({ type: "topic", hash: group.topic.hash, name: group.topic.name });
-                              setSearchQuery(group.topic.name ?? group.topic.hash.slice(0, 8));
-                            }}
-                            className="flex w-full items-center border-b border-border transition-colors hover:bg-white/[0.03]"
-                          >
-                            {group.topic ? (
-                              <>
-                                <div className="w-[14%] shrink-0 py-3 pl-3 pr-3 text-right">
-                                  <span
-                                    className={`${sz} leading-tight text-burn/60 tabular-nums`}
-                                  >
-                                    {formatSats(group.topic.totalBurned)}
-                                  </span>
-                                </div>
-                                <div className="min-w-0 flex-1 py-3 pl-2 pr-4">
-                                  <span
-                                    className={`${sz} leading-tight text-burn ${group.topic.name ? "" : "font-mono"}`}
-                                  >
-                                    {topicLabel(group.topic)}
-                                  </span>
-                                </div>
-                              </>
-                            ) : (
-                              <div className="w-full py-3 pl-3">
-                                <span
-                                  className={`${sz} leading-tight text-white/20`}
-                                >
-                                  —
-                                </span>
-                              </div>
-                            )}
-                          </button>
-                        )}
-                        {group.posts.map((p) => (
-                          <FeedCard
-                            key={p.id}
-                            post={p}
-                            onExpand={(id) => setThreadPostId(id)}
-                          />
-                        ))}
-                      </div>
-                    ))}
+                      {posts.map((p) => (
+                        <FeedCard
+                          key={p.id}
+                          post={p}
+                          onExpand={expandPost}
+                          expandPreview
+                        />
+                      ))}
+                      {nextCursor && (
+                        <div className="flex justify-center py-6">
+                          {loadingMore ? (
+                            <Loader2 className="h-6 w-6 animate-spin text-white/30" />
+                          ) : (
+                            <button
+                              onClick={loadMore}
+                              className={`${sz} text-white/15 hover:text-white/30 transition-colors`}
+                            >
+                              more
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </>
-                  )
-                ) : posts.length === 0 ? (
-                  (excludedTopicHashes.length > 0 || !includeTopicless) ? (
-                    <div className={`flex h-32 items-center justify-center ${sz} text-white/10`}>—</div>
-                  ) : (
-                    <FeedCard
-                      post={HELLO_WORLD}
-                      onExpand={() => {}}
-                    />
-                  )
-                ) : (
-                  posts.map((p) => (
-                    <FeedCard
-                      key={p.id}
-                      post={p}
-                      onExpand={(id) => setThreadPostId(id)}
-                    />
-                  ))
-                )}
+                  )}
               </div>
             )
           ) : (

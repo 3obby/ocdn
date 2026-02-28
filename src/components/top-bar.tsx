@@ -41,6 +41,7 @@ export function TopBar({
   onIncludeTopiclessChange,
   excludedTopicHashes,
   onExcludedTopicHashesChange,
+  onReset,
 }: {
   feedFilter: FeedFilter;
   onFeedFilterChange: (f: FeedFilter) => void;
@@ -55,6 +56,7 @@ export function TopBar({
   onIncludeTopiclessChange: (v: boolean) => void;
   excludedTopicHashes: string[];
   onExcludedTopicHashesChange: (hashes: string[]) => void;
+  onReset?: () => void;
 }) {
   const sz = useTextSize();
   const [open, setOpen] = useState(false);
@@ -176,11 +178,15 @@ export function TopBar({
   };
 
   const handleClear = () => {
-    onSearchQueryChange("");
-    onFeedFilterChange({ type: "all" });
+    if (onReset) {
+      onReset();
+    } else {
+      onSearchQueryChange("");
+      onFeedFilterChange({ type: "all" });
+      onExcludedTopicHashesChange([]);
+    }
     setOpen(false);
     setDeselected(new Set());
-    onExcludedTopicHashesChange([]);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

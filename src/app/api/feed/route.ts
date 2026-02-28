@@ -45,8 +45,14 @@ export async function GET(request: Request) {
     return errorResponse("sort must be one of: topics, new, top");
   }
 
+  const section = searchParams.get("section");
+
   try {
     const tipHeight = await getTipHeight(prisma);
+
+    if (section === "untagged" || section === "ew") {
+      return NextResponse.json(await getSectionFeed(section, cursor, limit, tipHeight));
+    }
 
     if (sort === "topics") {
       return NextResponse.json(await getGroupedFeed(topicFilter, topicless, excludeTopicless, excludeTopics, protocolFilter, limit, tipHeight));
@@ -67,20 +73,29 @@ async function getGroupedFeed(
   protocolFilter: string | null,
   postsPerTopic: number,
   tipHeight: number,
-): Promise<{ groups: TopicGroup[] }> {
+): Promise<{ groups: TopicGroup[]; untagged: FrontendPost[]; untaggedHasMore: boolean; ewPosts: FrontendPost[]; ewHasMore: boolean }> {
   const protoWhere = protocolFilter ? { protocol: protocolFilter } : {};
 
   if (topicless) {
     const standalone = await prisma.post.findMany({
-      where: { topicHash: null, parentHash: null, ...protoWhere },
+      where: { topicHash: null, parentHash: null, protocol: "ocdn" },
       include: { burns: { select: { amount: true } } },
       orderBy: { blockHeight: "desc" },
       take: postsPerTopic,
     });
-    const mapped = standalone
-      .map((p) => mapPost(p, tipHeight))
-      .sort((a, b) => b.burnTotal - a.burnTotal);
-    return { groups: [{ topic: null, posts: mapped }] };
+    const mapped = standalone.map((p) => mapPost(p, tipHeight));
+    return { groups: [{ topic: null, posts: mapped }], untagged: [], untaggedHasMore: false, ewPosts: [], ewHasMore: false };
+  }
+
+  if (protocolFilter && !topicFilter) {
+    const rows = await prisma.post.findMany({
+      where: { protocol: protocolFilter, parentHash: null },
+      include: { burns: { select: { amount: true } } },
+      orderBy: { blockHeight: "desc" },
+      take: postsPerTopic,
+    });
+    const mapped = rows.map((p) => mapPost(p, tipHeight));
+    return { groups: [{ topic: null, posts: mapped }], untagged: [], untaggedHasMore: false, ewPosts: [], ewHasMore: false };
   }
 
   if (topicFilter) {
@@ -101,6 +116,10 @@ async function getGroupedFeed(
         topic,
         posts: posts.map((p) => mapPost(p, tipHeight)),
       }],
+      untagged: [],
+      untaggedHasMore: false,
+      ewPosts: [],
+      ewHasMore: false,
     };
   }
 
@@ -113,16 +132,14 @@ async function getGroupedFeed(
     ? topicsRaw.filter((t) => !excludeTopics.includes(t.topicHash))
     : topicsRaw;
 
+  // OCDN topic groups
   const groups: TopicGroup[] = [];
-
   for (const topicAgg of topics) {
     const posts = await prisma.post.findMany({
-      where: { topicHash: topicAgg.topicHash, parentHash: null, ...protoWhere },
+      where: { topicHash: topicAgg.topicHash, parentHash: null, protocol: "ocdn" },
       include: { burns: { select: { amount: true } } },
       orderBy: { blockHeight: "desc" },
-      take: 3,
     });
-
     if (posts.length > 0) {
       const mapped = posts
         .map((p) => mapPost(p, tipHeight))
@@ -131,23 +148,80 @@ async function getGroupedFeed(
     }
   }
 
+  const sectionLimit = 7;
+
+  // Untagged OCDN posts (separate section, paginated)
+  let untagged: FrontendPost[] = [];
+  let untaggedHasMore = false;
   if (!excludeTopicless) {
     const standalone = await prisma.post.findMany({
-      where: { topicHash: null, parentHash: null, ...protoWhere },
+      where: { topicHash: null, parentHash: null, protocol: "ocdn" },
       include: { burns: { select: { amount: true } } },
       orderBy: { blockHeight: "desc" },
-      take: 3,
+      take: sectionLimit + 1,
     });
+    untaggedHasMore = standalone.length > sectionLimit;
+    const page = untaggedHasMore ? standalone.slice(0, sectionLimit) : standalone;
+    untagged = page.map((p) => mapPost(p, tipHeight));
+  }
 
-    if (standalone.length > 0) {
-      const mapped = standalone
-        .map((p) => mapPost(p, tipHeight))
-        .sort((a, b) => b.burnTotal - a.burnTotal);
-      groups.push({ topic: null, posts: mapped });
+  // EternityWall posts (separate section, paginated)
+  const ewRaw = await prisma.post.findMany({
+    where: { protocol: "ew", parentHash: null },
+    include: { burns: { select: { amount: true } } },
+    orderBy: { blockHeight: "desc" },
+    take: sectionLimit + 1,
+  });
+  const ewHasMore = ewRaw.length > sectionLimit;
+  const ewPage = ewHasMore ? ewRaw.slice(0, sectionLimit) : ewRaw;
+  const ewPosts = ewPage.map((p) => mapPost(p, tipHeight));
+
+  return {
+    groups,
+    untagged,
+    untaggedHasMore,
+    ewPosts,
+    ewHasMore,
+  };
+}
+
+async function getSectionFeed(
+  section: "untagged" | "ew",
+  cursor: string | null,
+  limit: number,
+  tipHeight: number,
+): Promise<{ posts: FrontendPost[]; hasMore: boolean }> {
+  const where: Record<string, unknown> = { parentHash: null };
+  if (section === "untagged") {
+    where.protocol = "ocdn";
+    where.topicHash = null;
+  } else {
+    where.protocol = "ew";
+  }
+
+  if (cursor) {
+    const cursorPost = await prisma.post.findUnique({
+      where: { contentHash: cursor },
+      select: { blockHeight: true },
+    });
+    if (cursorPost) {
+      where.OR = [
+        { blockHeight: { lt: cursorPost.blockHeight } },
+        { blockHeight: cursorPost.blockHeight, contentHash: { lt: cursor } },
+      ];
     }
   }
 
-  return { groups };
+  const rows = await prisma.post.findMany({
+    where,
+    include: { burns: { select: { amount: true } } },
+    orderBy: [{ blockHeight: "desc" }, { contentHash: "desc" }],
+    take: limit + 1,
+  });
+
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+  return { posts: page.map((p) => mapPost(p, tipHeight)), hasMore };
 }
 
 async function getFlatFeed(

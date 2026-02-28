@@ -138,6 +138,7 @@ export function mapPost(
     topicName: p.topic,
     parentId: p.parentHash,
     burnTotal,
+    viewCount: p.viewCount ?? 0,
     timestamp: p.createdAt.getTime(),
     blockHeight: p.blockHeight,
     confirmations: Math.max(0, tipHeight - p.blockHeight + 1),
