@@ -90,6 +90,17 @@ export function validateHex(value: unknown, name: string, length: number): { ok:
 export const PORTAL_RAKE_SATS = Number(process.env.PORTAL_RAKE_SATS ?? "1000");
 export const PAYMENT_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
 
+const MINIMAL_POST_VBYTES = 310;
+const MIN_RAKE_SATS = Number(process.env.PORTAL_MIN_RAKE_SATS ?? "200");
+
+/**
+ * Dynamic rake: equals the miner fee of a minimal post at current fee rate.
+ * ~50% of total for cheap/short posts, decreasing as content grows.
+ */
+export function computeRake(feeRate: number): number {
+  return Math.max(Math.ceil(MINIMAL_POST_VBYTES * feeRate), MIN_RAKE_SATS);
+}
+
 // ═══ FEE SPIKE HANDLING ═══
 
 const MAX_FEE_RATE_SAT_VB = Number(process.env.MAX_FEE_RATE ?? "100");
