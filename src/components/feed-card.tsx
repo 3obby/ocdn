@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useEffect } from "react";
 import {
   type Post,
   formatSats,
@@ -30,13 +31,33 @@ function ConfirmBadge({ confirmations, ephemeral, ephemeralStatus }: { confirmat
 export function FeedCard({
   post,
   onExpand,
+  onVisible,
   expandPreview,
 }: {
   post: Post;
   onExpand: (id: string) => void;
+  onVisible?: (id: string) => void;
   expandPreview?: boolean;
 }) {
   const sz = useTextSize();
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!onVisible || post.id.startsWith("_")) return;
+    const el = cardRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          onVisible(post.id);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.5 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [post.id, onVisible]);
 
   const isEphemeral = post.ephemeral === true;
   const isPaid = isEphemeral && post.ephemeralStatus === "upgraded";
@@ -46,14 +67,15 @@ export function FeedCard({
 
   return (
     <div
+      ref={cardRef}
       onClick={() => !isUnpaid && onExpand(post.id)}
-      className={`flex items-center border-b border-border transition-colors bg-[#0d0d0d] ${
+      className={`relative flex items-center transition-colors ${
         isUnpaid
           ? "opacity-40 cursor-default"
-          : "cursor-pointer hover:bg-[#141414]"
+          : "cursor-pointer hover:bg-white/[0.03]"
       }`}
     >
-      <div className="min-w-0 flex-1 py-3 pl-4 pr-2">
+      <div className="min-w-0 flex-1 py-2.5 pl-4 pr-2">
         <span
           className={`${ts(sz)} leading-tight ${isUnpaid ? "text-white/40" : "text-white/90"} block ${contentClamp}`}
         >
@@ -63,13 +85,16 @@ export function FeedCard({
 
       <div className="shrink-0 flex items-center gap-2 pr-3">
         <ConfirmBadge confirmations={post.confirmations} ephemeral={isEphemeral} ephemeralStatus={post.ephemeralStatus} />
-        {!isUnpaid && (
-          <div className="flex items-center gap-0.5 text-white/10">
-            <Eye size={11} strokeWidth={1.5} />
-            <span className="text-[10px] tabular-nums">{post.viewCount || 0}</span>
-          </div>
-        )}
       </div>
+
+      {!isUnpaid && (
+        <div className="absolute right-0 inset-y-0 flex items-center justify-end pr-3 pl-8 bg-gradient-to-r from-transparent to-[#0d0d0d] pointer-events-none">
+          <div className="flex items-center gap-1.5">
+            <Eye size={12} strokeWidth={2} className="text-purple-300 shrink-0" />
+            <span className="text-[11px] tabular-nums text-purple-200">{post.viewCount || 0}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
