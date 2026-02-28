@@ -7,7 +7,7 @@ import {
   shortPubkey,
 } from "@/lib/mock-data";
 import { useTextSize, ts } from "@/lib/text-size";
-import { Pencil } from "lucide-react";
+import { Pencil, Eye } from "lucide-react";
 
 function ConfirmBadge({ confirmations, ephemeral, ephemeralStatus }: { confirmations: number; ephemeral?: boolean; ephemeralStatus?: string }) {
   if (ephemeral && ephemeralStatus !== "upgraded") {
@@ -26,27 +26,23 @@ function ConfirmBadge({ confirmations, ephemeral, ephemeralStatus }: { confirmat
   );
 }
 
-function ProtocolBadge({ protocol }: { protocol: string }) {
-  if (protocol === "ocdn") return null;
-  return (
-    <span className="text-[10px] text-white/20 uppercase tracking-wider">
-      {protocol}
-    </span>
-  );
-}
 
 export function FeedCard({
   post,
   onExpand,
+  expandPreview,
 }: {
   post: Post;
   onExpand: (id: string) => void;
+  expandPreview?: boolean;
 }) {
   const sz = useTextSize();
 
   const isEphemeral = post.ephemeral === true;
   const isPaid = isEphemeral && post.ephemeralStatus === "upgraded";
   const isUnpaid = isEphemeral && !isPaid;
+
+  const contentClamp = expandPreview ? "line-clamp-3" : "truncate";
 
   return (
     <div
@@ -57,25 +53,22 @@ export function FeedCard({
           : "cursor-pointer hover:bg-white/[0.03]"
       }`}
     >
-      <div className="w-[14%] shrink-0 py-3 pl-3 pr-3 text-right">
+      <div className="min-w-0 flex-1 py-3 pl-4 pr-2">
         <span
-          className={`${ts(sz)} leading-tight ${isUnpaid ? "text-white/10" : "text-burn/60"} tabular-nums`}
-        >
-          {isUnpaid ? "\u2014" : formatSats(post.burnTotal)}
-        </span>
-      </div>
-
-      <div className="min-w-0 flex-1 py-3 pl-2 pr-4">
-        <span
-          className={`${ts(sz)} leading-tight ${isUnpaid ? "text-white/40" : "text-white/90"} block truncate`}
+          className={`${ts(sz)} leading-tight ${isUnpaid ? "text-white/40" : "text-white/90"} block ${contentClamp}`}
         >
           {post.text}
         </span>
       </div>
 
-      <div className="shrink-0 flex items-center gap-1.5 pr-3">
-        {!isUnpaid && <ProtocolBadge protocol={post.protocol} />}
+      <div className="shrink-0 flex items-center gap-2 pr-3">
         <ConfirmBadge confirmations={post.confirmations} ephemeral={isEphemeral} ephemeralStatus={post.ephemeralStatus} />
+        {!isUnpaid && (
+          <div className="flex items-center gap-0.5 text-white/10">
+            <Eye size={11} strokeWidth={1.5} />
+            <span className="text-[10px] tabular-nums">{post.viewCount || 0}</span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -121,14 +114,11 @@ export function ThreadCard({
             </span>
           </>
         )}
-        {post.protocol !== "ocdn" && (
-          <>
-            <span>&middot;</span>
-            <span className="text-white/20 uppercase text-[10px]">
-              {post.protocol}
-            </span>
-          </>
-        )}
+        <span>&middot;</span>
+        <span className="flex items-center gap-0.5 text-white/15">
+          <Eye size={10} strokeWidth={1.5} />
+          <span className="text-[10px] tabular-nums">{post.viewCount || 0}</span>
+        </span>
       </div>
 
       <div

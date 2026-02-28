@@ -8,12 +8,14 @@ export type Post = {
   topicName: string | null;
   parentId: string | null;
   burnTotal: number;
+  viewCount: number;
   timestamp: number;
   blockHeight: number;
   confirmations: number;
   ephemeral?: boolean;
   ephemeralStatus?: "cached" | "paying" | "upgraded";
   expiresAt?: string;
+  _section?: "untagged" | "ew";
 };
 
 export type Topic = {
