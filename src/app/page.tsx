@@ -19,6 +19,7 @@ import { ComposeSheet } from "@/components/compose-sheet";
 import { SearchView } from "@/components/search-view";
 import { EphemeralPostCard } from "@/components/ephemeral-post-card";
 import { ProfileIcon, ProfileSheet } from "@/components/profile-icon";
+import { getStoredIdentity } from "@/lib/nostr/client";
 
 const HELLO_WORLD: Post = {
   id: "_hello",
@@ -194,6 +195,14 @@ export default function Home() {
   // Session-local ephemeral posts (optimistic, cleared on reload)
   const [myEphemeralPosts, setMyEphemeralPosts] = useState<EphemeralPost[]>([]);
   const [showProfile, setShowProfile] = useState(false);
+  const [hasStoredIdentity, setHasStoredIdentity] = useState(false);
+
+  // Check localStorage for identity on mount (client-only)
+  useEffect(() => {
+    setHasStoredIdentity(!!getStoredIdentity());
+  }, []);
+
+  const hasProfileActivity = myEphemeralPosts.length > 0 || hasStoredIdentity;
 
   const [groups, setGroups] = useState<TopicGroup[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
@@ -567,6 +576,7 @@ export default function Home() {
               })
             }
             onOpenProfile={() => setShowProfile(true)}
+            hasProfileActivity={hasProfileActivity}
             includeTopicless={includeTopicless}
             onIncludeTopiclessChange={setIncludeTopicless}
             excludedTopicHashes={excludedTopicHashes}
@@ -707,6 +717,7 @@ export default function Home() {
           <ProfileSheet
             onClose={() => setShowProfile(false)}
             onExpand={(id) => { setShowProfile(false); expandPost(id); }}
+            myEphemeralPosts={myEphemeralPosts}
           />
         )}
       </div>
