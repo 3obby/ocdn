@@ -66,10 +66,9 @@ function TopicsFeed({
   expandPreview?: boolean;
   sz: string;
 }) {
-  const ephPosts = posts.filter((p) => p.ephemeral);
   const untaggedPosts = posts.filter((p) => p._section === "untagged");
   const ewPosts = posts.filter((p) => p._section === "ew");
-  const hasContent = groups.length > 0 || ephPosts.length > 0 || untaggedPosts.length > 0 || ewPosts.length > 0;
+  const hasContent = groups.length > 0 || untaggedPosts.length > 0 || ewPosts.length > 0;
 
   if (!hasContent) {
     return (excludedTopicHashes.length > 0 || !includeTopicless) ? (
@@ -136,9 +135,6 @@ function TopicsFeed({
 
   return (
     <>
-      {ephPosts.map((p) => (
-        <FeedCard key={p.id} post={p} onExpand={() => {}} expandPreview={expandPreview} />
-      ))}
       {groups.map((group) =>
         renderSection(
           group.topic?.hash ?? "_standalone",
@@ -254,45 +250,20 @@ export default function Home() {
       return r.json();
     });
 
-    const ephPromise = fetch("/api/ephemeral")
-      .then((r) => (r.ok ? r.json() : { posts: [] }))
-      .catch(() => ({ posts: [] }));
-
-    Promise.all([feedPromise, ephPromise])
-      .then(([data, ephData]) => {
+    feedPromise
+      .then((data) => {
         if (version !== fetchVersionRef.current) return;
-
-        const ephPosts: Post[] = (ephData.posts ?? []).map(
-          (e: { id: string; content: string; topic: string | null; parentHash: string | null; status: string; expiresAt: string; createdAt: string }) => ({
-            id: `eph_${e.id}`,
-            contentHash: `eph_${e.id}`,
-            protocol: "ocdn",
-            authorPubkey: "0000000000000000000000000000000000000000000000000000000000000000",
-            text: e.content,
-            topicHash: null,
-            topicName: e.topic,
-            parentId: e.parentHash,
-            burnTotal: 0,
-            viewCount: 0,
-            timestamp: new Date(e.createdAt).getTime(),
-            blockHeight: 0,
-            confirmations: 0,
-            ephemeral: true,
-            ephemeralStatus: e.status as "cached" | "paying" | "upgraded",
-            expiresAt: e.expiresAt,
-          }),
-        );
 
         if (effectiveSort === "topics") {
           setGroups(data.groups ?? []);
           const untaggedPosts: Post[] = (data.untagged ?? []).map((p: Post) => ({ ...p, _section: "untagged" }));
           const ewPosts: Post[] = (data.ewPosts ?? []).map((p: Post) => ({ ...p, _section: "ew" }));
-          setPosts([...ephPosts, ...untaggedPosts, ...ewPosts]);
+          setPosts([...untaggedPosts, ...ewPosts]);
           setUntaggedHasMore(data.untaggedHasMore ?? false);
           setEwHasMore(data.ewHasMore ?? false);
           setNextCursor(null);
         } else {
-          setPosts([...ephPosts, ...(data.posts ?? [])]);
+          setPosts(data.posts ?? []);
           setGroups([]);
           setNextCursor(data.nextCursor ?? null);
         }
