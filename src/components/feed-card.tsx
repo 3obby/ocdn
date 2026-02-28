@@ -47,10 +47,10 @@ export function FeedCard({
   return (
     <div
       onClick={() => !isUnpaid && onExpand(post.id)}
-      className={`flex items-center border-b border-border transition-colors ${
+      className={`flex items-center border-b border-border transition-colors bg-[#0d0d0d] ${
         isUnpaid
           ? "opacity-40 cursor-default"
-          : "cursor-pointer hover:bg-white/[0.03]"
+          : "cursor-pointer hover:bg-[#141414]"
       }`}
     >
       <div className="min-w-0 flex-1 py-3 pl-4 pr-2">
