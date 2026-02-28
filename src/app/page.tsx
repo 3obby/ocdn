@@ -42,6 +42,7 @@ function TopicsFeed({
   setFeedFilter,
   setSearchQuery,
   expandPost,
+  onPostVisible,
   excludedTopicHashes,
   includeTopicless,
   untaggedHasMore,
@@ -58,6 +59,7 @@ function TopicsFeed({
   setFeedFilter: (f: FeedFilter) => void;
   setSearchQuery: (q: string) => void;
   expandPost: (id: string) => void;
+  onPostVisible: (id: string) => void;
   excludedTopicHashes: string[];
   includeTopicless: boolean;
   untaggedHasMore: boolean;
@@ -89,21 +91,12 @@ function TopicsFeed({
     const totalBurned = topic?.totalBurned ?? 0;
 
     return (
-      <div key={sectionKey}>
+      <div key={sectionKey} className="bg-[#0d0d0d] mb-2">
         {feedFilter.type === "all" && (
-          <div className="flex items-center border-b border-border">
-            <button
-              onClick={() => toggleTopic(sectionKey)}
-              className="shrink-0 flex items-center justify-center w-10 h-10 text-white/20 hover:text-white/40 transition-colors"
-            >
-              {isCollapsed
-                ? <ChevronRight size={14} strokeWidth={1.5} />
-                : <ChevronDown size={14} strokeWidth={1.5} />
-              }
-            </button>
+          <div className="flex items-center">
             <button
               onClick={() => goToSection(sectionKey, topic)}
-              className="min-w-0 flex-1 py-3 text-left hover:bg-white/[0.03] transition-colors"
+              className="py-2.5 pl-4 text-left shrink-0"
             >
               {sectionKey === "_ew" ? (
                 <span className={`${sz} leading-tight inline-flex items-center`}>
@@ -117,6 +110,16 @@ function TopicsFeed({
                 </span>
               )}
             </button>
+            <button
+              onClick={() => toggleTopic(sectionKey)}
+              className="shrink-0 p-1 text-white/20 hover:text-white/40 transition-colors"
+            >
+              {isCollapsed
+                ? <ChevronRight size={14} strokeWidth={1.5} />
+                : <ChevronDown size={14} strokeWidth={1.5} />
+              }
+            </button>
+            <div className="min-w-0 flex-1" />
             {totalBurned > 0 && (
               <div className="shrink-0 pr-3">
                 <span className="text-[10px] text-white/15 tabular-nums">
@@ -126,9 +129,13 @@ function TopicsFeed({
             )}
           </div>
         )}
-        {!isCollapsed && sectionPosts.map((p) => (
-          <FeedCard key={p.id} post={p} onExpand={expandPost} expandPreview={expandPreview} />
-        ))}
+        {!isCollapsed && (
+          <div className="pl-2 divide-y divide-white/[0.04]">
+            {sectionPosts.map((p) => (
+              <FeedCard key={p.id} post={p} onExpand={expandPost} onVisible={onPostVisible} expandPreview={expandPreview} />
+            ))}
+          </div>
+        )}
       </div>
     );
   };
@@ -144,31 +151,23 @@ function TopicsFeed({
           group.topic,
         ),
       )}
-      {untaggedPosts.length > 0 && (
-        <>
-          {renderSection("_untagged", "untagged", untaggedPosts, false)}
-          {untaggedHasMore && !collapsedTopics.has("_untagged") && (
-            <button
-              onClick={() => goToSection("_untagged")}
-              className={`w-full py-2.5 ${sz} text-white/15 hover:text-white/30 transition-colors border-b border-border`}
-            >
-              more
-            </button>
-          )}
-        </>
+      {untaggedPosts.length > 0 && renderSection("_untagged", "untagged", untaggedPosts, false)}
+      {untaggedHasMore && !collapsedTopics.has("_untagged") && (
+        <button
+          onClick={() => goToSection("_untagged")}
+          className={`w-full py-2 ${sz} text-white/15 hover:text-white/30 transition-colors bg-[#0d0d0d] -mt-2 mb-2`}
+        >
+          more
+        </button>
       )}
-      {ewPosts.length > 0 && (
-        <>
-          {renderSection("_ew", "eternitywall", ewPosts, false)}
-          {ewHasMore && !collapsedTopics.has("_ew") && (
-            <button
-              onClick={() => goToSection("_ew")}
-              className={`w-full py-2.5 ${sz} text-white/15 hover:text-white/30 transition-colors border-b border-border`}
-            >
-              more
-            </button>
-          )}
-        </>
+      {ewPosts.length > 0 && renderSection("_ew", "eternitywall", ewPosts, false)}
+      {ewHasMore && !collapsedTopics.has("_ew") && (
+        <button
+          onClick={() => goToSection("_ew")}
+          className={`w-full py-2 ${sz} text-white/15 hover:text-white/30 transition-colors bg-[#0d0d0d] -mt-2 mb-2`}
+        >
+          more
+        </button>
       )}
     </>
   );
@@ -223,7 +222,7 @@ export default function Home() {
 
   const inThread = threadPostId !== null;
   const showFeed = searchQuery.trim().length === 0 || feedFilter.type !== "all";
-  const sz = textSize === "lg" ? "text-[24px]" : "text-[14px]";
+  const sz = textSize === "lg" ? "text-[26px]" : "text-[16px]";
 
   // ── fetch feed on sort/filter/refresh change ──
   useEffect(() => {
@@ -504,13 +503,22 @@ export default function Home() {
     setThreadPostId(id);
   }, []);
 
-  const trackView = useCallback((contentHash: string) => {
-    if (contentHash.startsWith("_") || contentHash.startsWith("eph_")) return;
+  const viewedRef = useRef(new Set<string>());
+
+  const onPostVisible = useCallback((id: string) => {
+    if (id.startsWith("_") || id.startsWith("eph_")) return;
+    if (viewedRef.current.has(id)) return;
+    viewedRef.current.add(id);
     fetch("/api/view", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contentHash }),
+      body: JSON.stringify({ contentHash: id }),
     }).catch(() => {});
+    setPosts((prev) => prev.map((p) => p.id === id ? { ...p, viewCount: (p.viewCount ?? 0) + 1 } : p));
+    setGroups((prev) => prev.map((g) => ({
+      ...g,
+      posts: g.posts.map((p) => p.id === id ? { ...p, viewCount: (p.viewCount ?? 0) + 1 } : p),
+    })));
   }, []);
 
   const toggleTopic = useCallback((key: string) => {
@@ -587,6 +595,7 @@ export default function Home() {
                       setFeedFilter={setFeedFilter}
                       setSearchQuery={setSearchQuery}
                       expandPost={expandPost}
+                      onPostVisible={onPostVisible}
                       excludedTopicHashes={excludedTopicHashes}
                       includeTopicless={includeTopicless}
                       untaggedHasMore={untaggedHasMore}
@@ -605,23 +614,26 @@ export default function Home() {
                     )
                   ) : (
                     <>
-                      {(() => {
-                        const seen = new Set<string>();
-                        return posts
-                          .filter((p) => {
-                            if (seen.has(p.id)) return false;
-                            seen.add(p.id);
-                            return true;
-                          })
-                          .map((p) => (
-                            <FeedCard
-                              key={p.id}
-                              post={p}
-                              onExpand={expandPost}
-                              expandPreview
-                            />
-                          ));
-                      })()}
+                      <div className="bg-[#0d0d0d] divide-y divide-white/[0.04]">
+                        {(() => {
+                          const seen = new Set<string>();
+                          return posts
+                            .filter((p) => {
+                              if (seen.has(p.id)) return false;
+                              seen.add(p.id);
+                              return true;
+                            })
+                            .map((p) => (
+                              <FeedCard
+                                key={p.id}
+                                post={p}
+                                onExpand={expandPost}
+                                onVisible={onPostVisible}
+                                expandPreview
+                              />
+                            ));
+                        })()}
+                      </div>
                       {nextCursor && (
                         <div className="flex justify-center py-6">
                           {loadingMore ? (

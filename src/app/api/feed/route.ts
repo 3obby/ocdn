@@ -150,7 +150,7 @@ async function getGroupedFeed(
     }
   }
 
-  const sectionLimit = 7;
+  const sectionLimit = 21;
 
   // Untagged OCDN posts (separate section, paginated)
   let untagged: FrontendPost[] = [];

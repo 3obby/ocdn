@@ -8,5 +8,5 @@ export function useTextSize() {
   return useContext(TextSizeCtx);
 }
 export function ts(size: TextSize) {
-  return size === "lg" ? "text-[24px]" : "text-[14px]";
+  return size === "lg" ? "text-[26px]" : "text-[16px]";
 }
