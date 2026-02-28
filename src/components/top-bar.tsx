@@ -7,9 +7,12 @@ import type { FeedFilter, SortMode } from "@/lib/mock-data";
 import type { TextSize } from "@/lib/text-size";
 import { useTextSize, ts } from "@/lib/text-size";
 import { ProfileIcon } from "@/components/profile-icon";
+import { getStoredIdentity } from "@/lib/nostr/client";
 
 function ProfileIconSlot({ onOpenProfile }: { onOpenProfile: () => void }) {
-  return <ProfileIcon onOpenProfile={onOpenProfile} />;
+  const [identity, setIdentity] = useState<import("@/lib/nostr/client").SessionIdentity | null>(null);
+  useEffect(() => { setIdentity(getStoredIdentity()); }, []);
+  return <ProfileIcon onOpenProfile={onOpenProfile} identity={identity} />;
 }
 
 type TopicEntry = {
@@ -44,6 +47,7 @@ export function TopBar({
   onTextSizeChange,
   onCompose,
   onOpenProfile,
+  hasProfileActivity = false,
   includeTopicless,
   onIncludeTopiclessChange,
   excludedTopicHashes,
@@ -61,6 +65,7 @@ export function TopBar({
   onTextSizeChange: (s: TextSize) => void;
   onCompose: () => void;
   onOpenProfile?: () => void;
+  hasProfileActivity?: boolean;
   includeTopicless: boolean;
   onIncludeTopiclessChange: (v: boolean) => void;
   excludedTopicHashes: string[];
@@ -278,21 +283,25 @@ export function TopBar({
           <Pencil size={iconSize - 2} strokeWidth={2} />
         </button>
 
-        <ProfileIconSlot onOpenProfile={onOpenProfile ?? (() => {})} />
       </div>
 
-      {/* Sort row */}
+      {/* Sort row: [profile? aA  flex-1]  [pill centered]  [flex-1] */}
       <div className="flex items-center px-3 py-2 border-t border-border/50">
-        {/* Text size toggle */}
-        <button
-          onClick={() => onTextSizeChange(textSize === "sm" ? "lg" : "sm")}
-          className="flex items-baseline gap-0 text-white/40 hover:text-white/70 transition-colors mr-auto"
-        >
-          <span className={`${textSize === "sm" ? "text-white" : ""} text-[11px] leading-none`}>a</span>
-          <span className={`${textSize === "lg" ? "text-white" : ""} text-[18px] leading-none`}>A</span>
-        </button>
+        {/* Left: profile icon (if active) + text size toggle */}
+        <div className="flex flex-1 items-center gap-2">
+          {hasProfileActivity && (
+            <ProfileIconSlot onOpenProfile={onOpenProfile ?? (() => {})} />
+          )}
+          <button
+            onClick={() => onTextSizeChange(textSize === "sm" ? "lg" : "sm")}
+            className="flex items-baseline gap-0 text-white/40 hover:text-white/70 transition-colors"
+          >
+            <span className={`${textSize === "sm" ? "text-white" : ""} text-[11px] leading-none`}>a</span>
+            <span className={`${textSize === "lg" ? "text-white" : ""} text-[18px] leading-none`}>A</span>
+          </button>
+        </div>
 
-        {/* Sort mode pill group */}
+        {/* Center: sort mode pill — do not change */}
         <div className="flex items-center rounded-full bg-white/[0.06] p-0.5">
           {MODES.map((m) => (
             <button
@@ -310,8 +319,8 @@ export function TopBar({
           ))}
         </div>
 
-        {/* Spacer to keep pill centered */}
-        <div className="mr-auto" />
+        {/* Right: equal-width spacer keeps pill centered */}
+        <div className="flex-1" />
       </div>
 
       {/* Inline topic list when search bar focused */}
