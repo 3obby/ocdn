@@ -40,6 +40,7 @@ export async function GET(request: Request) {
   const protocolFilter = parseProtocolFilter(searchParams.get("protocol"));
   const cursor = searchParams.get("cursor");
   const limit = parsePageSize(searchParams.get("limit"));
+  const order = searchParams.get("order") === "asc" ? "asc" : "desc";
 
   if (!["topics", "new", "top"].includes(sort)) {
     return errorResponse("sort must be one of: topics, new, top");
@@ -55,10 +56,10 @@ export async function GET(request: Request) {
     }
 
     if (sort === "topics") {
-      return NextResponse.json(await getGroupedFeed(topicFilter, topicless, excludeTopicless, excludeTopics, protocolFilter, limit, tipHeight));
+      return NextResponse.json(await getGroupedFeed(topicFilter, topicless, excludeTopicless, excludeTopics, protocolFilter, limit, tipHeight, order));
     }
 
-    return NextResponse.json(await getFlatFeed(sort as "new" | "top", topicFilter, topicless, excludeTopicless, excludeTopics, protocolFilter, cursor, limit, tipHeight));
+    return NextResponse.json(await getFlatFeed(sort as "new" | "top", topicFilter, topicless, excludeTopicless, excludeTopics, protocolFilter, cursor, limit, tipHeight, order));
   } catch (err) {
     log("error", "api/feed", "feed query failed", { error: String(err) });
     return errorResponse("Internal server error", 500);
@@ -73,6 +74,7 @@ async function getGroupedFeed(
   protocolFilter: string | null,
   postsPerTopic: number,
   tipHeight: number,
+  order: "asc" | "desc",
 ): Promise<{ groups: TopicGroup[]; untagged: FrontendPost[]; untaggedHasMore: boolean; ewPosts: FrontendPost[]; ewHasMore: boolean }> {
   const protoWhere = protocolFilter ? { protocol: protocolFilter } : {};
 
@@ -80,7 +82,7 @@ async function getGroupedFeed(
     const standalone = await prisma.post.findMany({
       where: { topicHash: null, parentHash: null, protocol: "ocdn" },
       include: { burns: { select: { amount: true } } },
-      orderBy: { blockHeight: "desc" },
+      orderBy: { blockHeight: order },
       take: postsPerTopic,
     });
     const mapped = standalone.map((p) => mapPost(p, tipHeight));
@@ -91,7 +93,7 @@ async function getGroupedFeed(
     const rows = await prisma.post.findMany({
       where: { protocol: protocolFilter, parentHash: null },
       include: { burns: { select: { amount: true } } },
-      orderBy: { blockHeight: "desc" },
+      orderBy: { blockHeight: order },
       take: postsPerTopic,
     });
     const mapped = rows.map((p) => mapPost(p, tipHeight));
@@ -107,7 +109,7 @@ async function getGroupedFeed(
     const posts = await prisma.post.findMany({
       where: { topicHash: topicFilter, ...protoWhere },
       include: { burns: { select: { amount: true } } },
-      orderBy: { blockHeight: "desc" },
+      orderBy: { blockHeight: order },
       take: postsPerTopic,
     });
 
@@ -124,7 +126,7 @@ async function getGroupedFeed(
   }
 
   const topicsRaw = await prisma.topicAggregate.findMany({
-    orderBy: { totalBurned: "desc" },
+    orderBy: { totalBurned: order },
     take: 50,
   });
 
@@ -138,12 +140,12 @@ async function getGroupedFeed(
     const posts = await prisma.post.findMany({
       where: { topicHash: topicAgg.topicHash, parentHash: null, protocol: "ocdn" },
       include: { burns: { select: { amount: true } } },
-      orderBy: { blockHeight: "desc" },
+      orderBy: { blockHeight: order },
     });
     if (posts.length > 0) {
       const mapped = posts
         .map((p) => mapPost(p, tipHeight))
-        .sort((a, b) => b.burnTotal - a.burnTotal);
+        .sort((a, b) => (order === "desc" ? b.burnTotal - a.burnTotal : a.burnTotal - b.burnTotal));
       groups.push({ topic: mapTopic(topicAgg), posts: mapped });
     }
   }
@@ -157,7 +159,7 @@ async function getGroupedFeed(
     const standalone = await prisma.post.findMany({
       where: { topicHash: null, parentHash: null, protocol: "ocdn" },
       include: { burns: { select: { amount: true } } },
-      orderBy: { blockHeight: "desc" },
+      orderBy: { blockHeight: order },
       take: sectionLimit + 1,
     });
     untaggedHasMore = standalone.length > sectionLimit;
@@ -169,7 +171,7 @@ async function getGroupedFeed(
   const ewRaw = await prisma.post.findMany({
     where: { protocol: "ew", parentHash: null },
     include: { burns: { select: { amount: true } } },
-    orderBy: { blockHeight: "desc" },
+    orderBy: { blockHeight: order },
     take: sectionLimit + 1,
   });
   const ewHasMore = ewRaw.length > sectionLimit;
@@ -234,6 +236,7 @@ async function getFlatFeed(
   cursor: string | null,
   limit: number,
   tipHeight: number,
+  order: "asc" | "desc",
 ): Promise<{ posts: FrontendPost[]; nextCursor: string | null }> {
   const where: Record<string, unknown> = {};
   if (topicFilter) where.topicHash = topicFilter;
@@ -259,17 +262,24 @@ async function getFlatFeed(
         select: { blockHeight: true, contentHash: true },
       });
       if (cursorPost) {
-        where.OR = [
-          { blockHeight: { lt: cursorPost.blockHeight } },
-          { blockHeight: cursorPost.blockHeight, contentHash: { lt: cursor } },
-        ];
+        where.OR = order === "desc"
+          ? [
+              { blockHeight: { lt: cursorPost.blockHeight } },
+              { blockHeight: cursorPost.blockHeight, contentHash: { lt: cursor } },
+            ]
+          : [
+              { blockHeight: { gt: cursorPost.blockHeight } },
+              { blockHeight: cursorPost.blockHeight, contentHash: { gt: cursor } },
+            ];
       }
     }
 
     const posts = await prisma.post.findMany({
       where,
       include: { burns: { select: { amount: true } } },
-      orderBy: [{ blockHeight: "desc" }, { contentHash: "desc" }],
+      orderBy: order === "desc"
+        ? [{ blockHeight: "desc" }, { contentHash: "desc" }]
+        : [{ blockHeight: "asc" }, { contentHash: "asc" }],
       take: limit + 1,
     });
 
@@ -282,14 +292,13 @@ async function getFlatFeed(
   }
 
   // sort === "top" — rank by burn total
-  // We need to aggregate burns per post; use a raw approach for efficiency
   const posts = await prisma.post.findMany({
     where,
     include: { burns: { select: { amount: true } } },
   });
 
   const mapped = posts.map((p) => mapPost(p, tipHeight));
-  mapped.sort((a, b) => b.burnTotal - a.burnTotal);
+  mapped.sort((a, b) => (order === "desc" ? b.burnTotal - a.burnTotal : a.burnTotal - b.burnTotal));
 
   // Simple offset pagination for "top" since ordering is by computed value
   const cursorIdx = cursor ? mapped.findIndex((p) => p.contentHash === cursor) : -1;

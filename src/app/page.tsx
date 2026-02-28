@@ -106,9 +106,17 @@ function TopicsFeed({
               onClick={() => goToSection(sectionKey, topic)}
               className="min-w-0 flex-1 py-3 text-left hover:bg-white/[0.03] transition-colors"
             >
-              <span className={`${sz} leading-tight ${isTopic ? "text-burn" : "text-white/25"} ${topic?.name ? "" : isTopic ? "font-mono" : ""}`}>
-                {label}
-              </span>
+              {sectionKey === "_ew" ? (
+                <span className={`${sz} leading-tight inline-flex items-center`}>
+                  <span className="bg-white rounded-full px-2 py-0.5 text-blue-600 font-[ui-sans-serif,system-ui,sans-serif]">
+                    EternityWall
+                  </span>
+                </span>
+              ) : (
+                <span className={`${sz} leading-tight ${isTopic ? "text-burn" : "text-white/25"} ${topic?.name ? "" : isTopic ? "font-mono" : ""}`}>
+                  {label}
+                </span>
+              )}
             </button>
             {totalBurned > 0 && (
               <div className="shrink-0 pr-3">
@@ -176,6 +184,8 @@ export default function Home() {
   const [includeTopicless, setIncludeTopicless] = useState(true);
   const [excludedTopicHashes, setExcludedTopicHashes] = useState<string[]>([]);
   const [sortMode, setSortMode] = useState<SortMode>("topics");
+  const [sortDirections, setSortDirections] = useState<Record<string, "asc" | "desc">>({ new: "desc", top: "desc" });
+  const sortDirection = sortMode === "topics" ? "desc" : (sortDirections[sortMode] ?? "desc");
   const [threadPostId, setThreadPostId] = useState<string | null>(null);
   const [textSize, setTextSize] = useState<TextSize>("sm");
   const [composing, setComposing] = useState<{
@@ -196,6 +206,7 @@ export default function Home() {
 
   const tipHeightRef = useRef(0);
   const sortRef = useRef(sortMode);
+  const sortDirRef = useRef(sortDirection);
   const filterRef = useRef<FeedFilter>(feedFilter);
   const includeTopiclessRef = useRef(includeTopicless);
   const excludedTopicHashesRef = useRef(excludedTopicHashes);
@@ -203,15 +214,16 @@ export default function Home() {
   const loadingMoreRef = useRef(false);
 
   sortRef.current = sortMode;
+  sortDirRef.current = sortDirection;
   filterRef.current = feedFilter;
   includeTopiclessRef.current = includeTopicless;
   excludedTopicHashesRef.current = excludedTopicHashes;
 
   const feedFilterKey =
-    feedFilter.type === "all" ? `all:${includeTopicless}:${excludedTopicHashes.join(",")}` :
-    feedFilter.type === "topic" ? `t:${feedFilter.hash}` :
-    feedFilter.type === "topicless" ? "topicless" :
-    `p:${feedFilter.protocol}`;
+    feedFilter.type === "all" ? `all:${includeTopicless}:${excludedTopicHashes.join(",")}:${sortMode}:${sortDirection}` :
+    feedFilter.type === "topic" ? `t:${feedFilter.hash}:${sortMode}:${sortDirection}` :
+    feedFilter.type === "topicless" ? `topicless:${sortMode}:${sortDirection}` :
+    `p:${feedFilter.protocol}:${sortMode}:${sortDirection}`;
 
   const inThread = threadPostId !== null;
   const showFeed = searchQuery.trim().length === 0 || feedFilter.type !== "all";
@@ -222,6 +234,9 @@ export default function Home() {
     const version = ++fetchVersionRef.current;
     setLoading(true);
     setError(null);
+    setPosts([]);
+    setGroups([]);
+    setNextCursor(null);
 
     const f = filterRef.current;
     const hasFilter = f.type !== "all";
@@ -232,6 +247,7 @@ export default function Home() {
     else if (f.type === "protocol") params.set("protocol", f.protocol);
     else if (!includeTopicless) params.set("excludeTopicless", "true");
     if (hasFilter) params.set("limit", "50");
+    params.set("order", sortDirection);
 
     const feedPromise = fetch(`/api/feed?${params}`).then((r) => {
       if (!r.ok) throw new Error(`${r.status}`);
@@ -295,7 +311,7 @@ export default function Home() {
         if (version !== fetchVersionRef.current) return;
         setLoading(false);
       });
-  }, [sortMode, feedFilterKey, includeTopicless, excludedTopicHashes, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sortMode, sortDirection, feedFilterKey, includeTopicless, excludedTopicHashes, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── load more (cursor pagination) ──
   const loadMore = useCallback(() => {
@@ -318,12 +334,17 @@ export default function Home() {
       if (excludedTopicHashes.length > 0) params.set("excludeTopics", excludedTopicHashes.join(","));
     }
     if (feedFilter.type !== "all") params.set("limit", "50");
+    params.set("order", sortDirection);
 
     fetch(`/api/feed?${params}`)
       .then((r) => r.json())
       .then((data) => {
         if (version !== fetchVersionRef.current) return;
-        setPosts((prev) => [...prev, ...(data.posts ?? [])]);
+        setPosts((prev) => {
+          const prevIds = new Set(prev.map((p) => p.id));
+          const newPosts = (data.posts ?? []).filter((p: Post) => !prevIds.has(p.id));
+          return [...prev, ...newPosts];
+        });
         setNextCursor(data.nextCursor ?? null);
       })
       .catch(() => {})
@@ -331,7 +352,7 @@ export default function Home() {
         loadingMoreRef.current = false;
         setLoadingMore(false);
       });
-  }, [nextCursor, sortMode, feedFilter.type, includeTopicless, excludedTopicHashes]);
+  }, [nextCursor, sortMode, sortDirection, feedFilter.type, includeTopicless, excludedTopicHashes]);
 
   // ── SSE real-time updates ──
   useEffect(() => {
@@ -370,7 +391,11 @@ export default function Home() {
               })
               .catch(() => {});
           } else {
-            setPosts((prev) => [...newPosts, ...prev]);
+            if (sortDirRef.current === "asc") {
+              setPosts((prev) => [...prev, ...newPosts]);
+            } else {
+              setPosts((prev) => [...newPosts, ...prev]);
+            }
           }
         } catch {}
       });
@@ -470,7 +495,18 @@ export default function Home() {
     setExcludedTopicHashes([]);
     setIncludeTopicless(true);
     setSortMode("topics");
+    setSortDirections({ new: "desc", top: "desc" });
     setCollapsedTopics(new Set());
+  }, []);
+
+  const handleSortChange = useCallback((mode: SortMode) => {
+    if (sortRef.current === mode) {
+      if (mode === "new" || mode === "top") {
+        setSortDirections((prev) => ({ ...prev, [mode]: prev[mode] === "asc" ? "desc" : "asc" }));
+      }
+    } else {
+      setSortMode(mode);
+    }
   }, []);
 
   const goToSection = useCallback((sectionKey: string, topic?: { hash: string; name: string | null; totalBurned: number } | null) => {
@@ -478,8 +514,8 @@ export default function Home() {
       setFeedFilter({ type: "topicless" });
       setSearchQuery("untagged");
     } else if (sectionKey === "_ew") {
-      setFeedFilter({ type: "protocol", protocol: "ew", label: "eternitywall" });
-      setSearchQuery("eternitywall");
+      setFeedFilter({ type: "protocol", protocol: "ew", label: "EternityWall" });
+      setSearchQuery("EternityWall");
     } else if (topic) {
       setFeedFilter({ type: "topic", hash: topic.hash, name: topic.name });
       setSearchQuery(topic.name ?? topic.hash.slice(0, 8));
@@ -524,7 +560,8 @@ export default function Home() {
             searchQuery={searchQuery}
             onSearchQueryChange={setSearchQuery}
             sortMode={sortMode}
-            onSortChange={setSortMode}
+            sortDirections={sortDirections}
+            onSortChange={handleSortChange}
             textSize={textSize}
             onTextSizeChange={setTextSize}
             onCompose={() =>
@@ -551,10 +588,8 @@ export default function Home() {
             />
           ) : showFeed ? (
             loading && groups.length === 0 && posts.length === 0 ? (
-              <div
-                className={`flex h-32 items-center justify-center ${sz} text-white/10 animate-pulse`}
-              >
-                —
+              <div className="flex h-32 items-center justify-center">
+                <Loader2 className="h-8 w-8 animate-spin text-white/30" />
               </div>
             ) : error ? (
               <div className="flex h-32 flex-col items-center justify-center gap-2">
@@ -599,14 +634,23 @@ export default function Home() {
                     )
                   ) : (
                     <>
-                      {posts.map((p) => (
-                        <FeedCard
-                          key={p.id}
-                          post={p}
-                          onExpand={expandPost}
-                          expandPreview
-                        />
-                      ))}
+                      {(() => {
+                        const seen = new Set<string>();
+                        return posts
+                          .filter((p) => {
+                            if (seen.has(p.id)) return false;
+                            seen.add(p.id);
+                            return true;
+                          })
+                          .map((p) => (
+                            <FeedCard
+                              key={p.id}
+                              post={p}
+                              onExpand={expandPost}
+                              expandPreview
+                            />
+                          ));
+                      })()}
                       {nextCursor && (
                         <div className="flex justify-center py-6">
                           {loadingMore ? (

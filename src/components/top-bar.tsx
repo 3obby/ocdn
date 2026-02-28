@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Search, X, Plus, Pencil, Check } from "lucide-react";
+import { Search, X, Plus, Pencil, Check, Home, Clock, Sigma, ArrowUp, ArrowDown } from "lucide-react";
 import { formatSats } from "@/lib/mock-data";
 import type { FeedFilter, SortMode } from "@/lib/mock-data";
 import type { TextSize } from "@/lib/text-size";
@@ -33,6 +33,7 @@ export function TopBar({
   searchQuery,
   onSearchQueryChange,
   sortMode,
+  sortDirections,
   onSortChange,
   textSize,
   onTextSizeChange,
@@ -48,6 +49,7 @@ export function TopBar({
   searchQuery: string;
   onSearchQueryChange: (q: string) => void;
   sortMode: SortMode;
+  sortDirections: Record<string, "asc" | "desc">;
   onSortChange: (m: SortMode) => void;
   textSize: TextSize;
   onTextSizeChange: (s: TextSize) => void;
@@ -207,10 +209,13 @@ export function TopBar({
 
   const iconSize = sz === "lg" ? 16 : 13;
 
-  const MODES: { key: SortMode; label: string }[] = [
-    { key: "topics", label: "topics" },
-    { key: "new", label: "new" },
-    { key: "top", label: "top" },
+  const sortIconSize = sz === "lg" ? 18 : 14;
+  const NewArrow = sortDirections.new === "asc" ? ArrowDown : ArrowUp;
+  const TopArrow = sortDirections.top === "asc" ? ArrowDown : ArrowUp;
+  const MODES: { key: SortMode; icon: React.ReactNode }[] = [
+    { key: "topics", icon: <Home size={sortIconSize} strokeWidth={2} /> },
+    { key: "new", icon: <span className="inline-flex items-center gap-0.5"><Clock size={sortIconSize} strokeWidth={2} /><NewArrow size={sortIconSize} strokeWidth={2} /></span> },
+    { key: "top", icon: <span className="inline-flex items-center gap-0.5"><Sigma size={sortIconSize} strokeWidth={2} /><TopArrow size={sortIconSize} strokeWidth={2} /></span> },
   ];
 
   return (
@@ -247,15 +252,6 @@ export function TopBar({
           </div>
         </div>
 
-        {/* Text size */}
-        <button
-          onClick={() => onTextSizeChange(textSize === "sm" ? "lg" : "sm")}
-          className="flex items-baseline gap-0 text-white/40 hover:text-white/70 transition-colors"
-        >
-          <span className={`${textSize === "sm" ? "text-white" : ""} text-[11px] leading-none`}>a</span>
-          <span className={`${textSize === "lg" ? "text-white" : ""} text-[18px] leading-none`}>A</span>
-        </button>
-
         {/* Compose +✎ */}
         <button
           onClick={onCompose}
@@ -268,18 +264,36 @@ export function TopBar({
       </div>
 
       {/* Sort row */}
-      <div className="flex items-center gap-4 px-4 py-2 border-t border-border/50">
-        {MODES.map((m) => (
-          <button
-            key={m.key}
-            onClick={() => onSortChange(m.key)}
-            className={`${ts(sz)} leading-tight transition-colors ${
-              sortMode === m.key ? "text-white" : "text-white/20 hover:text-white/50"
-            }`}
-          >
-            {m.label}
-          </button>
-        ))}
+      <div className="flex items-center px-3 py-2 border-t border-border/50">
+        {/* Text size toggle */}
+        <button
+          onClick={() => onTextSizeChange(textSize === "sm" ? "lg" : "sm")}
+          className="flex items-baseline gap-0 text-white/40 hover:text-white/70 transition-colors mr-auto"
+        >
+          <span className={`${textSize === "sm" ? "text-white" : ""} text-[11px] leading-none`}>a</span>
+          <span className={`${textSize === "lg" ? "text-white" : ""} text-[18px] leading-none`}>A</span>
+        </button>
+
+        {/* Sort mode pill group */}
+        <div className="flex items-center rounded-full bg-white/[0.06] p-0.5">
+          {MODES.map((m) => (
+            <button
+              key={m.key}
+              onClick={() => onSortChange(m.key)}
+              aria-label={m.key}
+              className={`flex items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition-colors ${
+                sortMode === m.key
+                  ? "bg-white/[0.12] text-white"
+                  : "text-white/25 hover:text-white/50"
+              }`}
+            >
+              {m.icon}
+            </button>
+          ))}
+        </div>
+
+        {/* Spacer to keep pill centered */}
+        <div className="mr-auto" />
       </div>
 
       {/* Inline topic list when search bar focused */}
@@ -382,7 +396,15 @@ export function TopBar({
                   </span>
                 </div>
                 <div className="min-w-0 flex-1 py-2.5 pl-0 pr-4 text-left">
-                  <span className={`${ts(sz)} leading-tight text-white/30 font-mono`}>{e.label}</span>
+                  {e.protocol === "ew" ? (
+                    <span className={`${ts(sz)} leading-tight inline-flex items-center`}>
+                      <span className="bg-white rounded-full px-2 py-0.5 text-blue-600 font-[ui-sans-serif,system-ui,sans-serif]">
+                        EternityWall
+                      </span>
+                    </span>
+                  ) : (
+                    <span className={`${ts(sz)} leading-tight text-white/30 font-mono`}>{e.label}</span>
+                  )}
                 </div>
               </button>
             ))}
