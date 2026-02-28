@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { rateLimit, errorResponse, log, PORTAL_RAKE_SATS } from "@/lib/api-utils";
+import { rateLimit, errorResponse, log, computeRake } from "@/lib/api-utils";
 import { createPostEnvelope, createReplyEnvelope } from "@/lib/protocol/create";
 import { generateNonce, generateKeyPair } from "@/lib/protocol/crypto";
 import { HASH_LENGTH } from "@/lib/protocol/constants";
@@ -74,7 +74,7 @@ export async function GET(request: Request) {
     // Signal cost estimate
     const signalCost = estimateSignalCost(feeRate);
 
-    const rake = PORTAL_RAKE_SATS;
+    const rake = computeRake(feeRate);
 
     return NextResponse.json({
       feeRate,

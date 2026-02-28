@@ -19,7 +19,7 @@ import {
   checkFeeSpike,
   errorResponse,
   log,
-  PORTAL_RAKE_SATS,
+  computeRake,
   PAYMENT_EXPIRY_MS,
 } from "@/lib/api-utils";
 import { HASH_LENGTH } from "@/lib/protocol/constants";
@@ -121,7 +121,7 @@ export async function POST(request: Request) {
       feeSats = Number(est.feeSats);
     }
 
-    const rake = PORTAL_RAKE_SATS;
+    const rake = computeRake(feeRate);
     const burnExtra = actionType === "burn" ? Number(body.burnAmount) : 0;
     const amountSats = feeSats + rake + burnExtra;
 

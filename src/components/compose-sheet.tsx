@@ -66,7 +66,7 @@ export function ComposeSheet({
       ? `\u2192 ${topicName}`
       : "new post";
 
-  // Fetch cost estimate once on mount (default content size)
+  // Fetch cost estimate on mount (default), then re-fetch as content changes
   useEffect(() => {
     fetch("/api/costs")
       .then((r) => r.json())
@@ -76,6 +76,22 @@ export function ComposeSheet({
       })
       .catch(() => {});
   }, [isReply]);
+
+  useEffect(() => {
+    if (!text.trim()) return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      const params = new URLSearchParams({ content: text.trim() });
+      fetch(`/api/costs?${params}`, { signal: controller.signal })
+        .then((r) => r.json())
+        .then((data) => {
+          const c = isReply ? data.reply : data.post;
+          if (c) setCost({ minerFee: c.minerFee, rake: c.rake, totalSats: c.totalSats });
+        })
+        .catch(() => {});
+    }, 400);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [text, isReply]);
 
   // Countdown timer for payment expiry
   useEffect(() => {
