@@ -14,12 +14,12 @@ import { ChevronRight, ChevronDown, Loader2 } from "lucide-react";
 import { type TextSize, TextSizeCtx } from "@/lib/text-size";
 import { TopBar } from "@/components/top-bar";
 import { FeedCard } from "@/components/feed-card";
-import { ThreadView } from "@/components/thread-view";
+import { InlineThread } from "@/components/inline-thread";
 import { ComposeSheet } from "@/components/compose-sheet";
 import { SearchView } from "@/components/search-view";
 import { EphemeralPostCard } from "@/components/ephemeral-post-card";
 import { ProfileIcon, ProfileSheet } from "@/components/profile-icon";
-import { getStoredIdentity } from "@/lib/nostr/client";
+import { getStoredIdentity, getSessionPubkey } from "@/lib/nostr/client";
 
 const HELLO_WORLD: Post = {
   id: "_hello",
@@ -54,6 +54,10 @@ function TopicsFeed({
   goToSection,
   expandPreview,
   sz,
+  ephemeralPosts,
+  expandedPostId,
+  onReply,
+  myEphemeralPosts: myEph,
 }: {
   groups: TopicGroup[];
   posts: Post[];
@@ -71,6 +75,10 @@ function TopicsFeed({
   goToSection: (sectionKey: string, topic?: { hash: string; name: string | null; totalBurned: number } | null) => void;
   expandPreview?: boolean;
   sz: string;
+  ephemeralPosts?: EphemeralPost[];
+  expandedPostId?: string | null;
+  onReply?: (id: string) => void;
+  myEphemeralPosts?: EphemeralPost[];
 }) {
   const untaggedPosts = posts.filter((p) => p._section === "untagged");
   const ewPosts = posts.filter((p) => p._section === "ew");
@@ -95,7 +103,7 @@ function TopicsFeed({
     const totalBurned = topic?.totalBurned ?? 0;
 
     return (
-      <div key={sectionKey} className="bg-[#0d0d0d] mb-2">
+      <div key={sectionKey} className="bg-[#111111] mb-2">
         {feedFilter.type === "all" && (
           <div className="flex items-center">
             <button
@@ -134,10 +142,18 @@ function TopicsFeed({
           </div>
         )}
         {!isCollapsed && (
-          <div className="pl-2 divide-y divide-white/[0.04]">
-            {sectionPosts.map((p) => (
-              <FeedCard key={p.id} post={p} onExpand={expandPost} onVisible={onPostVisible} expandPreview={expandPreview} />
-            ))}
+          <div className="pl-4">
+            {sectionPosts.flatMap((p) => [
+              <FeedCard key={p.id} post={p} onExpand={expandPost} onVisible={onPostVisible} onReply={onReply} expandPreview={expandPreview} isExpanded={expandedPostId === p.id} />,
+              ...(expandedPostId === p.id ? [
+                <InlineThread
+                  key={`thread-${p.id}`}
+                  postId={p.id}
+                  onReply={onReply ?? (() => {})}
+                  initialEphemeralPosts={myEph?.filter((e) => e.parentContentHash === p.id)}
+                />
+              ] : []),
+            ])}
           </div>
         )}
       </div>
@@ -159,7 +175,7 @@ function TopicsFeed({
       {untaggedHasMore && !collapsedTopics.has("_untagged") && (
         <button
           onClick={() => goToSection("_untagged")}
-          className={`w-full py-2 ${sz} text-white/15 hover:text-white/30 transition-colors bg-[#0d0d0d] -mt-2 mb-2`}
+          className={`w-full py-2 ${sz} text-white/15 hover:text-white/30 transition-colors bg-[#111111] -mt-2 mb-2`}
         >
           more
         </button>
@@ -168,10 +184,46 @@ function TopicsFeed({
       {ewHasMore && !collapsedTopics.has("_ew") && (
         <button
           onClick={() => goToSection("_ew")}
-          className={`w-full py-2 ${sz} text-white/15 hover:text-white/30 transition-colors bg-[#0d0d0d] -mt-2 mb-2`}
+          className={`w-full py-2 ${sz} text-white/15 hover:text-white/30 transition-colors bg-[#111111] -mt-2 mb-2`}
         >
           more
         </button>
+      )}
+      {ephemeralPosts && ephemeralPosts.length > 0 && (
+        <div className="bg-[#111111] mb-2">
+          {feedFilter.type === "all" && (
+            <div className="flex items-center">
+              <button
+                onClick={() => toggleTopic("_ephemeral")}
+                className="py-2.5 pl-4 text-left shrink-0"
+              >
+                <span className={`${sz} leading-tight text-white/25`}>nostr</span>
+              </button>
+              <button
+                onClick={() => toggleTopic("_ephemeral")}
+                className="shrink-0 p-1 text-white/20 hover:text-white/40 transition-colors"
+              >
+                {collapsedTopics.has("_ephemeral")
+                  ? <ChevronRight size={14} strokeWidth={1.5} />
+                  : <ChevronDown size={14} strokeWidth={1.5} />
+                }
+              </button>
+              <div className="min-w-0 flex-1" />
+              <div className="shrink-0 pr-3">
+                <span className="text-[10px] text-white/15 tabular-nums">
+                  {ephemeralPosts.length}
+                </span>
+              </div>
+            </div>
+          )}
+          {!collapsedTopics.has("_ephemeral") && (
+            <div className="pl-4 divide-y divide-white/[0.04]">
+              {ephemeralPosts.map((ep) => (
+                <EphemeralPostCard key={ep.nostrEventId} post={ep} />
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </>
   );
@@ -186,6 +238,8 @@ export default function Home() {
   const [sortDirections, setSortDirections] = useState<Record<string, "asc" | "desc">>({ new: "desc", top: "desc" });
   const sortDirection = sortMode === "topics" ? "desc" : (sortDirections[sortMode] ?? "desc");
   const [threadPostId, setThreadPostId] = useState<string | null>(null);
+  const [threadTopicName, setThreadTopicName] = useState<string | null>(null);
+  const [expandedPostId, setExpandedPostId] = useState<string | null>(null);
   const [textSize, setTextSize] = useState<TextSize>("sm");
   const [composing, setComposing] = useState<{
     replyToId: string | null;
@@ -197,9 +251,9 @@ export default function Home() {
   const [showProfile, setShowProfile] = useState(false);
   const [hasStoredIdentity, setHasStoredIdentity] = useState(false);
 
-  // Check localStorage for identity on mount (client-only)
+  // Check localStorage/sessionStorage for identity on mount (client-only)
   useEffect(() => {
-    setHasStoredIdentity(!!getStoredIdentity());
+    setHasStoredIdentity(!!getStoredIdentity() || !!getSessionPubkey());
   }, []);
 
   const hasProfileActivity = myEphemeralPosts.length > 0 || hasStoredIdentity;
@@ -214,6 +268,7 @@ export default function Home() {
   const [untaggedHasMore, setUntaggedHasMore] = useState(false);
   const [ewHasMore, setEwHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [homeEphemeral, setHomeEphemeral] = useState<EphemeralPost[]>([]);
 
   const tipHeightRef = useRef(0);
   const sortRef = useRef(sortMode);
@@ -236,7 +291,6 @@ export default function Home() {
     feedFilter.type === "topicless" ? `topicless:${sortMode}:${sortDirection}` :
     `p:${feedFilter.protocol}:${sortMode}:${sortDirection}`;
 
-  const inThread = threadPostId !== null;
   const showFeed = searchQuery.trim().length === 0 || feedFilter.type !== "all";
   const sz = textSize === "lg" ? "text-[26px]" : "text-[16px]";
 
@@ -264,6 +318,18 @@ export default function Home() {
       if (!r.ok) throw new Error(`${r.status}`);
       return r.json();
     });
+
+    if (effectiveSort === "topics" && f.type === "all") {
+      fetch("/api/ephemeral?root=true&sort=new&limit=20")
+        .then((r) => r.ok ? r.json() : { posts: [] })
+        .then((data) => {
+          if (version !== fetchVersionRef.current) return;
+          setHomeEphemeral(data.posts ?? []);
+        })
+        .catch(() => {});
+    } else {
+      setHomeEphemeral([]);
+    }
 
     feedPromise
       .then((data) => {
@@ -518,7 +584,7 @@ export default function Home() {
     }
   }, [setFeedFilter, setSearchQuery]);
 
-  const expandPost = useCallback((id: string) => {
+  const openThread = useCallback((id: string, topicName?: string | null) => {
     if (!id.startsWith("_") && !id.startsWith("eph_")) {
       fetch("/api/view", {
         method: "POST",
@@ -526,8 +592,78 @@ export default function Home() {
         body: JSON.stringify({ contentHash: id }),
       }).catch(() => {});
     }
+    setThreadTopicName(topicName ?? null);
+    setExpandedPostId(id);
     setThreadPostId(id);
+    window.history.pushState({ thread: id }, "", `#post=${id}`);
   }, []);
+
+  const closeThread = useCallback(() => {
+    setThreadPostId(null);
+    setExpandedPostId(null);
+    setThreadTopicName(null);
+    window.history.replaceState({}, "", window.location.pathname);
+  }, []);
+
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      if (e.state?.thread) {
+        setExpandedPostId(e.state.thread);
+        setThreadPostId(e.state.thread);
+      } else {
+        setThreadPostId(null);
+        setExpandedPostId(null);
+        setThreadTopicName(null);
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  // Restore from URL hash on mount
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash.startsWith("#post=")) {
+      const id = hash.slice(6);
+      if (id) {
+        setExpandedPostId(id);
+        setThreadPostId(id);
+      }
+    }
+  }, []);
+
+  // Swipe-right to go back (mobile)
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    if (touch.clientX < 40) {
+      touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    } else {
+      touchStartRef.current = null;
+    }
+  }, []);
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (!touchStartRef.current || !expandedPostId) return;
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - touchStartRef.current.x;
+    const dy = Math.abs(touch.clientY - touchStartRef.current.y);
+    touchStartRef.current = null;
+    if (dx > 80 && dy < 100) {
+      if (window.history.state?.thread) window.history.back();
+      else closeThread();
+    }
+  }, [expandedPostId, closeThread]);
+
+  const expandPost = useCallback((id: string) => {
+    if (expandedPostId === id) {
+      if (window.history.state?.thread) window.history.back();
+      else closeThread();
+      return;
+    }
+    const allPosts = [...posts, ...groups.flatMap((g) => g.posts)];
+    const match = allPosts.find((p) => p.id === id);
+    openThread(id, match?.topicName);
+  }, [posts, groups, openThread, expandedPostId, closeThread]);
 
   const viewedRef = useRef(new Set<string>());
 
@@ -558,7 +694,7 @@ export default function Home() {
 
   return (
     <TextSizeCtx.Provider value={textSize}>
-      <div className="flex h-dvh flex-col bg-black text-white">
+      <div className="flex h-dvh flex-col bg-black text-white md:max-w-md md:mx-auto md:border-x md:border-border">
         <TopBar
             feedFilter={feedFilter}
             onFeedFilterChange={setFeedFilter}
@@ -582,21 +718,20 @@ export default function Home() {
             excludedTopicHashes={excludedTopicHashes}
             onExcludedTopicHashesChange={setExcludedTopicHashes}
             onReset={resetHome}
+            expandedPostId={expandedPostId}
+            expandedTopicName={threadTopicName}
+            onBack={() => {
+              if (window.history.state?.thread) window.history.back();
+              else closeThread();
+            }}
           />
 
-        <div className="relative flex-1 overflow-hidden">
-          {inThread ? (
-            <ThreadView
-              postId={threadPostId!}
-              onBack={() => setThreadPostId(null)}
-              onReply={(id) =>
-                setComposing({ replyToId: id, topicName: null })
-              }
-              initialEphemeralPosts={myEphemeralPosts.filter(
-                (e) => e.parentContentHash === threadPostId,
-              )}
-            />
-          ) : showFeed ? (
+        <div
+          className="relative flex-1 overflow-hidden"
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+        >
+          {showFeed ? (
             loading && groups.length === 0 && posts.length === 0 ? (
               <div className="flex h-32 items-center justify-center">
                 <Loader2 className="h-8 w-8 animate-spin text-white/30" />
@@ -613,6 +748,7 @@ export default function Home() {
               </div>
             ) : (
               <div
+                data-feed-scroll
                 className="h-full overflow-y-auto"
                 onScroll={handleFeedScroll}
               >
@@ -645,6 +781,10 @@ export default function Home() {
                       goToSection={goToSection}
                       expandPreview={false}
                       sz={sz}
+                      ephemeralPosts={homeEphemeral}
+                      expandedPostId={expandedPostId}
+                      onReply={(id) => setComposing({ replyToId: id, topicName: null })}
+                      myEphemeralPosts={myEphemeralPosts}
                     />
                   : posts.length === 0 ? (
                     (excludedTopicHashes.length > 0 || !includeTopicless) && feedFilter.type === "all" ? (
@@ -656,7 +796,7 @@ export default function Home() {
                     )
                   ) : (
                     <>
-                      <div className="bg-[#0d0d0d] divide-y divide-white/[0.04]">
+                      <div className="bg-[#111111]">
                         {(() => {
                           const seen = new Set<string>();
                           return posts
@@ -665,15 +805,25 @@ export default function Home() {
                               seen.add(p.id);
                               return true;
                             })
-                            .map((p) => (
+                            .flatMap((p) => [
                               <FeedCard
                                 key={p.id}
                                 post={p}
                                 onExpand={expandPost}
                                 onVisible={onPostVisible}
+                                onReply={(id) => setComposing({ replyToId: id, topicName: null })}
                                 expandPreview
-                              />
-                            ));
+                                isExpanded={expandedPostId === p.id}
+                              />,
+                              ...(expandedPostId === p.id ? [
+                                <InlineThread
+                                  key={`thread-${p.id}`}
+                                  postId={p.id}
+                                  onReply={(id) => setComposing({ replyToId: id, topicName: null })}
+                                  initialEphemeralPosts={myEphemeralPosts.filter((e) => e.parentContentHash === p.id)}
+                                />
+                              ] : []),
+                            ]);
                         })()}
                       </div>
                       {nextCursor && (
@@ -698,7 +848,7 @@ export default function Home() {
             <SearchView
               query={searchQuery}
               onExpand={(id) => {
-                setThreadPostId(id);
+                openThread(id);
               }}
             />
           )}
@@ -716,7 +866,7 @@ export default function Home() {
         {showProfile && (
           <ProfileSheet
             onClose={() => setShowProfile(false)}
-            onExpand={(id) => { setShowProfile(false); expandPost(id); }}
+            onExpand={(id) => { setShowProfile(false); openThread(id); }}
             myEphemeralPosts={myEphemeralPosts}
           />
         )}
