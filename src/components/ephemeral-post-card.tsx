@@ -29,17 +29,17 @@ export function EphemeralPostCard({
 
   return (
     <div
-      className="relative border border-dashed border-white/[0.10] opacity-75 px-4 py-2.5 bg-black"
+      className="relative border border-dashed border-white/[0.15] px-4 py-2.5 bg-black"
     >
       {/* Header row */}
-      <div className={`flex items-center gap-1.5 ${ts(sz)} text-white/20 mb-1`}>
+      <div className={`flex items-center gap-1.5 ${ts(sz)} text-white/40 mb-1`}>
         <span className="font-mono text-[10px]">{shortNostrPubkey(post.nostrPubkey)}</span>
         <span>&middot;</span>
         <span className="text-[10px]">{formatTime(new Date(post.createdAt).getTime())}</span>
         {powLabel && (
           <>
             <span>&middot;</span>
-            <span className="text-[10px] text-white/30">⚡{powLabel}</span>
+            <span className="text-[10px] text-white/50">⚡{powLabel}</span>
           </>
         )}
         {/* Expiry chip */}
@@ -51,13 +51,13 @@ export function EphemeralPostCard({
       </div>
 
       {/* Content */}
-      <p className={`${ts(sz)} text-white/60 leading-snug whitespace-pre-wrap`}>
+      <p className={`${ts(sz)} text-white/90 leading-snug whitespace-pre-wrap`}>
         {post.content}
       </p>
 
       {/* CTA strip */}
       {!optimistic && (
-        <div className="flex items-center gap-3 mt-2 pt-1.5 border-t border-white/[0.06]">
+        <div className="flex items-center gap-3 mt-2 pt-1.5 border-t border-white/[0.10]">
           <BoostButton
             post={post}
             onBoosted={(newWeight) => setLocalWeight(newWeight)}
@@ -65,12 +65,12 @@ export function EphemeralPostCard({
           {onMakePermanent && (
             <button
               onClick={() => onMakePermanent(post)}
-              className={`${ts(sz)} text-white/20 hover:text-white/50 transition-colors text-[11px]`}
+              className={`${ts(sz)} text-white/30 hover:text-white/60 transition-colors text-[11px]`}
             >
               make permanent
             </button>
           )}
-          <span className={`ml-auto text-[10px] tabular-nums text-white/15`}>
+          <span className={`ml-auto text-[10px] tabular-nums text-white/25`}>
             {localWeight > 0 ? `⚡${formatPoWWeight(localWeight)}` : ""}
           </span>
         </div>

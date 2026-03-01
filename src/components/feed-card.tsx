@@ -13,7 +13,10 @@ import { Pencil, Eye } from "lucide-react";
 function ConfirmBadge({ confirmations, ephemeral, ephemeralStatus }: { confirmations: number; ephemeral?: boolean; ephemeralStatus?: string }) {
   if (ephemeral && ephemeralStatus !== "upgraded") {
     return (
-      <span className="animate-pulse text-white/15 text-[10px]">ephemeral</span>
+      <span className="flex flex-col items-end leading-none gap-0.5">
+        <span className="text-white text-[10px]">nostr</span>
+        <span className="text-orange-400 text-[9px] font-semibold">+BTC</span>
+      </span>
     );
   }
   if (confirmations >= 6) return null;

@@ -146,8 +146,8 @@ export function InlineThread({
             className={`w-full px-4 py-2 text-left ${ts(sz)} text-white/20 hover:text-white/40 transition-colors`}
           >
             {ephemeralExpanded
-              ? `${Math.max(ephemeralCount, ephemeralPosts.length)} ephemeral`
-              : `${Math.max(ephemeralCount, ephemeralPosts.length)} ephemeral ${Math.max(ephemeralCount, ephemeralPosts.length) === 1 ? "reply" : "replies"}`}
+              ? `${Math.max(ephemeralCount, ephemeralPosts.length)} nostr`
+              : `${Math.max(ephemeralCount, ephemeralPosts.length)} nostr ${Math.max(ephemeralCount, ephemeralPosts.length) === 1 ? "reply" : "replies"}`}
           </button>
           {ephemeralExpanded && (
             <div className="divide-y divide-white/[0.04]">
