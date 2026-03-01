@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Search, X, Plus, Pencil, Check, Home, Clock, Sigma, ArrowUp, ArrowDown } from "lucide-react";
+import { Search, X, Plus, Pencil, Check, Home, Clock, Sigma, ArrowUp, ArrowDown, ArrowLeft } from "lucide-react";
 import { formatSats } from "@/lib/mock-data";
 import type { FeedFilter, SortMode } from "@/lib/mock-data";
 import type { TextSize } from "@/lib/text-size";
@@ -53,6 +53,9 @@ export function TopBar({
   excludedTopicHashes,
   onExcludedTopicHashesChange,
   onReset,
+  expandedPostId,
+  expandedTopicName,
+  onBack,
 }: {
   feedFilter: FeedFilter;
   onFeedFilterChange: (f: FeedFilter) => void;
@@ -71,6 +74,9 @@ export function TopBar({
   excludedTopicHashes: string[];
   onExcludedTopicHashesChange: (hashes: string[]) => void;
   onReset?: () => void;
+  expandedPostId?: string | null;
+  expandedTopicName?: string | null;
+  onBack?: () => void;
 }) {
   const sz = useTextSize();
   const [open, setOpen] = useState(false);
@@ -233,16 +239,26 @@ export function TopBar({
   return (
     <div ref={containerRef} className="relative shrink-0 border-b border-border bg-elevated">
       <div className="flex items-center gap-2 px-3 py-2">
-        {/* Home button */}
-        <button
-          onClick={handleClear}
-          aria-label="Home"
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white/70 hover:bg-white/[0.15] hover:text-white transition-colors"
-        >
-          <Home size={iconSize} strokeWidth={2} />
-        </button>
+        {/* Home / Back button */}
+        {expandedPostId && onBack ? (
+          <button
+            onClick={onBack}
+            aria-label="Back"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white/70 hover:bg-white/[0.15] hover:text-white transition-colors"
+          >
+            <ArrowLeft size={iconSize} strokeWidth={2} />
+          </button>
+        ) : (
+          <button
+            onClick={handleClear}
+            aria-label="Home"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white/70 hover:bg-white/[0.15] hover:text-white transition-colors"
+          >
+            <Home size={iconSize} strokeWidth={2} />
+          </button>
+        )}
 
-        {/* Search row: [×] [input] [🔍] */}
+        {/* Search row / Topic label */}
         <div className="flex min-w-0 flex-1 items-center rounded-full bg-white/[0.06]">
           {showClear && (
             <button
@@ -264,7 +280,7 @@ export function TopBar({
               onChange={(e) => onSearchQueryChange(e.target.value)}
               onKeyDown={handleKeyDown}
               onFocus={() => setOpen(true)}
-              placeholder="topics or pubkey"
+              placeholder={expandedPostId && expandedTopicName ? expandedTopicName : "topics or pubkey"}
               className={`w-full bg-transparent ${ts(sz)} text-white placeholder:text-white/20 outline-none`}
             />
           </div>
@@ -273,20 +289,10 @@ export function TopBar({
           </div>
         </div>
 
-        {/* Compose +✎ */}
-        <button
-          onClick={onCompose}
-          aria-label="Compose"
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white/70 hover:bg-white/[0.15] hover:text-white transition-colors"
-        >
-          <Plus size={iconSize} strokeWidth={2} className="mr-0.5" />
-          <Pencil size={iconSize - 2} strokeWidth={2} />
-        </button>
-
       </div>
 
-      {/* Sort row: [profile? aA  flex-1]  [pill centered]  [flex-1] */}
-      <div className="flex items-center px-3 py-2 border-t border-border/50">
+      {/* Sort row: [profile? aA  flex-1]  [pill centered]  [flex-1 compose] */}
+      <div className="flex items-center pl-5 pr-3 py-2 border-t border-border/50">
         {/* Left: profile icon (if active) + text size toggle */}
         <div className="flex flex-1 items-center gap-2">
           {hasProfileActivity && (
@@ -319,8 +325,17 @@ export function TopBar({
           ))}
         </div>
 
-        {/* Right: equal-width spacer keeps pill centered */}
-        <div className="flex-1" />
+        {/* Right: compose button */}
+        <div className="flex flex-1 items-center justify-end">
+          <button
+            onClick={onCompose}
+            aria-label="Compose"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white/70 hover:bg-white/[0.15] hover:text-white transition-colors"
+          >
+            <Plus size={iconSize} strokeWidth={2} className="mr-0.5" />
+            <Pencil size={iconSize - 2} strokeWidth={2} />
+          </button>
+        </div>
       </div>
 
       {/* Inline topic list when search bar focused */}
@@ -333,7 +348,7 @@ export function TopBar({
           {/* Untagged always at top with filter checkbox */}
           <button
             onClick={() => selectTopic({ type: "topicless" })}
-            className="flex w-full items-center border-b border-border transition-colors hover:bg-white/[0.03]"
+            className="flex w-full items-center border-b border-border transition-colors hover:bg-white/[0.03] pl-4"
           >
             <div
               role="button"
@@ -363,7 +378,7 @@ export function TopBar({
               <button
                 key={t.hash}
                 onClick={() => selectTopic({ type: "topic", hash: t.hash, name: t.name })}
-                className="flex w-full items-center border-b border-border transition-colors hover:bg-white/[0.03]"
+                className="flex w-full items-center border-b border-border transition-colors hover:bg-white/[0.03] pl-4"
               >
                 <div
                   role="button"
@@ -400,7 +415,7 @@ export function TopBar({
                 onClick={() =>
                   selectTopic({ type: "protocol", protocol: e.protocol, label: e.label })
                 }
-                className="flex w-full items-center border-b border-border transition-colors hover:bg-white/[0.03]"
+                className="flex w-full items-center border-b border-border transition-colors hover:bg-white/[0.03] pl-4"
               >
                 <div
                   role="button"

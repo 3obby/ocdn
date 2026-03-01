@@ -32,12 +32,16 @@ export function FeedCard({
   post,
   onExpand,
   onVisible,
+  onReply,
   expandPreview,
+  isExpanded,
 }: {
   post: Post;
   onExpand: (id: string) => void;
   onVisible?: (id: string) => void;
+  onReply?: (id: string) => void;
   expandPreview?: boolean;
+  isExpanded?: boolean;
 }) {
   const sz = useTextSize();
   const cardRef = useRef<HTMLDivElement>(null);
@@ -63,32 +67,73 @@ export function FeedCard({
   const isPaid = isEphemeral && post.ephemeralStatus === "upgraded";
   const isUnpaid = isEphemeral && !isPaid;
 
-  const contentClamp = expandPreview ? "line-clamp-3" : "truncate";
+  const contentClamp = isExpanded ? "" : expandPreview ? "line-clamp-3" : "truncate";
 
   return (
     <div
       ref={cardRef}
       onClick={() => !isUnpaid && onExpand(post.id)}
-      className={`relative flex items-center transition-colors ${
+      className={`relative transition-all duration-200 ${
         isUnpaid
           ? "opacity-40 cursor-default"
           : "cursor-pointer hover:bg-white/[0.03]"
-      }`}
+      } ${isExpanded ? "bg-white/[0.04]" : ""}`}
     >
-      <div className="min-w-0 flex-1 py-2.5 pl-4 pr-2">
-        <span
-          className={`${ts(sz)} leading-tight ${isUnpaid ? "text-white/40" : "text-white/90"} block ${contentClamp}`}
+      {/* Expanded: metadata row */}
+      {isExpanded && (
+        <div className="flex items-center gap-2 px-4 pt-3 pb-1 text-white/30" style={{ fontSize: "11px" }}>
+          <span className="text-burn/60 tabular-nums">{formatSats(post.burnTotal)}</span>
+          <span>{shortPubkey(post.authorPubkey)}</span>
+          <span>&middot;</span>
+          <span>{formatTime(post.timestamp)}</span>
+          {post.confirmations < 6 && (
+            <>
+              <span>&middot;</span>
+              <span className={post.confirmations === 0 ? "animate-pulse text-white/20" : "text-white/15"}>
+                {post.confirmations}c
+              </span>
+            </>
+          )}
+          <span>&middot;</span>
+          <span className="flex items-center gap-0.5 text-white/15">
+            <Eye size={10} strokeWidth={1.5} />
+            <span className="text-[10px] tabular-nums">{post.viewCount || 0}</span>
+          </span>
+        </div>
+      )}
+
+      <div className={`flex items-center ${isExpanded ? "" : ""}`}>
+        <div className={`min-w-0 flex-1 ${isExpanded ? "px-4 pb-3 pt-1" : "py-2.5 pl-4 pr-2"}`}>
+          <span
+            className={`${ts(sz)} leading-snug ${isUnpaid ? "text-white/40" : "text-white"} block ${contentClamp} transition-colors duration-200`}
+          >
+            {post.text}
+          </span>
+        </div>
+
+        {!isExpanded && (
+          <div className="shrink-0 flex items-center gap-2 pr-3">
+            <ConfirmBadge confirmations={post.confirmations} ephemeral={isEphemeral} ephemeralStatus={post.ephemeralStatus} />
+          </div>
+        )}
+      </div>
+
+      {/* Expanded: reply button */}
+      {isExpanded && onReply && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onReply(post.id);
+          }}
+          className="absolute bottom-3 right-3 p-1 text-white/15 hover:text-white/40 transition-colors"
         >
-          {post.text}
-        </span>
-      </div>
+          <Pencil size={16} />
+        </button>
+      )}
 
-      <div className="shrink-0 flex items-center gap-2 pr-3">
-        <ConfirmBadge confirmations={post.confirmations} ephemeral={isEphemeral} ephemeralStatus={post.ephemeralStatus} />
-      </div>
-
-      {!isUnpaid && (
-        <div className="absolute right-0 inset-y-0 flex items-center justify-end pr-3 pl-8 bg-gradient-to-r from-transparent to-[#0d0d0d] pointer-events-none">
+      {/* Collapsed: stats overlay */}
+      {!isExpanded && !isUnpaid && (
+        <div className="absolute right-0 inset-y-0 flex items-center justify-end pr-3 pl-8 bg-gradient-to-r from-transparent to-[#111111] pointer-events-none">
           <div className="flex items-center gap-2">
             {(post.ephemeralCount ?? 0) > 0 && (
               <span className="text-[10px] tabular-nums text-white/20">

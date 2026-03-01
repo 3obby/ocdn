@@ -45,14 +45,14 @@
   --secondary: #0a0a0a;
   --secondary-foreground: #ffffff;
   --muted: #0a0a0a;
-  --muted-foreground: rgba(255, 255, 255, 0.4);
+  --muted-foreground: rgba(255, 255, 255, 0.52);
   --accent: #0a0a0a;
   --accent-foreground: #ffffff;
   --destructive: #ef4444;
-  --border: rgba(255, 255, 255, 0.08);
+  --border: rgba(255, 255, 255, 0.12);
   --input: rgba(255, 255, 255, 0.12);
   --ring: rgba(255, 255, 255, 0.2);
-  --elevated: #333131;
+  --elevated: #1a1a1a;
 }
 
 .dark {
@@ -67,14 +67,14 @@
   --secondary: #0a0a0a;
   --secondary-foreground: #ffffff;
   --muted: #0a0a0a;
-  --muted-foreground: rgba(255, 255, 255, 0.4);
+  --muted-foreground: rgba(255, 255, 255, 0.52);
   --accent: #0a0a0a;
   --accent-foreground: #ffffff;
   --destructive: #ef4444;
-  --border: rgba(255, 255, 255, 0.08);
+  --border: rgba(255, 255, 255, 0.12);
   --input: rgba(255, 255, 255, 0.12);
   --ring: rgba(255, 255, 255, 0.2);
-  --elevated: #333131;
+  --elevated: #1a1a1a;
 }
 
 @layer base {

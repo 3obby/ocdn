@@ -21,12 +21,13 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const parentHash = searchParams.get("parentHash");
   const topicHash = searchParams.get("topicHash");
+  const root = searchParams.get("root") === "true";
   const sort = searchParams.get("sort") === "new" ? "new" : "top";
   const cursor = searchParams.get("cursor");
   const limit = parsePageSize(searchParams.get("limit"));
 
-  if (!parentHash && !topicHash) {
-    return errorResponse("parentHash or topicHash is required");
+  if (!parentHash && !topicHash && !root) {
+    return errorResponse("parentHash, topicHash, or root=true is required");
   }
 
   try {
@@ -36,6 +37,7 @@ export async function GET(request: Request) {
     };
     if (parentHash) where.parentContentHash = parentHash;
     if (topicHash) where.topicHash = topicHash;
+    if (root) where.parentContentHash = null;
 
     const orderBy =
       sort === "top"
