@@ -20,6 +20,63 @@ import { SearchView } from "@/components/search-view";
 import { EphemeralPostCard } from "@/components/ephemeral-post-card";
 import { ProfileIcon, ProfileSheet } from "@/components/profile-icon";
 import { getStoredIdentity, getSessionPubkey } from "@/lib/nostr/client";
+import { topicHash as computeTopicHash } from "@/lib/protocol/crypto";
+
+const HEX_64_RE = /^[0-9a-f]{64}$/i;
+
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function normalizedTopicHash(topic: string): string {
+  return toHex(computeTopicHash(topic.toLowerCase().trim().normalize("NFC")));
+}
+
+/** Build the URL path for the current navigation state */
+function buildPath(filter: FeedFilter, postId?: string | null): string {
+  let base = "/";
+  if (filter.type === "topic" && filter.name) {
+    base = `/${encodeURIComponent(filter.name)}`;
+  } else if (filter.type === "protocol") {
+    base = `/${encodeURIComponent(filter.label ?? filter.protocol)}`;
+  } else if (filter.type === "topicless") {
+    base = "/untagged";
+  }
+  if (postId) {
+    return `${base}/${postId}`;
+  }
+  return base;
+}
+
+/** Parse URL path into initial navigation state */
+function parsePath(pathname: string): {
+  topicName: string | null;
+  topicHash: string | null;
+  postId: string | null;
+  protocol: string | null;
+} {
+  const segments = pathname.split("/").filter(Boolean).map(decodeURIComponent);
+  if (segments.length === 0) return { topicName: null, topicHash: null, postId: null, protocol: null };
+
+  const first = segments[0];
+  const second = segments[1] ?? null;
+
+  if (segments.length === 1 && HEX_64_RE.test(first)) {
+    return { topicName: null, topicHash: null, postId: first, protocol: null };
+  }
+
+  if (first.toLowerCase() === "untagged") {
+    return { topicName: null, topicHash: null, postId: second, protocol: null };
+  }
+  if (first.toLowerCase() === "eternitywall") {
+    return { topicName: null, topicHash: null, postId: second, protocol: "ew" };
+  }
+
+  const hash = normalizedTopicHash(first);
+  return { topicName: first, topicHash: hash, postId: second, protocol: null };
+}
 
 const HELLO_WORLD: Post = {
   id: "_hello",
@@ -189,42 +246,47 @@ function TopicsFeed({
           more
         </button>
       )}
-      {ephemeralPosts && ephemeralPosts.length > 0 && (
-        <div className="bg-[#111111] mb-2">
-          {feedFilter.type === "all" && (
-            <div className="flex items-center">
-              <button
-                onClick={() => toggleTopic("_ephemeral")}
-                className="py-2.5 pl-4 text-left shrink-0"
-              >
-                <span className={`${sz} leading-tight text-white/25`}>nostr</span>
-              </button>
-              <button
-                onClick={() => toggleTopic("_ephemeral")}
-                className="shrink-0 p-1 text-white/20 hover:text-white/40 transition-colors"
-              >
-                {collapsedTopics.has("_ephemeral")
-                  ? <ChevronRight size={14} strokeWidth={1.5} />
-                  : <ChevronDown size={14} strokeWidth={1.5} />
-                }
-              </button>
-              <div className="min-w-0 flex-1" />
-              <div className="shrink-0 pr-3">
-                <span className="text-[10px] text-white/15 tabular-nums">
-                  {ephemeralPosts.length}
-                </span>
+      {(() => {
+        const myRootEph = (myEph ?? []).filter((e) => !e.parentContentHash);
+        const allEph = [...myRootEph, ...(ephemeralPosts ?? []).filter((ep) => !myRootEph.some((m) => m.nostrEventId === ep.nostrEventId))];
+        if (allEph.length === 0) return null;
+        return (
+          <div data-section="_ephemeral" className="bg-[#111111] mb-2">
+            {feedFilter.type === "all" && (
+              <div className="flex items-center">
+                <button
+                  onClick={() => toggleTopic("_ephemeral")}
+                  className="py-2.5 pl-4 text-left shrink-0"
+                >
+                  <span className={`${sz} leading-tight text-white`}>nostr</span>
+                </button>
+                <button
+                  onClick={() => toggleTopic("_ephemeral")}
+                  className="shrink-0 p-1 text-white/20 hover:text-white/40 transition-colors"
+                >
+                  {collapsedTopics.has("_ephemeral")
+                    ? <ChevronRight size={14} strokeWidth={1.5} />
+                    : <ChevronDown size={14} strokeWidth={1.5} />
+                  }
+                </button>
+                <div className="min-w-0 flex-1" />
+                <div className="shrink-0 pr-3">
+                  <span className="text-[10px] text-white/15 tabular-nums">
+                    {allEph.length}
+                  </span>
+                </div>
               </div>
-            </div>
-          )}
-          {!collapsedTopics.has("_ephemeral") && (
-            <div className="pl-4 divide-y divide-white/[0.04]">
-              {ephemeralPosts.map((ep) => (
-                <EphemeralPostCard key={ep.nostrEventId} post={ep} />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+            )}
+            {!collapsedTopics.has("_ephemeral") && (
+              <div className="pl-4 divide-y divide-white/[0.04]">
+                {allEph.map((ep, i) => (
+                  <EphemeralPostCard key={ep.nostrEventId} post={ep} optimistic={i < myRootEph.length} />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </>
   );
 }
@@ -321,6 +383,14 @@ export default function Home() {
 
     if (effectiveSort === "topics" && f.type === "all") {
       fetch("/api/ephemeral?root=true&sort=new&limit=20")
+        .then((r) => r.ok ? r.json() : { posts: [] })
+        .then((data) => {
+          if (version !== fetchVersionRef.current) return;
+          setHomeEphemeral(data.posts ?? []);
+        })
+        .catch(() => {});
+    } else if (f.type === "topic") {
+      fetch(`/api/ephemeral?topicHash=${f.hash}&sort=new&limit=20`)
         .then((r) => r.ok ? r.json() : { posts: [] })
         .then((data) => {
           if (version !== fetchVersionRef.current) return;
@@ -545,6 +615,18 @@ export default function Home() {
   const handleSubmitted = useCallback((ephPost?: EphemeralPost) => {
     if (ephPost) {
       setMyEphemeralPosts((prev) => [ephPost, ...prev]);
+      // Ensure the ephemeral/nostr section is expanded, then scroll to it
+      setCollapsedTopics((prev) => {
+        const next = new Set(prev);
+        next.delete("_ephemeral");
+        return next;
+      });
+      requestAnimationFrame(() => {
+        const section = document.querySelector("[data-section='_ephemeral']");
+        if (section) {
+          section.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      });
     } else {
       refreshFeed();
     }
@@ -559,6 +641,7 @@ export default function Home() {
     setSortMode("topics");
     setSortDirections({ new: "desc", top: "desc" });
     setCollapsedTopics(new Set());
+    window.history.pushState({}, "", "/");
   }, []);
 
   const handleSortChange = useCallback((mode: SortMode) => {
@@ -572,16 +655,23 @@ export default function Home() {
   }, []);
 
   const goToSection = useCallback((sectionKey: string, topic?: { hash: string; name: string | null; totalBurned: number } | null) => {
+    let newFilter: FeedFilter;
     if (sectionKey === "_untagged") {
-      setFeedFilter({ type: "topicless" });
+      newFilter = { type: "topicless" };
+      setFeedFilter(newFilter);
       setSearchQuery("untagged");
     } else if (sectionKey === "_ew") {
-      setFeedFilter({ type: "protocol", protocol: "ew", label: "EternityWall" });
+      newFilter = { type: "protocol", protocol: "ew", label: "EternityWall" };
+      setFeedFilter(newFilter);
       setSearchQuery("EternityWall");
     } else if (topic) {
-      setFeedFilter({ type: "topic", hash: topic.hash, name: topic.name });
+      newFilter = { type: "topic", hash: topic.hash, name: topic.name };
+      setFeedFilter(newFilter);
       setSearchQuery(topic.name ?? topic.hash.slice(0, 8));
+    } else {
+      return;
     }
+    window.history.pushState({}, "", buildPath(newFilter));
   }, [setFeedFilter, setSearchQuery]);
 
   const openThread = useCallback((id: string, topicName?: string | null) => {
@@ -595,17 +685,54 @@ export default function Home() {
     setThreadTopicName(topicName ?? null);
     setExpandedPostId(id);
     setThreadPostId(id);
-    window.history.pushState({ thread: id }, "", `#post=${id}`);
+    const url = buildPath(filterRef.current, id);
+    window.history.pushState({ thread: id }, "", url);
   }, []);
 
   const closeThread = useCallback(() => {
     setThreadPostId(null);
     setExpandedPostId(null);
     setThreadTopicName(null);
-    window.history.replaceState({}, "", window.location.pathname);
+    window.history.replaceState({}, "", buildPath(filterRef.current));
   }, []);
 
+  // Restore navigation state from URL on mount
   useEffect(() => {
+    const applyPath = (pathname: string) => {
+      const parsed = parsePath(pathname);
+      if (parsed.protocol) {
+        const label = parsed.protocol === "ew" ? "EternityWall" : parsed.protocol;
+        setFeedFilter({ type: "protocol", protocol: parsed.protocol, label });
+        setSearchQuery(label);
+      } else if (parsed.topicName && parsed.topicHash) {
+        setFeedFilter({ type: "topic", hash: parsed.topicHash, name: parsed.topicName });
+        setSearchQuery(parsed.topicName);
+      } else if (pathname.split("/").filter(Boolean)[0]?.toLowerCase() === "untagged") {
+        setFeedFilter({ type: "topicless" });
+        setSearchQuery("untagged");
+      } else if (!parsed.postId) {
+        setFeedFilter({ type: "all" });
+        setSearchQuery("");
+      }
+      if (parsed.postId) {
+        setExpandedPostId(parsed.postId);
+        setThreadPostId(parsed.postId);
+      }
+    };
+
+    // Handle legacy #post= URLs
+    const hash = window.location.hash;
+    if (hash.startsWith("#post=")) {
+      const id = hash.slice(6);
+      if (id) {
+        setExpandedPostId(id);
+        setThreadPostId(id);
+        window.history.replaceState({ thread: id }, "", buildPath(filterRef.current, id));
+      }
+    } else {
+      applyPath(window.location.pathname);
+    }
+
     const handlePopState = (e: PopStateEvent) => {
       if (e.state?.thread) {
         setExpandedPostId(e.state.thread);
@@ -614,23 +741,12 @@ export default function Home() {
         setThreadPostId(null);
         setExpandedPostId(null);
         setThreadTopicName(null);
+        applyPath(window.location.pathname);
       }
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
-
-  // Restore from URL hash on mount
-  useEffect(() => {
-    const hash = window.location.hash;
-    if (hash.startsWith("#post=")) {
-      const id = hash.slice(6);
-      if (id) {
-        setExpandedPostId(id);
-        setThreadPostId(id);
-      }
-    }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Swipe-right to go back (mobile)
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -697,7 +813,14 @@ export default function Home() {
       <div className="flex h-dvh flex-col bg-black text-white md:max-w-md md:mx-auto md:border-x md:border-border">
         <TopBar
             feedFilter={feedFilter}
-            onFeedFilterChange={setFeedFilter}
+            onFeedFilterChange={(f: FeedFilter) => {
+              setFeedFilter(f);
+              if (f.type === "all") {
+                window.history.pushState({}, "", "/");
+              } else {
+                window.history.pushState({}, "", buildPath(f));
+              }
+            }}
             searchQuery={searchQuery}
             onSearchQueryChange={setSearchQuery}
             sortMode={sortMode}
@@ -752,17 +875,6 @@ export default function Home() {
                 className="h-full overflow-y-auto"
                 onScroll={handleFeedScroll}
               >
-                {/* Optimistic: my own ephemeral root posts, always at top in any sort/feed mode */}
-                {myEphemeralPosts.filter((e) => !e.parentContentHash).length > 0 && (
-                  <div className="divide-y divide-white/[0.04]">
-                    {myEphemeralPosts
-                      .filter((e) => !e.parentContentHash)
-                      .map((ep) => (
-                        <EphemeralPostCard key={ep.nostrEventId} post={ep} optimistic />
-                      ))}
-                  </div>
-                )}
-
                 {sortMode === "topics" && feedFilter.type === "all"
                   ? <TopicsFeed
                       groups={groups}
@@ -838,6 +950,20 @@ export default function Home() {
                               more
                             </button>
                           )}
+                        </div>
+                      )}
+                      {/* Nostr section for topic views */}
+                      {homeEphemeral.length > 0 && feedFilter.type === "topic" && (
+                        <div data-section="_ephemeral" className="bg-[#111111] mt-2 mb-2">
+                          <div className="flex items-center py-2.5 pl-4">
+                            <span className={`${sz} leading-tight text-white`}>nostr</span>
+                            <span className="ml-2 text-[10px] text-white/15 tabular-nums">{homeEphemeral.length}</span>
+                          </div>
+                          <div className="pl-4 divide-y divide-white/[0.04]">
+                            {homeEphemeral.map((ep) => (
+                              <EphemeralPostCard key={ep.nostrEventId} post={ep} />
+                            ))}
+                          </div>
                         </div>
                       )}
                     </>
