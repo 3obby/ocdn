@@ -119,19 +119,48 @@ export async function POST(request: Request) {
   }
 
   // Extract OCDN metadata from tags
-  const topic = getTagValue(event.tags, "t") === "ocdn"
-    ? (event.tags.filter(t => t[0] === "t" && t[1] !== "ocdn")[0]?.[1] ?? null)
-    : null;
+  const tTags = event.tags.filter((t) => t[0] === "t");
+  const hasProtocol = tTags.some((t) => t[1] === "ocdn");
+  let topic: string | null = null;
+  if (hasProtocol) {
+    const nonOcdnTopic = tTags.find((t) => t[1] !== "ocdn")?.[1] ?? null;
+    if (nonOcdnTopic) {
+      topic = nonOcdnTopic;
+    } else if (tTags.filter((t) => t[1] === "ocdn").length > 1) {
+      topic = "ocdn";
+    }
+  }
   const parentContentHash = getTagValue(event.tags, "ocdn-ref");
   const parentNostrId = event.tags.find((t) => t[0] === "e" && t[3] === "reply")?.[1] ?? null;
 
-  // Compute topic hash if topic exists
+  // Compute topic hash if topic exists (normalize for consistent matching)
   let topicHash: string | null = null;
   if (topic) {
     try {
       const { topicHash: computeTopicHash } = await import("@/lib/protocol/crypto");
-      topicHash = bytesToHex(computeTopicHash(topic));
+      const normalized = topic.toLowerCase().trim().normalize("NFC");
+      topicHash = bytesToHex(computeTopicHash(normalized));
     } catch {}
+  }
+
+  // Resolve topic from parent Bitcoin post if not set directly
+  if (!topic && parentContentHash) {
+    let currentHash = parentContentHash;
+    for (let depth = 0; depth < 20; depth++) {
+      const row: { topic: string | null; topicHash: string | null; parentHash: string | null } | null =
+        await prisma.post.findUnique({
+          where: { contentHash: currentHash },
+          select: { topic: true, topicHash: true, parentHash: true },
+        });
+      if (!row) break;
+      if (row.topic) {
+        topic = row.topic;
+        topicHash = row.topicHash;
+        break;
+      }
+      if (!row.parentHash) break;
+      currentHash = row.parentHash;
+    }
   }
 
   const expiresAt = new Date(Date.now() + getTtlMs(powDifficulty));

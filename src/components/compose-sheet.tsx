@@ -17,6 +17,7 @@ import {
   getSessionPubkey,
 } from "@/lib/nostr/client";
 import { mineAndSign } from "@/lib/nostr/pow";
+import { topicHash as computeTopicHash } from "@/lib/protocol/crypto";
 
 type Step = "compose" | "mining" | "preview" | "pay" | "status";
 type PaymentStatus =
@@ -188,12 +189,19 @@ export function ComposeSheet({
       // Also broadcast directly from client (best-effort)
       broadcastToRelays(signed).catch(() => {});
 
+      let ephTopicHash: string | null = null;
+      if (topicName) {
+        const normalized = topicName.toLowerCase().trim().normalize("NFC");
+        const hashBytes = computeTopicHash(normalized);
+        ephTopicHash = Array.from(hashBytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+      }
+
       const ephPost: EphemeralPost = {
         nostrEventId: signed.id,
         nostrPubkey: signed.pubkey,
         content: signed.content,
         topic: topicName ?? null,
-        topicHash: null,
+        topicHash: ephTopicHash,
         parentContentHash: isReply ? replyToId : null,
         parentNostrId: null,
         powDifficulty: 8,

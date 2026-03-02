@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   type Post,
   formatSats,
@@ -9,6 +9,7 @@ import {
 } from "@/lib/mock-data";
 import { useTextSize, ts } from "@/lib/text-size";
 import { Pencil, Eye } from "lucide-react";
+import { BoostButton } from "./boost-button";
 
 function ConfirmBadge({ confirmations, ephemeral, ephemeralStatus }: { confirmations: number; ephemeral?: boolean; ephemeralStatus?: string }) {
   if (ephemeral && ephemeralStatus !== "upgraded") {
@@ -48,6 +49,7 @@ export function FeedCard({
 }) {
   const sz = useTextSize();
   const cardRef = useRef<HTMLDivElement>(null);
+  const [localPow, setLocalPow] = useState(post.powDifficulty ?? 0);
 
   useEffect(() => {
     if (!onVisible || post.id.startsWith("_")) return;
@@ -102,6 +104,12 @@ export function FeedCard({
             <Eye size={10} strokeWidth={1.5} />
             <span className="text-[10px] tabular-nums">{post.viewCount || 0}</span>
           </span>
+          {localPow > 0 && (
+            <>
+              <span>&middot;</span>
+              <span className="text-[10px] text-white/30 tabular-nums">⚡{localPow}</span>
+            </>
+          )}
         </div>
       )}
 
@@ -121,23 +129,38 @@ export function FeedCard({
         )}
       </div>
 
-      {/* Expanded: reply button */}
-      {isExpanded && onReply && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onReply(post.id);
-          }}
-          className="absolute bottom-3 right-3 p-1 text-white/15 hover:text-white/40 transition-colors"
-        >
-          <Pencil size={16} />
-        </button>
+      {/* Expanded: actions row */}
+      {isExpanded && (
+        <div className="absolute bottom-3 right-3 flex items-center gap-2">
+          {!isUnpaid && (
+            <span onClick={(e) => e.stopPropagation()}>
+              <BoostButton
+                target={{ contentHash: post.contentHash }}
+                onBoosted={(d) => setLocalPow(d)}
+              />
+            </span>
+          )}
+          {onReply && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onReply(post.id);
+              }}
+              className="p-1 text-white/15 hover:text-white/40 transition-colors"
+            >
+              <Pencil size={16} />
+            </button>
+          )}
+        </div>
       )}
 
       {/* Collapsed: stats overlay */}
       {!isExpanded && !isUnpaid && (
         <div className="absolute right-0 inset-y-0 flex items-center justify-end pr-3 pl-8 bg-gradient-to-r from-transparent to-[#111111] pointer-events-none">
           <div className="flex items-center gap-2">
+            {localPow > 0 && (
+              <span className="text-[10px] tabular-nums text-white/30">⚡{localPow}</span>
+            )}
             {(post.ephemeralCount ?? 0) > 0 && (
               <span className="text-[10px] tabular-nums text-white/20">
                 💬{post.ephemeralCount}
@@ -197,6 +220,12 @@ export function ThreadCard({
           <Eye size={10} strokeWidth={1.5} />
           <span className="text-[10px] tabular-nums">{post.viewCount || 0}</span>
         </span>
+        {(post.powDifficulty ?? 0) > 0 && (
+          <>
+            <span>&middot;</span>
+            <span className="text-[10px] text-white/30 tabular-nums">⚡{post.powDifficulty}</span>
+          </>
+        )}
       </div>
 
       <div

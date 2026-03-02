@@ -71,6 +71,7 @@ self.onmessage = (
     if (diff > bestDifficulty) {
       bestDifficulty = diff;
       bestEvent = { ...event, id };
+      self.postMessage({ type: "improved", event: bestEvent, difficulty: diff, nonce });
     }
 
     if (diff >= targetDifficulty) {

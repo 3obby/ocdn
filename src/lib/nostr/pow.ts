@@ -69,11 +69,16 @@ export function startMining(
   worker.onmessage = (e: MessageEvent) => {
     const msg = e.data as
       | { type: "progress"; currentDifficulty: number; nonce: number }
+      | { type: "improved"; event: UnsignedEvent & { id: string }; difficulty: number; nonce: number }
       | { type: "done"; event: UnsignedEvent & { id: string }; difficulty: number; nonce: number };
 
     if (msg.type === "progress") {
       currentDifficulty = msg.currentDifficulty;
       onProgress?.({ currentDifficulty: msg.currentDifficulty, nonce: msg.nonce });
+    } else if (msg.type === "improved") {
+      currentDifficulty = msg.difficulty;
+      bestUnsigned = msg.event;
+      onProgress?.({ currentDifficulty: msg.difficulty, nonce: msg.nonce });
     } else if (msg.type === "done") {
       currentDifficulty = msg.difficulty;
       bestUnsigned = msg.event;

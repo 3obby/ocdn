@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import type { EphemeralPost } from "@/lib/mock-data";
 import { useTextSize, ts } from "@/lib/text-size";
 import {
   getOrCreateSessionKeypair,
@@ -14,12 +13,17 @@ import type { MiningHandle } from "@/lib/nostr/pow";
 
 type BoostState = "idle" | "mining" | "submitting" | "done" | "error";
 
+export type BoostTarget = {
+  contentHash?: string | null;
+  nostrEventId?: string | null;
+};
+
 export function BoostButton({
-  post,
+  target,
   onBoosted,
 }: {
-  post: EphemeralPost;
-  onBoosted?: (newWeight: number) => void;
+  target: BoostTarget;
+  onBoosted?: (newPowDifficulty: number) => void;
 }) {
   const sz = useTextSize();
   const [state, setState] = useState<BoostState>("idle");
@@ -37,27 +41,22 @@ export function BoostButton({
       const { privkey, pubkey } = getOrCreateSessionKeypair();
       const template = buildBoostEvent({
         pubkey,
-        targetNostrId: post.nostrEventId,
+        targetNostrId: target.nostrEventId,
+        targetContentHash: target.contentHash,
       });
 
-      const TARGET_DIFFICULTY = 20;
-      const { promise, handle } = startMining(
+      const { handle } = startMining(
         template,
-        TARGET_DIFFICULTY,
+        256, // unbounded — user stops when satisfied
         privkey,
         (p) => setCurrentDifficulty(p.currentDifficulty),
       );
       handleRef.current = handle;
-
-      // Auto-submit when done
-      const signed = await promise;
-      handleRef.current = null;
-      await submitBoost(signed);
     } catch (err) {
       setState("error");
       setErrorMsg(err instanceof Error ? err.message : "failed");
     }
-  }, [state, post.nostrEventId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state, target.nostrEventId, target.contentHash]);
 
   const stopAndSubmit = useCallback(async () => {
     if (state !== "mining" || !handleRef.current) return;
@@ -80,18 +79,18 @@ export function BoostButton({
   async function submitBoost(signed: ReturnType<typeof signEvent>) {
     setState("submitting");
     try {
-      // Server-side persist
       const res = await fetch("/api/ephemeral/boost", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ signedEvent: signed }),
       });
       const data = await res.json();
-      // Client-side relay broadcast (fire-and-forget)
       broadcastToRelays(signed).catch(() => {});
       setState("done");
-      if (data.upvoteWeight && onBoosted) {
-        onBoosted(Number(BigInt(data.upvoteWeight)));
+      if (data.targetPowDifficulty && onBoosted) {
+        onBoosted(Number(data.targetPowDifficulty));
+      } else if (data.powDifficulty && onBoosted) {
+        onBoosted(Number(data.powDifficulty));
       }
     } catch {
       setState("error");
@@ -113,7 +112,7 @@ export function BoostButton({
     return (
       <div className="flex items-center gap-2">
         <span className={`${btnClass} text-white/40 animate-pulse`}>
-          ⚡ {currentDifficulty > 0 ? `x${currentDifficulty}↑` : "…"}
+          ⚡ {currentDifficulty > 0 ? `${currentDifficulty} zeros` : "…"}
         </span>
         <button onClick={stopAndSubmit} className={`${btnClass} text-white/20 hover:text-white/40`}>
           stop

@@ -107,14 +107,14 @@ export async function POST(request: Request) {
       },
     });
 
-    // Update upvoteWeight and extend TTL on target ephemeral post
-    let updatedPost: { upvoteWeight: bigint; expiresAt: Date } | null = null;
+    // Update upvoteWeight, TTL, and best PoW on target ephemeral post
+    let updatedPost: { upvoteWeight: bigint; expiresAt: Date; powDifficulty: number } | null = null;
     if (targetNostrId) {
       const target = await prisma.ephemeralPost.findUnique({
         where: { nostrEventId: targetNostrId },
       });
       if (target) {
-        const BOOST_EXTENSION_MS = 30 * 60 * 1000; // +30 min per boost
+        const BOOST_EXTENSION_MS = 30 * 60 * 1000;
         const MAX_TTL_MS = 7 * 24 * 60 * 60 * 1000;
         const newExpiry = new Date(
           Math.min(target.expiresAt.getTime() + BOOST_EXTENSION_MS, Date.now() + MAX_TTL_MS),
@@ -124,8 +124,25 @@ export async function POST(request: Request) {
           data: {
             upvoteWeight: { increment: powWeight },
             expiresAt: newExpiry,
+            ...(powDifficulty > target.powDifficulty ? { powDifficulty } : {}),
           },
-          select: { upvoteWeight: true, expiresAt: true },
+          select: { upvoteWeight: true, expiresAt: true, powDifficulty: true },
+        });
+      }
+    }
+
+    // Update best PoW on target Bitcoin post
+    let updatedBitcoinPost: { powDifficulty: number } | null = null;
+    if (targetContentHash) {
+      const btcTarget = await prisma.post.findUnique({
+        where: { contentHash: targetContentHash },
+        select: { powDifficulty: true },
+      });
+      if (btcTarget && powDifficulty > btcTarget.powDifficulty) {
+        updatedBitcoinPost = await prisma.post.update({
+          where: { contentHash: targetContentHash },
+          data: { powDifficulty },
+          select: { powDifficulty: true },
         });
       }
     }
@@ -138,6 +155,7 @@ export async function POST(request: Request) {
         powWeight: powWeight.toString(),
         upvoteWeight: updatedPost?.upvoteWeight?.toString() ?? null,
         expiresAt: updatedPost?.expiresAt?.toISOString() ?? null,
+        targetPowDifficulty: updatedBitcoinPost?.powDifficulty ?? updatedPost?.powDifficulty ?? null,
       },
       { status: 201 },
     );
