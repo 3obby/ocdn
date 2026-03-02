@@ -97,7 +97,7 @@ export function EphemeralPostCard({
               onMiningProgress={handleMiningProgress}
             />
           </span>
-          {onReply && post.anchoredToBtc && (
+          {onReply && (
             <button
               onClick={(e) => { e.stopPropagation(); onReply(post); }}
               className="text-white/15 hover:text-white/30 transition-colors"
