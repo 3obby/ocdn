@@ -24,6 +24,7 @@ export type Post = {
   parentId: string | null;
   burnTotal: number;
   viewCount: number;
+  powDifficulty: number;
   timestamp: number;
   blockHeight: number;
   confirmations: number;

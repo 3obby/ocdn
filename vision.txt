@@ -518,6 +518,15 @@ script-path spend. This is not novel — it reuses an encoding with
 established miner acceptance, relay propagation, and tooling. The
 protocol defines what goes inside the envelope, not the envelope itself.
 
+Encoding resilience: if OP_IF is restricted in Tapscripts (e.g.
+BIP-110), an equivalent OP_DROP chain carries identical pushes:
+  <pushN> OP_DROP ... <push1> OP_DROP <portal_key> OP_CHECKSIG
+The push contents, ordering, and semantics are unchanged. The indexer
+parses both patterns; the tx builder selects based on active consensus
+rules. All fixed-size fields (tag, version, type, nonce, pubkey, sig,
+hashes) are ≤64 bytes. Only content pushes need resplitting (520→256
+byte max). Protocol-layer hashing and signatures are encoding-agnostic.
+
 Bitcoin constraints on the envelope:
 
 - Taproot script-path spends require a commit/reveal transaction pair.
@@ -715,7 +724,11 @@ Low-responsibility defaults (resolved):
   Cross-refs        Deferred. v1 ranking uses sats committed + time.
 
   Policy risk       Acknowledged. v1 depends on current Taproot and
-                    OP_RETURN relay policies. No fallback.
+                    OP_RETURN relay policies. Witness envelope encoding
+                    (OP_IF vs OP_DROP) is a pluggable layer; consensus
+                    restrictions (e.g. BIP-110) require only an
+                    alternative script structure, not protocol changes.
+                    Burns and Signals (OP_RETURN ≤80 bytes) are immune.
 
   Bootstrap         Builders seed content. No incentive mechanism.
 

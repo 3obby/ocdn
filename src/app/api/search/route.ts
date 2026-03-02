@@ -94,6 +94,8 @@ export async function GET(request: Request) {
       topicName: p.topic,
       parentId: p.parent_hash,
       burnTotal: Number(p.burn_total),
+      viewCount: 0,
+      powDifficulty: 0,
       timestamp: new Date(p.created_at).getTime(),
       blockHeight: p.block_height,
       confirmations: Math.max(0, tipHeight - p.block_height + 1),

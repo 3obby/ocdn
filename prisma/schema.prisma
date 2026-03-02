@@ -54,6 +54,7 @@ model Post {
   content       String
 
   viewCount     Int      @default(0) @map("view_count")
+  powDifficulty Int      @default(0) @map("pow_difficulty")
   createdAt     DateTime @map("created_at") // block timestamp
   indexedAt      DateTime @default(now()) @map("indexed_at")
 
