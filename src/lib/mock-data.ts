@@ -6,8 +6,12 @@ export type EphemeralPost = {
   topicHash: string | null;
   parentContentHash: string | null;
   parentNostrId: string | null;
+  replyDepth: number;
+  anchoredToBtc: boolean;
   powDifficulty: number;
   upvoteWeight: number;
+  boostCount: number;
+  lastBoostedAt: string | null;
   expiresAt: string;
   promotedToHash: string | null;
   createdAt: string;

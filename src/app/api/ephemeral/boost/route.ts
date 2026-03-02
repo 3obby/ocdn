@@ -92,7 +92,7 @@ export async function POST(request: Request) {
     // Dedup
     const existing = await prisma.nostrBoost.findUnique({ where: { nostrEventId: event.id } });
     if (existing) {
-      return NextResponse.json({ duplicate: true, powWeight: existing.powWeight.toString() });
+      return NextResponse.json({ duplicate: true, powDifficulty: existing.powDifficulty });
     }
 
     await prisma.nostrBoost.create({
@@ -102,12 +102,10 @@ export async function POST(request: Request) {
         targetNostrId,
         targetContentHash,
         powDifficulty,
-        powWeight,
-        rawEvent: event as object,
       },
     });
 
-    // Update upvoteWeight, TTL, and best PoW on target ephemeral post
+    // Update accumulator, TTL, and best PoW on target ephemeral post
     let updatedPost: { upvoteWeight: bigint; expiresAt: Date; powDifficulty: number } | null = null;
     if (targetNostrId) {
       const target = await prisma.ephemeralPost.findUnique({
@@ -115,24 +113,46 @@ export async function POST(request: Request) {
       });
       if (target) {
         const BOOST_EXTENSION_MS = 30 * 60 * 1000;
-        const MAX_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+        const baseDays = Number(process.env.EPHEMERAL_TTL_DAYS ?? "30");
+        const maxTtlMs = Math.max(baseDays / Math.pow(2, target.replyDepth), 1) * 24 * 60 * 60 * 1000;
         const newExpiry = new Date(
-          Math.min(target.expiresAt.getTime() + BOOST_EXTENSION_MS, Date.now() + MAX_TTL_MS),
+          Math.min(target.expiresAt.getTime() + BOOST_EXTENSION_MS, target.createdAt.getTime() + maxTtlMs),
         );
+
+        // Lazy recompute anchoredToBtc for pre-migration posts
+        let anchorFix: { anchoredToBtc: true } | Record<string, never> = {};
+        if (!target.anchoredToBtc) {
+          let anchored = false;
+          if (target.parentContentHash) {
+            const btcParent = await prisma.post.findUnique({
+              where: { contentHash: target.parentContentHash },
+              select: { contentHash: true },
+            });
+            anchored = btcParent !== null;
+          } else if (target.topicHash) {
+            anchored = (await prisma.post.count({ where: { topicHash: target.topicHash } })) > 0;
+          }
+          if (anchored) anchorFix = { anchoredToBtc: true };
+        }
+
         updatedPost = await prisma.ephemeralPost.update({
           where: { nostrEventId: targetNostrId },
           data: {
             upvoteWeight: { increment: powWeight },
+            boostCount: { increment: 1 },
+            lastBoostedAt: new Date(),
             expiresAt: newExpiry,
             ...(powDifficulty > target.powDifficulty ? { powDifficulty } : {}),
+            ...anchorFix,
           },
           select: { upvoteWeight: true, expiresAt: true, powDifficulty: true },
         });
       }
     }
 
-    // Update best PoW on target Bitcoin post
+    // Update best PoW on target Bitcoin post + distribute to ephemeral children
     let updatedBitcoinPost: { powDifficulty: number } | null = null;
+    let childrenBoosted = 0;
     if (targetContentHash) {
       const btcTarget = await prisma.post.findUnique({
         where: { contentHash: targetContentHash },
@@ -145,9 +165,45 @@ export async function POST(request: Request) {
           select: { powDifficulty: true },
         });
       }
+
+      // Distribute PoW evenly to live ephemeral children (floor division)
+      if (btcTarget) {
+        const children = await prisma.ephemeralPost.findMany({
+          where: { parentContentHash: targetContentHash, expiresAt: { gt: new Date() } },
+          select: { nostrEventId: true, replyDepth: true, createdAt: true, expiresAt: true },
+        });
+        if (children.length > 0) {
+          const share = powWeight / BigInt(children.length);
+          if (share > 0n) {
+            const baseDays = Number(process.env.EPHEMERAL_TTL_DAYS ?? "30");
+            const BOOST_EXT_MS = 30 * 60 * 1000;
+            const now = Date.now();
+            for (const child of children) {
+              const maxTtlMs = Math.max(baseDays / Math.pow(2, child.replyDepth), 1) * 24 * 60 * 60 * 1000;
+              const newExpiry = new Date(
+                Math.min(child.expiresAt.getTime() + BOOST_EXT_MS, child.createdAt.getTime() + maxTtlMs),
+              );
+              await prisma.ephemeralPost.update({
+                where: { nostrEventId: child.nostrEventId },
+                data: {
+                  upvoteWeight: { increment: share },
+                  boostCount: { increment: 1 },
+                  lastBoostedAt: new Date(now),
+                  expiresAt: newExpiry,
+                },
+              });
+            }
+            childrenBoosted = children.length;
+          }
+        }
+      }
     }
 
-    log("info", "api/ephemeral/boost", "boost recorded", { pow: powDifficulty, target: targetNostrId ?? targetContentHash });
+    log("info", "api/ephemeral/boost", "boost recorded", {
+      pow: powDifficulty,
+      target: targetNostrId ?? targetContentHash,
+      ...(childrenBoosted > 0 ? { childrenBoosted } : {}),
+    });
 
     return NextResponse.json(
       {
@@ -156,6 +212,7 @@ export async function POST(request: Request) {
         upvoteWeight: updatedPost?.upvoteWeight?.toString() ?? null,
         expiresAt: updatedPost?.expiresAt?.toISOString() ?? null,
         targetPowDifficulty: updatedBitcoinPost?.powDifficulty ?? updatedPost?.powDifficulty ?? null,
+        childrenBoosted,
       },
       { status: 201 },
     );

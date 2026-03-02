@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useRef, useEffect, useState, useCallback } from "react";
 import {
   type Post,
   formatSats,
@@ -8,7 +8,7 @@ import {
   shortPubkey,
 } from "@/lib/mock-data";
 import { useTextSize, ts } from "@/lib/text-size";
-import { Pencil, Eye } from "lucide-react";
+import { Eye, Pencil } from "lucide-react";
 import { BoostButton } from "./boost-button";
 
 function ConfirmBadge({ confirmations, ephemeral, ephemeralStatus }: { confirmations: number; ephemeral?: boolean; ephemeralStatus?: string }) {
@@ -49,7 +49,8 @@ export function FeedCard({
 }) {
   const sz = useTextSize();
   const cardRef = useRef<HTMLDivElement>(null);
-  const [localPow, setLocalPow] = useState(post.powDifficulty ?? 0);
+  const [miningZeros, setMiningZeros] = useState(0);
+  const handleMiningProgress = useCallback((d: number) => setMiningZeros(d), []);
 
   useEffect(() => {
     if (!onVisible || post.id.startsWith("_")) return;
@@ -89,31 +90,31 @@ export function FeedCard({
         <div className="flex items-center gap-2 px-4 pt-3 pb-1 text-white/30" style={{ fontSize: "11px" }}>
           <span className="text-burn/60 tabular-nums">{formatSats(post.burnTotal)}</span>
           <span>{shortPubkey(post.authorPubkey)}</span>
-          <span>&middot;</span>
+          <span className="text-white/15">&middot;</span>
           <span>{formatTime(post.timestamp)}</span>
           {post.confirmations < 6 && (
             <>
-              <span>&middot;</span>
+              <span className="text-white/15">&middot;</span>
               <span className={post.confirmations === 0 ? "animate-pulse text-white/20" : "text-white/15"}>
                 {post.confirmations}c
               </span>
             </>
           )}
-          <span>&middot;</span>
+          <span className="text-white/15">&middot;</span>
           <span className="flex items-center gap-0.5 text-white/15">
             <Eye size={10} strokeWidth={1.5} />
             <span className="text-[10px] tabular-nums">{post.viewCount || 0}</span>
           </span>
-          {localPow > 0 && (
+          {miningZeros > 0 && (
             <>
-              <span>&middot;</span>
-              <span className="text-[10px] text-white/30 tabular-nums">⚡{localPow}</span>
+              <span className="text-white/15">&middot;</span>
+              <span className="text-[10px] tabular-nums text-yellow-400/60 animate-pulse">{miningZeros}z</span>
             </>
           )}
         </div>
       )}
 
-      <div className={`flex items-center ${isExpanded ? "" : ""}`}>
+      <div className="flex items-center">
         <div className={`min-w-0 flex-1 ${isExpanded ? "px-4 pb-3 pt-1" : "py-2.5 pl-4 pr-2"}`}>
           <span
             className={`${ts(sz)} leading-snug ${isUnpaid ? "text-white/40" : "text-white"} block ${contentClamp} transition-colors duration-200`}
@@ -129,14 +130,16 @@ export function FeedCard({
         )}
       </div>
 
-      {/* Expanded: actions row */}
+      {/* Expanded: icon actions */}
       {isExpanded && (
-        <div className="absolute bottom-3 right-3 flex items-center gap-2">
+        <div className="flex items-center gap-2.5 px-4 pb-2.5">
           {!isUnpaid && (
             <span onClick={(e) => e.stopPropagation()}>
               <BoostButton
                 target={{ contentHash: post.contentHash }}
-                onBoosted={(d) => setLocalPow(d)}
+                size={14}
+                onMiningProgress={handleMiningProgress}
+                onBoosted={() => setMiningZeros(0)}
               />
             </span>
           )}
@@ -146,9 +149,9 @@ export function FeedCard({
                 e.stopPropagation();
                 onReply(post.id);
               }}
-              className="p-1 text-white/15 hover:text-white/40 transition-colors"
+              className="text-white/15 hover:text-white/30 transition-colors"
             >
-              <Pencil size={16} />
+              <Pencil size={14} strokeWidth={1.5} />
             </button>
           )}
         </div>
@@ -158,12 +161,9 @@ export function FeedCard({
       {!isExpanded && !isUnpaid && (
         <div className="absolute right-0 inset-y-0 flex items-center justify-end pr-3 pl-8 bg-gradient-to-r from-transparent to-[#111111] pointer-events-none">
           <div className="flex items-center gap-2">
-            {localPow > 0 && (
-              <span className="text-[10px] tabular-nums text-white/30">⚡{localPow}</span>
-            )}
             {(post.ephemeralCount ?? 0) > 0 && (
               <span className="text-[10px] tabular-nums text-white/20">
-                💬{post.ephemeralCount}
+                {post.ephemeralCount} nostr
               </span>
             )}
             <Eye size={12} strokeWidth={2} className="text-purple-300 shrink-0" />
@@ -199,11 +199,11 @@ export function ThreadCard({
           {formatSats(post.burnTotal)}
         </span>
         <span>{shortPubkey(post.authorPubkey)}</span>
-        <span>&middot;</span>
+        <span className="text-white/15">&middot;</span>
         <span>{formatTime(post.timestamp)}</span>
         {post.confirmations < 6 && (
           <>
-            <span>&middot;</span>
+            <span className="text-white/15">&middot;</span>
             <span
               className={
                 post.confirmations === 0
@@ -215,17 +215,11 @@ export function ThreadCard({
             </span>
           </>
         )}
-        <span>&middot;</span>
+        <span className="text-white/15">&middot;</span>
         <span className="flex items-center gap-0.5 text-white/15">
           <Eye size={10} strokeWidth={1.5} />
           <span className="text-[10px] tabular-nums">{post.viewCount || 0}</span>
         </span>
-        {(post.powDifficulty ?? 0) > 0 && (
-          <>
-            <span>&middot;</span>
-            <span className="text-[10px] text-white/30 tabular-nums">⚡{post.powDifficulty}</span>
-          </>
-        )}
       </div>
 
       <div
@@ -237,15 +231,17 @@ export function ThreadCard({
       </div>
 
       {onReply && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onReply(post.id);
-          }}
-          className="absolute bottom-2 right-3 p-1 text-white/15 hover:text-white/40 transition-colors"
-        >
-          <Pencil size={16} />
-        </button>
+        <div className="flex items-center gap-2.5 mt-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onReply(post.id);
+            }}
+            className="text-white/15 hover:text-white/30 transition-colors"
+          >
+            <Pencil size={13} strokeWidth={1.5} />
+          </button>
+        </div>
       )}
     </div>
   );

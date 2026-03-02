@@ -32,12 +32,13 @@ async function main() {
 
   console.log(`Leaderboard cycle: ${windowStart.toISOString()} → ${now.toISOString()}`);
 
-  // Top ephemeral posts by PoW difficulty in the window
+  // Top live ephemeral posts by PoW — all surviving anchored content competes
   const topEphemeral = await prisma.ephemeralPost.findMany({
     where: {
       powDifficulty: { gt: 0 },
-      createdAt: { gte: windowStart },
+      expiresAt: { gt: now },
       promotedToHash: null,
+      anchoredToBtc: true,
     },
     orderBy: { powDifficulty: "desc" },
     take: TOP_N,

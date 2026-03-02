@@ -24,10 +24,12 @@ function Skeleton({ lines = 1 }: { lines?: number }) {
 export function InlineThread({
   postId,
   onReply,
+  onReplyEphemeral,
   initialEphemeralPosts,
 }: {
   postId: string;
   onReply: (id: string) => void;
+  onReplyEphemeral?: (post: EphemeralPost) => void;
   initialEphemeralPosts?: EphemeralPost[];
 }) {
   const sz = useTextSize();
@@ -158,7 +160,7 @@ export function InlineThread({
               ) : (
                 ephemeralPosts.map((ep) => (
                   <div key={ep.nostrEventId} className="pl-2">
-                    <EphemeralPostCard post={ep} />
+                    <EphemeralPostCard post={ep} onReply={onReplyEphemeral} />
                   </div>
                 ))
               )}

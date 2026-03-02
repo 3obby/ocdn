@@ -32,7 +32,7 @@ export async function GET(
       where: { targetNostrId: nostrEventId },
       orderBy: { createdAt: "desc" },
       take: 50,
-      select: { nostrEventId: true, nostrPubkey: true, powDifficulty: true, powWeight: true, createdAt: true },
+      select: { nostrEventId: true, nostrPubkey: true, powDifficulty: true, createdAt: true },
     });
 
     return NextResponse.json({
@@ -40,7 +40,6 @@ export async function GET(
       children: post.children.map(mapEphemeralPost),
       boosts: boosts.map((b) => ({
         ...b,
-        powWeight: b.powWeight.toString(),
         createdAt: b.createdAt.toISOString(),
       })),
     });

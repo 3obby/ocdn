@@ -222,8 +222,12 @@ model EphemeralPost {
   topicHash         String?  @map("topic_hash")
   parentContentHash String?  @map("parent_content_hash")
   parentNostrId     String?  @map("parent_nostr_id")
+  replyDepth        Int      @default(0) @map("reply_depth")
+  anchoredToBtc     Boolean  @default(false) @map("anchored_to_btc")
   powDifficulty     Int      @default(0) @map("pow_difficulty")
   upvoteWeight      BigInt   @default(0) @map("upvote_weight")
+  boostCount        Int      @default(0) @map("boost_count")
+  lastBoostedAt     DateTime? @map("last_boosted_at")
   rawEvent          Json     @map("raw_event")
   expiresAt         DateTime @map("expires_at")
   promotedToHash    String?  @map("promoted_to_hash")
@@ -238,6 +242,7 @@ model EphemeralPost {
   @@index([parentNostrId])
   @@index([expiresAt])
   @@index([nostrPubkey])
+  @@index([anchoredToBtc])
   @@map("ephemeral_posts")
 }
 
@@ -248,8 +253,6 @@ model NostrBoost {
   targetNostrId     String?  @map("target_nostr_id")
   targetContentHash String?  @map("target_content_hash")
   powDifficulty     Int      @map("pow_difficulty")
-  powWeight         BigInt   @map("pow_weight")
-  rawEvent          Json     @map("raw_event")
   createdAt         DateTime @default(now()) @map("created_at")
 
   @@index([targetNostrId])

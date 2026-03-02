@@ -294,6 +294,7 @@ function TopicsFeed({
   ephemeralPosts,
   expandedPostId,
   onReply,
+  onReplyEphemeral,
   myEphemeralPosts: myEph,
 }: {
   groups: TopicGroup[];
@@ -315,6 +316,7 @@ function TopicsFeed({
   ephemeralPosts?: EphemeralPost[];
   expandedPostId?: string | null;
   onReply?: (id: string) => void;
+  onReplyEphemeral?: (post: EphemeralPost) => void;
   myEphemeralPosts?: EphemeralPost[];
 }) {
   const untaggedPosts = posts.filter((p) => p._section === "untagged");
@@ -387,6 +389,7 @@ function TopicsFeed({
                   key={`thread-${p.id}`}
                   postId={p.id}
                   onReply={onReply ?? (() => {})}
+                  onReplyEphemeral={onReplyEphemeral}
                   initialEphemeralPosts={myEph?.filter((e) => e.parentContentHash === p.id)}
                 />
               ] : []),
@@ -439,8 +442,10 @@ function TopicsFeed({
         </button>
       )}
       {(() => {
-        const myRootEph = (myEph ?? []).filter((e) => !e.parentContentHash);
-        const allEph = [...myRootEph, ...(ephemeralPosts ?? []).filter((ep) => !myRootEph.some((m) => m.nostrEventId === ep.nostrEventId))];
+        const myRootEph = (myEph ?? []).filter((e) => !e.parentContentHash && !e.parentNostrId);
+        const myIds = new Set(myRootEph.map((m) => m.nostrEventId));
+        const serverEph = (ephemeralPosts ?? []).filter((ep) => !myIds.has(ep.nostrEventId));
+        const allEph = [...myRootEph, ...serverEph];
         if (allEph.length === 0) return null;
         return (
           <div data-section="_ephemeral" className="bg-[#111111] mb-2">
@@ -471,8 +476,13 @@ function TopicsFeed({
             )}
             {!collapsedTopics.has("_ephemeral") && (
               <div className="pl-4 divide-y divide-white/[0.04]">
-                {allEph.map((ep, i) => (
-                  <EphemeralPostCard key={ep.nostrEventId} post={ep} optimistic={i < myRootEph.length} />
+                {allEph.map((ep) => (
+                  <EphemeralPostCard
+                    key={ep.nostrEventId}
+                    post={ep}
+                    optimistic={myIds.has(ep.nostrEventId)}
+                    onReply={onReplyEphemeral}
+                  />
                 ))}
               </div>
             )}
@@ -497,6 +507,7 @@ export default function Home() {
   const [textSize, setTextSize] = useState<TextSize>("sm");
   const [composing, setComposing] = useState<{
     replyToId: string | null;
+    replyToNostrId?: string | null;
     topicName: string | null;
   } | null>(null);
 
@@ -807,25 +818,34 @@ export default function Home() {
   const handleSubmitted = useCallback((ephPost?: EphemeralPost) => {
     if (ephPost) {
       setMyEphemeralPosts((prev) => [ephPost, ...prev]);
-      setCollapsedTopics((prev) => {
-        const next = new Set(prev);
-        next.delete("_ephemeral");
-        return next;
-      });
-      // Double-rAF ensures React has painted the new content before scrolling
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          const section = document.querySelector("[data-section='_ephemeral']");
-          if (section) {
-            section.scrollIntoView({ behavior: "smooth", block: "start" });
-          }
+
+      if (ephPost.parentNostrId) {
+        // Reply to ephemeral: find the BTC ancestor and expand its thread
+        const allEph = [...myEphemeralPosts, ...homeEphemeral];
+        const target = allEph.find((p) => p.nostrEventId === ephPost.parentNostrId);
+        const btcParent = target?.parentContentHash;
+        if (btcParent) {
+          setExpandedPostId(btcParent);
+          setThreadPostId(btcParent);
+        }
+      } else {
+        setCollapsedTopics((prev) => {
+          const next = new Set(prev);
+          next.delete("_ephemeral");
+          return next;
         });
-      });
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            const section = document.querySelector("[data-section='_ephemeral']");
+            if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
+          });
+        });
+      }
     } else {
       refreshFeed();
     }
     setComposing(null);
-  }, [refreshFeed]);
+  }, [refreshFeed, myEphemeralPosts, homeEphemeral]);
 
   const resetHome = useCallback(() => {
     setFeedFilter({ type: "all" });
@@ -1097,6 +1117,7 @@ export default function Home() {
                       ephemeralPosts={homeEphemeral}
                       expandedPostId={expandedPostId}
                       onReply={(id) => setComposing({ replyToId: id, topicName: resolveTopicForReply(id) })}
+                      onReplyEphemeral={(ep) => setComposing({ replyToId: null, replyToNostrId: ep.nostrEventId, topicName: ep.topic })}
                       myEphemeralPosts={myEphemeralPosts}
                     />
                   : (
@@ -1141,6 +1162,7 @@ export default function Home() {
                                         key={`thread-${p.id}`}
                                         postId={p.id}
                                         onReply={(id) => setComposing({ replyToId: id, topicName: resolveTopicForReply(id) })}
+                                        onReplyEphemeral={(ep) => setComposing({ replyToId: null, replyToNostrId: ep.nostrEventId, topicName: ep.topic })}
                                         initialEphemeralPosts={myEphemeralPosts.filter((e) => e.parentContentHash === p.id)}
                                       />
                                     ] : isTopicView ? [
@@ -1174,12 +1196,11 @@ export default function Home() {
                       {/* Nostr section for topic views */}
                       {feedFilter.type === "topic" && (() => {
                         const myTopicEph = myEphemeralPosts.filter((e) =>
-                          !e.parentContentHash && e.topicHash === feedFilter.hash
+                          !e.parentContentHash && !e.parentNostrId && e.topicHash === feedFilter.hash
                         );
-                        const allTopicEph = [
-                          ...myTopicEph,
-                          ...homeEphemeral.filter((ep) => !myTopicEph.some((m) => m.nostrEventId === ep.nostrEventId)),
-                        ];
+                        const myTopicIds = new Set(myTopicEph.map((m) => m.nostrEventId));
+                        const serverTopicEph = homeEphemeral.filter((ep) => !myTopicIds.has(ep.nostrEventId));
+                        const allTopicEph = [...myTopicEph, ...serverTopicEph];
                         if (allTopicEph.length === 0) return null;
                         return (
                           <div data-section="_ephemeral" className="bg-[#111111] mt-2 mb-2">
@@ -1188,8 +1209,13 @@ export default function Home() {
                               <span className="ml-2 text-[10px] text-white/15 tabular-nums">{allTopicEph.length}</span>
                             </div>
                             <div className="pl-4 divide-y divide-white/[0.04]">
-                              {allTopicEph.map((ep, i) => (
-                                <EphemeralPostCard key={ep.nostrEventId} post={ep} optimistic={i < myTopicEph.length} />
+                              {allTopicEph.map((ep) => (
+                                <EphemeralPostCard
+                                  key={ep.nostrEventId}
+                                  post={ep}
+                                  optimistic={myTopicIds.has(ep.nostrEventId)}
+                                  onReply={(p) => setComposing({ replyToId: null, replyToNostrId: p.nostrEventId, topicName: p.topic })}
+                                />
                               ))}
                             </div>
                           </div>
@@ -1212,6 +1238,7 @@ export default function Home() {
         {composing && (
           <ComposeSheet
             replyToId={composing.replyToId}
+            replyToNostrId={composing.replyToNostrId ?? null}
             topicName={composing.topicName}
             onClose={() => setComposing(null)}
             onSubmitted={handleSubmitted}
