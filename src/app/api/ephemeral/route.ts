@@ -10,9 +10,14 @@ export const dynamic = "force-dynamic";
  * Query params:
  *   parentHash=<contentHash>   — ephemeral children of a Bitcoin-layer post (for ThreadView)
  *   topicHash=<hash>           — ephemeral posts under a topic (for topic feed toggle)
- *   sort=new|top               — new = createdAt desc, top = upvoteWeight desc
+ *   pubkey=<nostrPubkey>       — all posts by this pubkey (for profile view)
+ *   root=true                  — root ephemeral posts only (no BTC parent)
+ *   sort=new|top               — new = createdAt, top = upvoteWeight
+ *   order=asc|desc             — sort direction (default desc)
  *   cursor=<nostrEventId>      — pagination cursor
  *   limit=<n>                  — page size
+ *
+ * When pubkey is set, also returns: expiredCount, parents (btc + ephemeral)
  */
 export async function GET(request: Request) {
   const limited = rateLimit(request, "read");
@@ -21,13 +26,15 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const parentHash = searchParams.get("parentHash");
   const topicHash = searchParams.get("topicHash");
+  const pubkey = searchParams.get("pubkey");
   const root = searchParams.get("root") === "true";
   const sort = searchParams.get("sort") === "new" ? "new" : "top";
+  const order = searchParams.get("order") === "asc" ? ("asc" as const) : ("desc" as const);
   const cursor = searchParams.get("cursor");
   const limit = parsePageSize(searchParams.get("limit"));
 
-  if (!parentHash && !topicHash && !root) {
-    return errorResponse("parentHash, topicHash, or root=true is required");
+  if (!parentHash && !topicHash && !root && !pubkey) {
+    return errorResponse("parentHash, topicHash, root=true, or pubkey is required");
   }
 
   try {
@@ -38,20 +45,20 @@ export async function GET(request: Request) {
     if (parentHash) where.parentContentHash = parentHash;
     if (topicHash) where.topicHash = topicHash;
     if (root) where.parentContentHash = null;
+    if (pubkey) where.nostrPubkey = pubkey;
 
     const orderBy =
       sort === "top"
-        ? [{ upvoteWeight: "desc" as const }, { createdAt: "desc" as const }]
-        : [{ createdAt: "desc" as const }];
+        ? [{ upvoteWeight: order }, { createdAt: order }]
+        : [{ createdAt: order }];
 
-    // Cursor pagination
     if (cursor && sort === "new") {
       const cursorPost = await prisma.ephemeralPost.findUnique({
         where: { nostrEventId: cursor },
         select: { createdAt: true },
       });
       if (cursorPost) {
-        where.createdAt = { lt: cursorPost.createdAt };
+        where.createdAt = { [order === "asc" ? "gt" : "lt"]: cursorPost.createdAt };
       }
     }
 
@@ -64,6 +71,43 @@ export async function GET(request: Request) {
     const hasMore = rows.length > limit;
     const page = hasMore ? rows.slice(0, limit) : rows;
     const nextCursor = hasMore ? page[page.length - 1].nostrEventId : null;
+
+    if (pubkey) {
+      const expiredCount = await prisma.ephemeralPost.count({
+        where: { nostrPubkey: pubkey, expiresAt: { lte: new Date() } },
+      });
+
+      const btcHashes = [...new Set(page.map((p) => p.parentContentHash).filter(Boolean))] as string[];
+      const ephIds = [...new Set(page.map((p) => p.parentNostrId).filter(Boolean))] as string[];
+
+      const [btcParents, ephParents] = await Promise.all([
+        btcHashes.length > 0
+          ? prisma.post.findMany({
+              where: { contentHash: { in: btcHashes } },
+              select: { contentHash: true, content: true, authorPubkey: true, topic: true },
+            })
+          : [],
+        ephIds.length > 0
+          ? prisma.ephemeralPost.findMany({
+              where: { nostrEventId: { in: ephIds } },
+            })
+          : [],
+      ]);
+
+      return NextResponse.json({
+        posts: page.map(mapEphemeralPost),
+        nextCursor,
+        expiredCount,
+        parents: {
+          btc: Object.fromEntries(
+            btcParents.map((p) => [p.contentHash, { text: p.content, authorPubkey: p.authorPubkey, topicName: p.topic }]),
+          ),
+          ephemeral: Object.fromEntries(
+            ephParents.map((p) => [p.nostrEventId, mapEphemeralPost(p)]),
+          ),
+        },
+      });
+    }
 
     return NextResponse.json({
       posts: page.map(mapEphemeralPost),

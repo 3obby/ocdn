@@ -442,11 +442,45 @@ function TopicsFeed({
         </button>
       )}
       {(() => {
-        const myRootEph = (myEph ?? []).filter((e) => !e.parentContentHash && !e.parentNostrId);
-        const myIds = new Set(myRootEph.map((m) => m.nostrEventId));
+        const myEphNoBtc = (myEph ?? []).filter((e) => !e.parentContentHash);
+        const myIds = new Set(myEphNoBtc.map((m) => m.nostrEventId));
         const serverEph = (ephemeralPosts ?? []).filter((ep) => !myIds.has(ep.nostrEventId));
-        const allEph = [...myRootEph, ...serverEph];
+        const allEph = [...myEphNoBtc, ...serverEph];
         if (allEph.length === 0) return null;
+
+        const byId = new Map(allEph.map((ep) => [ep.nostrEventId, ep]));
+        const childrenOf = new Map<string, EphemeralPost[]>();
+        const roots: EphemeralPost[] = [];
+        for (const ep of allEph) {
+          if (ep.parentNostrId && byId.has(ep.parentNostrId)) {
+            const arr = childrenOf.get(ep.parentNostrId) ?? [];
+            arr.push(ep);
+            childrenOf.set(ep.parentNostrId, arr);
+          } else if (!ep.parentNostrId) {
+            roots.push(ep);
+          }
+        }
+
+        function renderBranch(posts: EphemeralPost[], depth: number): React.ReactNode {
+          return posts.map((ep) => {
+            const kids = childrenOf.get(ep.nostrEventId) ?? [];
+            return (
+              <div key={ep.nostrEventId}>
+                <EphemeralPostCard
+                  post={ep}
+                  optimistic={myIds.has(ep.nostrEventId)}
+                  onReply={onReplyEphemeral}
+                />
+                {kids.length > 0 && (
+                  <div className="ml-3 border-l border-dashed border-white/[0.08]">
+                    {renderBranch(kids, depth + 1)}
+                  </div>
+                )}
+              </div>
+            );
+          });
+        }
+
         return (
           <div data-section="_ephemeral" className="bg-[#111111] mb-2">
             {feedFilter.type === "all" && (
@@ -475,15 +509,8 @@ function TopicsFeed({
               </div>
             )}
             {!collapsedTopics.has("_ephemeral") && (
-              <div className="pl-4 divide-y divide-white/[0.04]">
-                {allEph.map((ep) => (
-                  <EphemeralPostCard
-                    key={ep.nostrEventId}
-                    post={ep}
-                    optimistic={myIds.has(ep.nostrEventId)}
-                    onReply={onReplyEphemeral}
-                  />
-                ))}
+              <div className="pl-4">
+                {renderBranch(roots, 0)}
               </div>
             )}
           </div>
@@ -820,13 +847,24 @@ export default function Home() {
       setMyEphemeralPosts((prev) => [ephPost, ...prev]);
 
       if (ephPost.parentNostrId) {
-        // Reply to ephemeral: find the BTC ancestor and expand its thread
         const allEph = [...myEphemeralPosts, ...homeEphemeral];
         const target = allEph.find((p) => p.nostrEventId === ephPost.parentNostrId);
         const btcParent = target?.parentContentHash;
         if (btcParent) {
           setExpandedPostId(btcParent);
           setThreadPostId(btcParent);
+        } else {
+          setCollapsedTopics((prev) => {
+            const next = new Set(prev);
+            next.delete("_ephemeral");
+            return next;
+          });
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              const section = document.querySelector("[data-section='_ephemeral']");
+              if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
+            });
+          });
         }
       } else {
         setCollapsedTopics((prev) => {
@@ -1003,22 +1041,35 @@ export default function Home() {
   }, [posts, groups, openThread, expandedPostId, closeThread]);
 
   const viewedRef = useRef(new Set<string>());
+  const viewBatchRef = useRef<string[]>([]);
+  const viewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushViews = useCallback(() => {
+    const batch = viewBatchRef.current;
+    viewBatchRef.current = [];
+    viewTimerRef.current = null;
+    if (batch.length === 0) return;
+    fetch("/api/view", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contentHashes: batch }),
+    }).catch(() => {});
+  }, []);
 
   const onPostVisible = useCallback((id: string) => {
     if (id.startsWith("_") || id.startsWith("eph_")) return;
     if (viewedRef.current.has(id)) return;
     viewedRef.current.add(id);
-    fetch("/api/view", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contentHash: id }),
-    }).catch(() => {});
+    viewBatchRef.current.push(id);
+    if (!viewTimerRef.current) {
+      viewTimerRef.current = setTimeout(flushViews, 2000);
+    }
     setPosts((prev) => prev.map((p) => p.id === id ? { ...p, viewCount: (p.viewCount ?? 0) + 1 } : p));
     setGroups((prev) => prev.map((g) => ({
       ...g,
       posts: g.posts.map((p) => p.id === id ? { ...p, viewCount: (p.viewCount ?? 0) + 1 } : p),
     })));
-  }, []);
+  }, [flushViews]);
 
   const toggleTopic = useCallback((key: string) => {
     setCollapsedTopics((prev) => {
@@ -1196,27 +1247,54 @@ export default function Home() {
                       {/* Nostr section for topic views */}
                       {feedFilter.type === "topic" && (() => {
                         const myTopicEph = myEphemeralPosts.filter((e) =>
-                          !e.parentContentHash && !e.parentNostrId && e.topicHash === feedFilter.hash
+                          !e.parentContentHash && e.topicHash === feedFilter.hash
                         );
                         const myTopicIds = new Set(myTopicEph.map((m) => m.nostrEventId));
                         const serverTopicEph = homeEphemeral.filter((ep) => !myTopicIds.has(ep.nostrEventId));
                         const allTopicEph = [...myTopicEph, ...serverTopicEph];
                         if (allTopicEph.length === 0) return null;
+
+                        const byId = new Map(allTopicEph.map((ep) => [ep.nostrEventId, ep]));
+                        const childrenOf = new Map<string, EphemeralPost[]>();
+                        const roots: EphemeralPost[] = [];
+                        for (const ep of allTopicEph) {
+                          if (ep.parentNostrId && byId.has(ep.parentNostrId)) {
+                            const arr = childrenOf.get(ep.parentNostrId) ?? [];
+                            arr.push(ep);
+                            childrenOf.set(ep.parentNostrId, arr);
+                          } else if (!ep.parentNostrId) {
+                            roots.push(ep);
+                          }
+                        }
+
+                        function renderTopicBranch(posts: EphemeralPost[], depth: number): React.ReactNode {
+                          return posts.map((ep) => {
+                            const kids = childrenOf.get(ep.nostrEventId) ?? [];
+                            return (
+                              <div key={ep.nostrEventId}>
+                                <EphemeralPostCard
+                                  post={ep}
+                                  optimistic={myTopicIds.has(ep.nostrEventId)}
+                                  onReply={(p) => setComposing({ replyToId: null, replyToNostrId: p.nostrEventId, topicName: p.topic })}
+                                />
+                                {kids.length > 0 && (
+                                  <div className="ml-3 border-l border-dashed border-white/[0.08]">
+                                    {renderTopicBranch(kids, depth + 1)}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          });
+                        }
+
                         return (
                           <div data-section="_ephemeral" className="bg-[#111111] mt-2 mb-2">
                             <div className="flex items-center py-2.5 pl-4">
                               <span className={`${sz} leading-tight text-white`}>nostr</span>
                               <span className="ml-2 text-[10px] text-white/15 tabular-nums">{allTopicEph.length}</span>
                             </div>
-                            <div className="pl-4 divide-y divide-white/[0.04]">
-                              {allTopicEph.map((ep) => (
-                                <EphemeralPostCard
-                                  key={ep.nostrEventId}
-                                  post={ep}
-                                  optimistic={myTopicIds.has(ep.nostrEventId)}
-                                  onReply={(p) => setComposing({ replyToId: null, replyToNostrId: p.nostrEventId, topicName: p.topic })}
-                                />
-                              ))}
+                            <div className="pl-4">
+                              {renderTopicBranch(roots, 0)}
                             </div>
                           </div>
                         );
@@ -1249,6 +1327,10 @@ export default function Home() {
           <ProfileSheet
             onClose={() => setShowProfile(false)}
             onExpand={(id) => { setShowProfile(false); openThread(id); }}
+            onReplyEphemeral={(ep) => setComposing({ replyToId: null, replyToNostrId: ep.nostrEventId, topicName: ep.topic })}
+            onCompose={() => setComposing({ replyToId: null, topicName: feedFilter.type === "topic" ? feedFilter.name : null })}
+            textSize={textSize}
+            onTextSizeChange={setTextSize}
             myEphemeralPosts={myEphemeralPosts}
           />
         )}
