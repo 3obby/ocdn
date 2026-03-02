@@ -46,11 +46,13 @@ interface PaymentData {
 
 export function ComposeSheet({
   replyToId,
+  replyToNostrId,
   topicName,
   onClose,
   onSubmitted,
 }: {
   replyToId: string | null;
+  replyToNostrId?: string | null;
   topicName: string | null;
   onClose: () => void;
   onSubmitted?: (ephPost?: EphemeralPost) => void;
@@ -67,7 +69,9 @@ export function ComposeSheet({
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const ephCreatedRef = useRef(false);
 
-  const isReply = replyToId !== null;
+  const isReply = replyToId !== null || replyToNostrId != null;
+  const isBtcReply = replyToId !== null;
+  const isNostrReply = replyToNostrId != null && !isBtcReply;
   const label = isReply
     ? "reply"
     : topicName
@@ -172,7 +176,8 @@ export function ComposeSheet({
         content: text.trim(),
         pubkey,
         topic: topicName ?? undefined,
-        parentContentHash: isReply ? replyToId : undefined,
+        parentContentHash: isBtcReply ? replyToId : undefined,
+        parentNostrId: isNostrReply ? replyToNostrId : undefined,
       });
 
       const { promise } = mineAndSign(template, privkey, 8);
@@ -202,11 +207,15 @@ export function ComposeSheet({
         content: signed.content,
         topic: topicName ?? null,
         topicHash: ephTopicHash,
-        parentContentHash: isReply ? replyToId : null,
-        parentNostrId: null,
+        parentContentHash: isBtcReply ? replyToId : null,
+        parentNostrId: isNostrReply ? (replyToNostrId ?? null) : null,
+        replyDepth: isNostrReply ? 1 : 0,
+        anchoredToBtc: isBtcReply,
         powDifficulty: 8,
         upvoteWeight: 0,
-        expiresAt: data.expiresAt ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        boostCount: 0,
+        lastBoostedAt: null,
+        expiresAt: data.expiresAt ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
         promotedToHash: null,
         createdAt: new Date().toISOString(),
       };
@@ -235,7 +244,7 @@ export function ComposeSheet({
         actionType: isReply ? "reply" : "post",
         content: text.trim(),
       };
-      if (isReply) body.parentHash = replyToId;
+      if (isBtcReply) body.parentHash = replyToId;
       else if (topicName) body.topic = topicName;
 
       // Create ephemeral post for immediate display (once per compose session)
@@ -245,7 +254,7 @@ export function ComposeSheet({
           content: text.trim(),
           topic: topicName ?? undefined,
         };
-        if (isReply) ephBody.parentHash = replyToId;
+        if (isBtcReply) ephBody.parentHash = replyToId;
 
         fetch("/api/ephemeral", {
           method: "POST",

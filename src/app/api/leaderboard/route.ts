@@ -61,8 +61,8 @@ export async function GET(request: Request) {
       prisma.ephemeralPost.findMany({
         where: {
           powDifficulty: { gt: 0 },
-          createdAt: { gte: windowStart },
           expiresAt: { gt: now },
+          anchoredToBtc: true,
         },
         orderBy: { powDifficulty: "desc" },
         take: limit,

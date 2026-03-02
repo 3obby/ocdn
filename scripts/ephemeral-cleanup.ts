@@ -23,7 +23,7 @@ async function main() {
   console.log(`Pruned ${ephDeleted.count} expired ephemeral posts`);
 
   const boostDeleted = await prisma.nostrBoost.deleteMany({
-    where: { createdAt: { lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } },
+    where: { createdAt: { lt: new Date(Date.now() - 48 * 60 * 60 * 1000) } },
   });
   console.log(`Pruned ${boostDeleted.count} old nostr boosts`);
 

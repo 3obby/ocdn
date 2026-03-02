@@ -63,11 +63,10 @@ function getNonceTag(tags: string[][]): string[] | null {
   return tags.find((t) => t[0] === "nonce") ?? null;
 }
 
-function getTtlMs(powDifficulty: number): number {
-  const BASE_TTL_HOURS = Number(process.env.EPHEMERAL_TTL_HOURS ?? "24");
-  const bonusHours = Math.max(0, powDifficulty - 8); // +1h per difficulty point above 8
-  const totalHours = Math.min(BASE_TTL_HOURS + bonusHours, 7 * 24);
-  return totalHours * 60 * 60 * 1000;
+function getTtlMs(replyDepth: number): number {
+  const baseDays = Number(process.env.EPHEMERAL_TTL_DAYS ?? "30");
+  const days = baseDays / Math.pow(2, replyDepth);
+  return Math.max(days, 1) * 24 * 60 * 60 * 1000;
 }
 
 function getTagValue(tags: string[][], name: string): string | null {
@@ -163,7 +162,30 @@ export async function POST(request: Request) {
     }
   }
 
-  const expiresAt = new Date(Date.now() + getTtlMs(powDifficulty));
+  // Compute reply depth: 0 for root / direct BTC reply, parent.replyDepth+1 for ephemeral chains
+  let replyDepth = 0;
+  if (parentNostrId) {
+    const parentEph = await prisma.ephemeralPost.findUnique({
+      where: { nostrEventId: parentNostrId },
+      select: { replyDepth: true },
+    });
+    if (parentEph) replyDepth = parentEph.replyDepth + 1;
+  }
+
+  // Compute anchoredToBtc: true if parent is a Bitcoin post or topic exists on-chain
+  let anchoredToBtc = false;
+  if (parentContentHash) {
+    const btcParent = await prisma.post.findUnique({
+      where: { contentHash: parentContentHash },
+      select: { contentHash: true },
+    });
+    anchoredToBtc = btcParent !== null;
+  } else if (topicHash) {
+    const btcTopicCount = await prisma.post.count({ where: { topicHash } });
+    anchoredToBtc = btcTopicCount > 0;
+  }
+
+  const expiresAt = new Date(Date.now() + getTtlMs(replyDepth));
 
   try {
     // Dedup by event ID
@@ -188,6 +210,8 @@ export async function POST(request: Request) {
         topicHash,
         parentContentHash,
         parentNostrId,
+        replyDepth,
+        anchoredToBtc,
         powDifficulty,
         upvoteWeight: BigInt(0),
         rawEvent: event as object,

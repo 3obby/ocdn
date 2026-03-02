@@ -70,7 +70,7 @@ async function main() {
       });
       if (deleted.count > 0) slog("info", "pruned expired ephemeral posts", { count: deleted.count });
       const boostsPruned = await prisma.nostrBoost.deleteMany({
-        where: { createdAt: { lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } },
+        where: { createdAt: { lt: new Date(Date.now() - 48 * 60 * 60 * 1000) } },
       });
       if (boostsPruned.count > 0) slog("info", "pruned old nostr boosts", { count: boostsPruned.count });
     } catch {}
