@@ -39,11 +39,15 @@ function useCountdown(expiresAt: string) {
 export function EphemeralPostCard({
   post,
   onMakePermanent,
+  onInscribe,
+  onViewTx,
   onReply,
   optimistic = false,
 }: {
   post: EphemeralPost;
   onMakePermanent?: (post: EphemeralPost) => void;
+  onInscribe?: (post: EphemeralPost) => void;
+  onViewTx?: (contentHash: string) => void;
   onReply?: (post: EphemeralPost) => void;
   optimistic?: boolean;
 }) {
@@ -89,6 +93,21 @@ export function EphemeralPostCard({
       {/* Icon CTAs */}
       {!optimistic && (
         <div className="flex items-center gap-2.5 mt-1.5">
+          {post.promotedToHash && onViewTx ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); onViewTx(post.promotedToHash!); }}
+              className="text-white/20 hover:text-white/40 transition-colors text-[11px] font-medium leading-none"
+            >
+              ₿tx
+            </button>
+          ) : onInscribe && (!post.parentNostrId || post.parentContentHash) && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onInscribe(post); }}
+              className="text-orange-400/30 hover:text-orange-400/60 transition-colors text-[11px] font-medium leading-none"
+            >
+              +₿
+            </button>
+          )}
           <span onClick={(e) => e.stopPropagation()}>
             <BoostButton
               target={{ nostrEventId: post.nostrEventId }}

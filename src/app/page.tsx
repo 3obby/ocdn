@@ -24,17 +24,14 @@ import { getStoredIdentity, getSessionPubkey } from "@/lib/nostr/client";
 import { topicHash as computeTopicHash } from "@/lib/protocol/crypto";
 
 type LeaderboardEntry = {
-  type: "bitcoin" | "ephemeral";
-  contentHash?: string;
-  nostrEventId?: string;
+  type: "ephemeral";
+  nostrEventId: string;
   text: string;
   authorPubkey: string;
   powDifficulty: number;
   topic?: string | null;
   topicHash?: string | null;
-  viewCount?: number;
   createdAt: string;
-  burnTotal?: number;
 };
 
 function formatCountdown(ms: number): string {
@@ -131,7 +128,7 @@ function LeaderboardSection({
           {hasEntries ? (
             <div className="pl-4">
               {entries.map((entry, i) => {
-                const id = entry.contentHash ?? entry.nostrEventId ?? `lb-${i}`;
+                const id = entry.nostrEventId;
                 const isFirst = i === 0;
                 const topicName = entry.topic ?? "/";
                 return (
@@ -157,11 +154,6 @@ function LeaderboardSection({
                     <span className={`text-[10px] tabular-nums shrink-0 font-mono ${isFirst ? "text-yellow-400" : "text-white/25"}`}>
                       ⚡{entry.powDifficulty}
                     </span>
-                    {(entry.viewCount ?? 0) > 0 && (
-                      <span className={`text-[10px] tabular-nums shrink-0 ${isFirst ? "text-yellow-400/50" : "text-white/15"}`}>
-                        {entry.viewCount}
-                      </span>
-                    )}
                   </div>
                 );
               })}
@@ -295,7 +287,11 @@ function TopicsFeed({
   expandedPostId,
   onReply,
   onReplyEphemeral,
+  onInscribeEphemeral,
   myEphemeralPosts: myEph,
+  extraEwPosts,
+  loadMoreEw,
+  loadingMoreEw,
 }: {
   groups: TopicGroup[];
   posts: Post[];
@@ -317,11 +313,65 @@ function TopicsFeed({
   expandedPostId?: string | null;
   onReply?: (id: string) => void;
   onReplyEphemeral?: (post: EphemeralPost) => void;
+  onInscribeEphemeral?: (post: EphemeralPost) => void;
   myEphemeralPosts?: EphemeralPost[];
+  extraEwPosts?: Post[];
+  loadMoreEw?: () => void;
+  loadingMoreEw?: boolean;
 }) {
   const untaggedPosts = posts.filter((p) => p._section === "untagged");
   const ewPosts = posts.filter((p) => p._section === "ew");
-  const hasContent = groups.length > 0 || untaggedPosts.length > 0 || ewPosts.length > 0;
+
+  // ── Build ephemeral tree and group roots by topic ──
+  const myEphNoBtc = (myEph ?? []).filter((e) => !e.parentContentHash);
+  const myEphIds = new Set(myEphNoBtc.map((m) => m.nostrEventId));
+  const serverEph = (ephemeralPosts ?? []).filter((ep) => !myEphIds.has(ep.nostrEventId));
+  const allEph = [...myEphNoBtc, ...serverEph];
+
+  const ephById = new Map(allEph.map((ep) => [ep.nostrEventId, ep]));
+  const ephChildrenOf = new Map<string, EphemeralPost[]>();
+  const ephRoots: EphemeralPost[] = [];
+  for (const ep of allEph) {
+    if (ep.parentNostrId && ephById.has(ep.parentNostrId)) {
+      const arr = ephChildrenOf.get(ep.parentNostrId) ?? [];
+      arr.push(ep);
+      ephChildrenOf.set(ep.parentNostrId, arr);
+    } else if (!ep.parentNostrId) {
+      ephRoots.push(ep);
+    }
+  }
+
+  const ephByTopic = new Map<string | null, EphemeralPost[]>();
+  for (const ep of ephRoots) {
+    const key = ep.topicHash ?? null;
+    const arr = ephByTopic.get(key) ?? [];
+    arr.push(ep);
+    ephByTopic.set(key, arr);
+  }
+
+  function renderEphBranch(epPosts: EphemeralPost[]): React.ReactNode {
+    return epPosts.map((ep) => {
+      const kids = ephChildrenOf.get(ep.nostrEventId) ?? [];
+      return (
+        <div key={ep.nostrEventId}>
+          <EphemeralPostCard
+            post={ep}
+            optimistic={myEphIds.has(ep.nostrEventId)}
+            onReply={onReplyEphemeral}
+            onInscribe={onInscribeEphemeral}
+            onViewTx={expandPost}
+          />
+          {kids.length > 0 && (
+            <div className="ml-3 border-l border-dashed border-white/[0.08]">
+              {renderEphBranch(kids)}
+            </div>
+          )}
+        </div>
+      );
+    });
+  }
+
+  const hasContent = groups.length > 0 || untaggedPosts.length > 0 || ewPosts.length > 0 || allEph.length > 0;
 
   if (!hasContent) {
     return (excludedTopicHashes.length > 0 || !includeTopicless) ? (
@@ -337,6 +387,7 @@ function TopicsFeed({
     sectionPosts: Post[],
     isTopic: boolean,
     topic?: { hash: string; name: string | null; totalBurned: number } | null,
+    sectionEph?: EphemeralPost[],
   ) => {
     const isCollapsed = collapsedTopics.has(sectionKey);
     const totalBurned = topic?.totalBurned ?? 0;
@@ -390,132 +441,69 @@ function TopicsFeed({
                   postId={p.id}
                   onReply={onReply ?? (() => {})}
                   onReplyEphemeral={onReplyEphemeral}
+                  onInscribeEphemeral={onInscribeEphemeral}
+                  onViewTx={expandPost}
                   initialEphemeralPosts={myEph?.filter((e) => e.parentContentHash === p.id)}
                 />
               ] : []),
             ])}
+            {sectionEph && sectionEph.length > 0 && renderEphBranch(sectionEph)}
           </div>
         )}
       </div>
     );
   };
 
+  const rootEph = ephByTopic.get(null) ?? [];
+
   return (
     <>
+      {groups.map((group) => {
+        const topicKey = group.topic?.hash ?? null;
+        const eph = topicKey ? (ephByTopic.get(topicKey) ?? []) : [];
+        return renderSection(
+          group.topic?.hash ?? "_standalone",
+          group.topic ? "/" + topicLabel(group.topic) : "/",
+          group.posts,
+          true,
+          group.topic,
+          eph,
+        );
+      })}
+      {(untaggedPosts.length > 0 || rootEph.length > 0) && renderSection("_root", "/", untaggedPosts, true, null, rootEph)}
+      {untaggedHasMore && !collapsedTopics.has("_root") && (
+        <button
+          onClick={() => goToSection("_root")}
+          className={`w-full py-2 ${sz} text-white/15 hover:text-white/30 transition-colors bg-[#111111] -mt-2 mb-2`}
+        >
+          more
+        </button>
+      )}
       {feedFilter.type === "all" && (
         <LeaderboardSection
           sz={sz}
           onNavigate={(entry) => {
             if (entry.topicHash && entry.topic) {
               goToSection(entry.topicHash, { hash: entry.topicHash, name: entry.topic, totalBurned: 0 });
-            } else if (entry.contentHash) {
-              expandPost(entry.contentHash);
             }
           }}
         />
       )}
-      {groups.map((group) =>
-        renderSection(
-          group.topic?.hash ?? "_standalone",
-          group.topic ? topicLabel(group.topic) : "untagged",
-          group.posts,
-          true,
-          group.topic,
-        ),
+      {ewPosts.length > 0 && renderSection("_ew", "eternitywall", [...ewPosts, ...(extraEwPosts ?? [])], false)}
+      {!collapsedTopics.has("_ew") && (ewHasMore || (extraEwPosts ?? []).length > 0) && loadMoreEw && (
+        <div className="bg-[#111111] -mt-2 mb-2 flex justify-center py-4">
+          {loadingMoreEw ? (
+            <Loader2 className="h-5 w-5 animate-spin text-white/20" />
+          ) : (
+            <button
+              onClick={loadMoreEw}
+              className={`${sz} text-white/15 hover:text-white/30 transition-colors`}
+            >
+              more
+            </button>
+          )}
+        </div>
       )}
-      {untaggedPosts.length > 0 && renderSection("_untagged", "untagged", untaggedPosts, false)}
-      {untaggedHasMore && !collapsedTopics.has("_untagged") && (
-        <button
-          onClick={() => goToSection("_untagged")}
-          className={`w-full py-2 ${sz} text-white/15 hover:text-white/30 transition-colors bg-[#111111] -mt-2 mb-2`}
-        >
-          more
-        </button>
-      )}
-      {ewPosts.length > 0 && renderSection("_ew", "eternitywall", ewPosts, false)}
-      {ewHasMore && !collapsedTopics.has("_ew") && (
-        <button
-          onClick={() => goToSection("_ew")}
-          className={`w-full py-2 ${sz} text-white/15 hover:text-white/30 transition-colors bg-[#111111] -mt-2 mb-2`}
-        >
-          more
-        </button>
-      )}
-      {(() => {
-        const myEphNoBtc = (myEph ?? []).filter((e) => !e.parentContentHash);
-        const myIds = new Set(myEphNoBtc.map((m) => m.nostrEventId));
-        const serverEph = (ephemeralPosts ?? []).filter((ep) => !myIds.has(ep.nostrEventId));
-        const allEph = [...myEphNoBtc, ...serverEph];
-        if (allEph.length === 0) return null;
-
-        const byId = new Map(allEph.map((ep) => [ep.nostrEventId, ep]));
-        const childrenOf = new Map<string, EphemeralPost[]>();
-        const roots: EphemeralPost[] = [];
-        for (const ep of allEph) {
-          if (ep.parentNostrId && byId.has(ep.parentNostrId)) {
-            const arr = childrenOf.get(ep.parentNostrId) ?? [];
-            arr.push(ep);
-            childrenOf.set(ep.parentNostrId, arr);
-          } else if (!ep.parentNostrId) {
-            roots.push(ep);
-          }
-        }
-
-        function renderBranch(posts: EphemeralPost[], depth: number): React.ReactNode {
-          return posts.map((ep) => {
-            const kids = childrenOf.get(ep.nostrEventId) ?? [];
-            return (
-              <div key={ep.nostrEventId}>
-                <EphemeralPostCard
-                  post={ep}
-                  optimistic={myIds.has(ep.nostrEventId)}
-                  onReply={onReplyEphemeral}
-                />
-                {kids.length > 0 && (
-                  <div className="ml-3 border-l border-dashed border-white/[0.08]">
-                    {renderBranch(kids, depth + 1)}
-                  </div>
-                )}
-              </div>
-            );
-          });
-        }
-
-        return (
-          <div data-section="_ephemeral" className="bg-[#111111] mb-2">
-            {feedFilter.type === "all" && (
-              <div className="flex items-center">
-                <button
-                  onClick={() => toggleTopic("_ephemeral")}
-                  className="py-2.5 pl-4 text-left shrink-0"
-                >
-                  <span className={`${sz} leading-tight text-white`}>nostr</span>
-                </button>
-                <button
-                  onClick={() => toggleTopic("_ephemeral")}
-                  className="shrink-0 p-1 text-white/20 hover:text-white/40 transition-colors"
-                >
-                  {collapsedTopics.has("_ephemeral")
-                    ? <ChevronRight size={14} strokeWidth={1.5} />
-                    : <ChevronDown size={14} strokeWidth={1.5} />
-                  }
-                </button>
-                <div className="min-w-0 flex-1" />
-                <div className="shrink-0 pr-3">
-                  <span className="text-[10px] text-white/15 tabular-nums">
-                    {allEph.length}
-                  </span>
-                </div>
-              </div>
-            )}
-            {!collapsedTopics.has("_ephemeral") && (
-              <div className="pl-4">
-                {renderBranch(roots, 0)}
-              </div>
-            )}
-          </div>
-        );
-      })()}
     </>
   );
 }
@@ -536,6 +524,7 @@ export default function Home() {
     replyToId: string | null;
     replyToNostrId?: string | null;
     topicName: string | null;
+    initialText?: string | null;
   } | null>(null);
 
   // Session-local ephemeral posts (optimistic, cleared on reload)
@@ -561,6 +550,9 @@ export default function Home() {
   const [ewHasMore, setEwHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [homeEphemeral, setHomeEphemeral] = useState<EphemeralPost[]>([]);
+  const [extraEwPosts, setExtraEwPosts] = useState<Post[]>([]);
+  const [ewCursor, setEwCursor] = useState<string | null>(null);
+  const [loadingMoreEw, setLoadingMoreEw] = useState(false);
 
   const tipHeightRef = useRef(0);
   const sortRef = useRef(sortMode);
@@ -594,6 +586,8 @@ export default function Home() {
     setPosts([]);
     setGroups([]);
     setNextCursor(null);
+    setExtraEwPosts([]);
+    setEwCursor(null);
 
     const f = filterRef.current;
     const hasFilter = f.type !== "all";
@@ -642,6 +636,9 @@ export default function Home() {
           setPosts([...untaggedPosts, ...ewPosts]);
           setUntaggedHasMore(data.untaggedHasMore ?? false);
           setEwHasMore(data.ewHasMore ?? false);
+          if (ewPosts.length > 0) {
+            setEwCursor(ewPosts[ewPosts.length - 1].contentHash);
+          }
           setNextCursor(null);
         } else {
           setPosts(data.posts ?? []);
@@ -705,6 +702,30 @@ export default function Home() {
         setLoadingMore(false);
       });
   }, [nextCursor, sortMode, sortDirection, feedFilter.type, includeTopicless, excludedTopicHashes]);
+
+  // ── load more EW posts (infinite scroll) ──
+  const loadMoreEw = useCallback(() => {
+    if (!ewCursor || !ewHasMore || loadingMoreEw) return;
+    setLoadingMoreEw(true);
+    const version = fetchVersionRef.current;
+
+    fetch(`/api/feed?section=ew&cursor=${encodeURIComponent(ewCursor)}&limit=20`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (version !== fetchVersionRef.current) return;
+        const newPosts: Post[] = (data.posts ?? []).map((p: Post) => ({ ...p, _section: "ew" }));
+        setExtraEwPosts((prev) => {
+          const ids = new Set(prev.map((p) => p.id));
+          return [...prev, ...newPosts.filter((p) => !ids.has(p.id))];
+        });
+        setEwHasMore(data.hasMore ?? false);
+        if (newPosts.length > 0) {
+          setEwCursor(newPosts[newPosts.length - 1].contentHash);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingMoreEw(false));
+  }, [ewCursor, ewHasMore, loadingMoreEw]);
 
   // ── SSE real-time updates ──
   useEffect(() => {
@@ -830,13 +851,17 @@ export default function Home() {
 
   const handleFeedScroll = useCallback(
     (e: React.UIEvent<HTMLDivElement>) => {
-      if ((sortMode === "topics" && feedFilter.type === "all") || !nextCursor) return;
       const el = e.currentTarget;
-      if (el.scrollHeight - el.scrollTop - el.clientHeight < 200) {
-        loadMore();
+      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
+      if (!nearBottom) return;
+
+      if (sortMode === "topics" && feedFilter.type === "all") {
+        if (ewHasMore) loadMoreEw();
+        return;
       }
+      if (nextCursor) loadMore();
     },
-    [sortMode, feedFilter.type, nextCursor, loadMore],
+    [sortMode, feedFilter.type, nextCursor, loadMore, ewHasMore, loadMoreEw],
   );
 
   const refreshFeed = useCallback(() => setRefreshKey((k) => k + 1), []);
@@ -853,32 +878,15 @@ export default function Home() {
         if (btcParent) {
           setExpandedPostId(btcParent);
           setThreadPostId(btcParent);
-        } else {
-          setCollapsedTopics((prev) => {
-            const next = new Set(prev);
-            next.delete("_ephemeral");
-            return next;
-          });
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              const section = document.querySelector("[data-section='_ephemeral']");
-              if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
-            });
-          });
         }
-      } else {
-        setCollapsedTopics((prev) => {
-          const next = new Set(prev);
-          next.delete("_ephemeral");
-          return next;
-        });
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            const section = document.querySelector("[data-section='_ephemeral']");
-            if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
-          });
-        });
       }
+
+      const sectionKey = ephPost.topicHash ?? "_root";
+      setCollapsedTopics((prev) => {
+        const next = new Set(prev);
+        next.delete(sectionKey);
+        return next;
+      });
     } else {
       refreshFeed();
     }
@@ -908,10 +916,10 @@ export default function Home() {
 
   const goToSection = useCallback((sectionKey: string, topic?: { hash: string; name: string | null; totalBurned: number } | null) => {
     let newFilter: FeedFilter;
-    if (sectionKey === "_untagged") {
+    if (sectionKey === "_root") {
       newFilter = { type: "topicless" };
       setFeedFilter(newFilter);
-      setSearchQuery("untagged");
+      setSearchQuery("/");
     } else if (sectionKey === "_ew") {
       newFilter = { type: "protocol", protocol: "ew", label: "EternityWall" };
       setFeedFilter(newFilter);
@@ -1169,7 +1177,11 @@ export default function Home() {
                       expandedPostId={expandedPostId}
                       onReply={(id) => setComposing({ replyToId: id, topicName: resolveTopicForReply(id) })}
                       onReplyEphemeral={(ep) => setComposing({ replyToId: null, replyToNostrId: ep.nostrEventId, topicName: ep.topic })}
+                      onInscribeEphemeral={(ep) => setComposing({ replyToId: null, topicName: ep.topic, initialText: ep.content })}
                       myEphemeralPosts={myEphemeralPosts}
+                      extraEwPosts={extraEwPosts}
+                      loadMoreEw={loadMoreEw}
+                      loadingMoreEw={loadingMoreEw}
                     />
                   : (
                     <>
@@ -1214,6 +1226,8 @@ export default function Home() {
                                         postId={p.id}
                                         onReply={(id) => setComposing({ replyToId: id, topicName: resolveTopicForReply(id) })}
                                         onReplyEphemeral={(ep) => setComposing({ replyToId: null, replyToNostrId: ep.nostrEventId, topicName: ep.topic })}
+                                        onInscribeEphemeral={(ep) => setComposing({ replyToId: null, topicName: ep.topic, initialText: ep.content })}
+                                        onViewTx={(hash) => expandPost(hash)}
                                         initialEphemeralPosts={myEphemeralPosts.filter((e) => e.parentContentHash === p.id)}
                                       />
                                     ] : isTopicView ? [
@@ -1276,6 +1290,8 @@ export default function Home() {
                                   post={ep}
                                   optimistic={myTopicIds.has(ep.nostrEventId)}
                                   onReply={(p) => setComposing({ replyToId: null, replyToNostrId: p.nostrEventId, topicName: p.topic })}
+                                  onInscribe={(p) => setComposing({ replyToId: null, topicName: p.topic, initialText: p.content })}
+                                  onViewTx={(hash) => expandPost(hash)}
                                 />
                                 {kids.length > 0 && (
                                   <div className="ml-3 border-l border-dashed border-white/[0.08]">
@@ -1288,11 +1304,7 @@ export default function Home() {
                         }
 
                         return (
-                          <div data-section="_ephemeral" className="bg-[#111111] mt-2 mb-2">
-                            <div className="flex items-center py-2.5 pl-4">
-                              <span className={`${sz} leading-tight text-white`}>nostr</span>
-                              <span className="ml-2 text-[10px] text-white/15 tabular-nums">{allTopicEph.length}</span>
-                            </div>
+                          <div className="bg-[#111111] mb-2">
                             <div className="pl-4">
                               {renderTopicBranch(roots, 0)}
                             </div>
@@ -1318,6 +1330,7 @@ export default function Home() {
             replyToId={composing.replyToId}
             replyToNostrId={composing.replyToNostrId ?? null}
             topicName={composing.topicName}
+            initialText={composing.initialText}
             onClose={() => setComposing(null)}
             onSubmitted={handleSubmitted}
           />

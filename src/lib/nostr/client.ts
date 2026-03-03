@@ -123,15 +123,12 @@ export function buildPostEvent({
 export function buildBoostEvent({
   pubkey,
   targetNostrId,
-  targetContentHash,
 }: {
   pubkey: string;
   targetNostrId?: string | null;
-  targetContentHash?: string | null;
 }): UnsignedEvent {
   const tags: string[][] = [];
   if (targetNostrId) tags.push(["e", targetNostrId]);
-  if (targetContentHash) tags.push(["ocdn-ref", targetContentHash]);
 
   return {
     kind: 7,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useState, useCallback } from "react";
+import { useRef, useEffect } from "react";
 import {
   type Post,
   formatSats,
@@ -9,7 +9,6 @@ import {
 } from "@/lib/mock-data";
 import { useTextSize, ts } from "@/lib/text-size";
 import { Eye, Pencil } from "lucide-react";
-import { BoostButton } from "./boost-button";
 
 function ConfirmBadge({ confirmations, ephemeral, ephemeralStatus }: { confirmations: number; ephemeral?: boolean; ephemeralStatus?: string }) {
   if (ephemeral && ephemeralStatus !== "upgraded") {
@@ -49,8 +48,6 @@ export function FeedCard({
 }) {
   const sz = useTextSize();
   const cardRef = useRef<HTMLDivElement>(null);
-  const [miningZeros, setMiningZeros] = useState(0);
-  const handleMiningProgress = useCallback((d: number) => setMiningZeros(d), []);
 
   useEffect(() => {
     if (!onVisible || post.id.startsWith("_")) return;
@@ -105,12 +102,6 @@ export function FeedCard({
             <Eye size={10} strokeWidth={1.5} />
             <span className="text-[10px] tabular-nums">{post.viewCount || 0}</span>
           </span>
-          {miningZeros > 0 && (
-            <>
-              <span className="text-white/15">&middot;</span>
-              <span className="text-[10px] tabular-nums text-yellow-400/60 animate-pulse">{miningZeros}z</span>
-            </>
-          )}
         </div>
       )}
 
@@ -131,29 +122,17 @@ export function FeedCard({
       </div>
 
       {/* Expanded: icon actions */}
-      {isExpanded && (
+      {isExpanded && onReply && (
         <div className="flex items-center gap-2.5 px-4 pb-2.5">
-          {!isUnpaid && (
-            <span onClick={(e) => e.stopPropagation()}>
-              <BoostButton
-                target={{ contentHash: post.contentHash }}
-                size={14}
-                onMiningProgress={handleMiningProgress}
-                onBoosted={() => setMiningZeros(0)}
-              />
-            </span>
-          )}
-          {onReply && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onReply(post.id);
-              }}
-              className="text-white/15 hover:text-white/30 transition-colors"
-            >
-              <Pencil size={14} strokeWidth={1.5} />
-            </button>
-          )}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onReply(post.id);
+            }}
+            className="text-white/15 hover:text-white/30 transition-colors"
+          >
+            <Pencil size={14} strokeWidth={1.5} />
+          </button>
         </div>
       )}
 

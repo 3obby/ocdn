@@ -14,7 +14,6 @@ import { Zap } from "lucide-react";
 type BoostState = "idle" | "mining" | "submitting" | "done" | "error";
 
 export type BoostTarget = {
-  contentHash?: string | null;
   nostrEventId?: string | null;
 };
 
@@ -66,7 +65,6 @@ export function BoostButton({
         const template = buildBoostEvent({
           pubkey,
           targetNostrId: target.nostrEventId,
-          targetContentHash: target.contentHash,
         });
         const { handle } = startMining(
           template,
@@ -93,7 +91,7 @@ export function BoostButton({
         setState("error");
       }
     }
-  }, [state, target.nostrEventId, target.contentHash]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state, target.nostrEventId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <button
