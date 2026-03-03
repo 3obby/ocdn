@@ -25,11 +25,15 @@ export function InlineThread({
   postId,
   onReply,
   onReplyEphemeral,
+  onInscribeEphemeral,
+  onViewTx,
   initialEphemeralPosts,
 }: {
   postId: string;
   onReply: (id: string) => void;
   onReplyEphemeral?: (post: EphemeralPost) => void;
+  onInscribeEphemeral?: (post: EphemeralPost) => void;
+  onViewTx?: (contentHash: string) => void;
   initialEphemeralPosts?: EphemeralPost[];
 }) {
   const sz = useTextSize();
@@ -160,7 +164,7 @@ export function InlineThread({
               ) : (
                 ephemeralPosts.map((ep) => (
                   <div key={ep.nostrEventId} className="pl-2">
-                    <EphemeralPostCard post={ep} onReply={onReplyEphemeral} />
+                    <EphemeralPostCard post={ep} onReply={onReplyEphemeral} onInscribe={onInscribeEphemeral} onViewTx={onViewTx} />
                   </div>
                 ))
               )}

@@ -48,18 +48,20 @@ export function ComposeSheet({
   replyToId,
   replyToNostrId,
   topicName,
+  initialText,
   onClose,
   onSubmitted,
 }: {
   replyToId: string | null;
   replyToNostrId?: string | null;
   topicName: string | null;
+  initialText?: string | null;
   onClose: () => void;
   onSubmitted?: (ephPost?: EphemeralPost) => void;
 }) {
   const sz = useTextSize();
-  const [step, setStep] = useState<Step>("compose");
-  const [text, setText] = useState("");
+  const [step, setStep] = useState<Step>(initialText ? "preview" : "compose");
+  const [text, setText] = useState(initialText ?? "");
   const [cost, setCost] = useState<CostEstimate | null>(null);
   const [payment, setPayment] = useState<PaymentData | null>(null);
   const [payStatus, setPayStatus] = useState<PaymentStatus>("creating");

@@ -80,10 +80,9 @@ export async function POST(request: Request) {
   }
 
   const targetNostrId = event.tags.find((t) => t[0] === "e")?.[1] ?? null;
-  const targetContentHash = event.tags.find((t) => t[0] === "ocdn-ref")?.[1] ?? null;
 
-  if (!targetNostrId && !targetContentHash) {
-    return errorResponse("boost must target a nostr event id or ocdn content hash");
+  if (!targetNostrId) {
+    return errorResponse("boost must target a nostr event id");
   }
 
   const powWeight = BigInt(1) << BigInt(powDifficulty);
@@ -100,109 +99,38 @@ export async function POST(request: Request) {
         nostrEventId: event.id,
         nostrPubkey: event.pubkey,
         targetNostrId,
-        targetContentHash,
         powDifficulty,
       },
     });
 
-    // Update accumulator, TTL, and best PoW on target ephemeral post
     let updatedPost: { upvoteWeight: bigint; expiresAt: Date; powDifficulty: number } | null = null;
-    if (targetNostrId) {
-      const target = await prisma.ephemeralPost.findUnique({
+    const target = await prisma.ephemeralPost.findUnique({
+      where: { nostrEventId: targetNostrId },
+    });
+    if (target) {
+      const BOOST_EXTENSION_MS = 30 * 60 * 1000;
+      const baseDays = Number(process.env.EPHEMERAL_TTL_DAYS ?? "30");
+      const maxTtlMs = Math.max(baseDays / Math.pow(2, target.replyDepth), 1) * 24 * 60 * 60 * 1000;
+      const newExpiry = new Date(
+        Math.min(target.expiresAt.getTime() + BOOST_EXTENSION_MS, target.createdAt.getTime() + maxTtlMs),
+      );
+
+      updatedPost = await prisma.ephemeralPost.update({
         where: { nostrEventId: targetNostrId },
+        data: {
+          upvoteWeight: { increment: powWeight },
+          boostCount: { increment: 1 },
+          lastBoostedAt: new Date(),
+          expiresAt: newExpiry,
+          ...(powDifficulty > target.powDifficulty ? { powDifficulty } : {}),
+        },
+        select: { upvoteWeight: true, expiresAt: true, powDifficulty: true },
       });
-      if (target) {
-        const BOOST_EXTENSION_MS = 30 * 60 * 1000;
-        const baseDays = Number(process.env.EPHEMERAL_TTL_DAYS ?? "30");
-        const maxTtlMs = Math.max(baseDays / Math.pow(2, target.replyDepth), 1) * 24 * 60 * 60 * 1000;
-        const newExpiry = new Date(
-          Math.min(target.expiresAt.getTime() + BOOST_EXTENSION_MS, target.createdAt.getTime() + maxTtlMs),
-        );
-
-        // Lazy recompute anchoredToBtc for pre-migration posts
-        let anchorFix: { anchoredToBtc: true } | Record<string, never> = {};
-        if (!target.anchoredToBtc) {
-          let anchored = false;
-          if (target.parentContentHash) {
-            const btcParent = await prisma.post.findUnique({
-              where: { contentHash: target.parentContentHash },
-              select: { contentHash: true },
-            });
-            anchored = btcParent !== null;
-          } else if (target.topicHash) {
-            anchored = (await prisma.post.count({ where: { topicHash: target.topicHash } })) > 0;
-          }
-          if (anchored) anchorFix = { anchoredToBtc: true };
-        }
-
-        updatedPost = await prisma.ephemeralPost.update({
-          where: { nostrEventId: targetNostrId },
-          data: {
-            upvoteWeight: { increment: powWeight },
-            boostCount: { increment: 1 },
-            lastBoostedAt: new Date(),
-            expiresAt: newExpiry,
-            ...(powDifficulty > target.powDifficulty ? { powDifficulty } : {}),
-            ...anchorFix,
-          },
-          select: { upvoteWeight: true, expiresAt: true, powDifficulty: true },
-        });
-      }
-    }
-
-    // Update best PoW on target Bitcoin post + distribute to ephemeral children
-    let updatedBitcoinPost: { powDifficulty: number } | null = null;
-    let childrenBoosted = 0;
-    if (targetContentHash) {
-      const btcTarget = await prisma.post.findUnique({
-        where: { contentHash: targetContentHash },
-        select: { powDifficulty: true },
-      });
-      if (btcTarget && powDifficulty > btcTarget.powDifficulty) {
-        updatedBitcoinPost = await prisma.post.update({
-          where: { contentHash: targetContentHash },
-          data: { powDifficulty },
-          select: { powDifficulty: true },
-        });
-      }
-
-      // Distribute PoW evenly to live ephemeral children (floor division)
-      if (btcTarget) {
-        const children = await prisma.ephemeralPost.findMany({
-          where: { parentContentHash: targetContentHash, expiresAt: { gt: new Date() } },
-          select: { nostrEventId: true, replyDepth: true, createdAt: true, expiresAt: true },
-        });
-        if (children.length > 0) {
-          const share = powWeight / BigInt(children.length);
-          if (share > 0n) {
-            const baseDays = Number(process.env.EPHEMERAL_TTL_DAYS ?? "30");
-            const BOOST_EXT_MS = 30 * 60 * 1000;
-            const now = Date.now();
-            for (const child of children) {
-              const maxTtlMs = Math.max(baseDays / Math.pow(2, child.replyDepth), 1) * 24 * 60 * 60 * 1000;
-              const newExpiry = new Date(
-                Math.min(child.expiresAt.getTime() + BOOST_EXT_MS, child.createdAt.getTime() + maxTtlMs),
-              );
-              await prisma.ephemeralPost.update({
-                where: { nostrEventId: child.nostrEventId },
-                data: {
-                  upvoteWeight: { increment: share },
-                  boostCount: { increment: 1 },
-                  lastBoostedAt: new Date(now),
-                  expiresAt: newExpiry,
-                },
-              });
-            }
-            childrenBoosted = children.length;
-          }
-        }
-      }
     }
 
     log("info", "api/ephemeral/boost", "boost recorded", {
       pow: powDifficulty,
-      target: targetNostrId ?? targetContentHash,
-      ...(childrenBoosted > 0 ? { childrenBoosted } : {}),
+      target: targetNostrId,
     });
 
     return NextResponse.json(
@@ -211,8 +139,7 @@ export async function POST(request: Request) {
         powWeight: powWeight.toString(),
         upvoteWeight: updatedPost?.upvoteWeight?.toString() ?? null,
         expiresAt: updatedPost?.expiresAt?.toISOString() ?? null,
-        targetPowDifficulty: updatedBitcoinPost?.powDifficulty ?? updatedPost?.powDifficulty ?? null,
-        childrenBoosted,
+        targetPowDifficulty: updatedPost?.powDifficulty ?? null,
       },
       { status: 201 },
     );
