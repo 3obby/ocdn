@@ -129,7 +129,7 @@ export async function POST(request: Request) {
       topic = "ocdn";
     }
   }
-  const parentContentHash = getTagValue(event.tags, "ocdn-ref");
+  let parentContentHash = getTagValue(event.tags, "ocdn-ref");
   const parentNostrId = event.tags.find((t) => t[0] === "e" && t[3] === "reply")?.[1] ?? null;
 
   // Compute topic hash if topic exists (normalize for consistent matching)
@@ -163,13 +163,24 @@ export async function POST(request: Request) {
   }
 
   // Compute reply depth: 0 for root / direct BTC reply, parent.replyDepth+1 for ephemeral chains
+  // Also inherit parentContentHash from parent ephemeral so the whole subtree
+  // stays anchored to the same BTC post for retrieval.
   let replyDepth = 0;
   if (parentNostrId) {
     const parentEph = await prisma.ephemeralPost.findUnique({
       where: { nostrEventId: parentNostrId },
-      select: { replyDepth: true },
+      select: { replyDepth: true, parentContentHash: true, topicHash: true, topic: true },
     });
-    if (parentEph) replyDepth = parentEph.replyDepth + 1;
+    if (parentEph) {
+      replyDepth = parentEph.replyDepth + 1;
+      if (!parentContentHash && parentEph.parentContentHash) {
+        parentContentHash = parentEph.parentContentHash;
+      }
+      if (!topic && parentEph.topic) {
+        topic = parentEph.topic;
+        topicHash = parentEph.topicHash;
+      }
+    }
   }
 
   // Compute anchoredToBtc: true if parent is a Bitcoin post or topic exists on-chain
