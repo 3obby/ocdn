@@ -869,19 +869,25 @@ export default function Home() {
   // Called by ComposeSheet on successful Nostr post
   const handleSubmitted = useCallback((ephPost?: EphemeralPost) => {
     if (ephPost) {
-      setMyEphemeralPosts((prev) => [ephPost, ...prev]);
-
-      if (ephPost.parentNostrId) {
+      let post = ephPost;
+      if (post.parentNostrId) {
         const allEph = [...myEphemeralPosts, ...homeEphemeral];
-        const target = allEph.find((p) => p.nostrEventId === ephPost.parentNostrId);
-        const btcParent = target?.parentContentHash;
-        if (btcParent) {
-          setExpandedPostId(btcParent);
-          setThreadPostId(btcParent);
+        const target = allEph.find((p) => p.nostrEventId === post.parentNostrId);
+        if (target) {
+          if (!post.parentContentHash && target.parentContentHash) {
+            post = { ...post, parentContentHash: target.parentContentHash };
+          }
+          const btcParent = post.parentContentHash ?? target.parentContentHash;
+          if (btcParent) {
+            setExpandedPostId(btcParent);
+            setThreadPostId(btcParent);
+          }
         }
       }
 
-      const sectionKey = ephPost.topicHash ?? "_root";
+      setMyEphemeralPosts((prev) => [post, ...prev]);
+
+      const sectionKey = post.topicHash ?? "_root";
       setCollapsedTopics((prev) => {
         const next = new Set(prev);
         next.delete(sectionKey);

@@ -162,11 +162,35 @@ export function InlineThread({
                   <Loader2 className="h-5 w-5 animate-spin text-white/15" />
                 </div>
               ) : (
-                ephemeralPosts.map((ep) => (
-                  <div key={ep.nostrEventId} className="pl-2">
-                    <EphemeralPostCard post={ep} onReply={onReplyEphemeral} onInscribe={onInscribeEphemeral} onViewTx={onViewTx} />
-                  </div>
-                ))
+                (() => {
+                  const childrenOf = new Map<string, EphemeralPost[]>();
+                  const roots: EphemeralPost[] = [];
+                  for (const ep of ephemeralPosts) {
+                    if (ep.parentNostrId && ephemeralPosts.some((p) => p.nostrEventId === ep.parentNostrId)) {
+                      const arr = childrenOf.get(ep.parentNostrId) ?? [];
+                      arr.push(ep);
+                      childrenOf.set(ep.parentNostrId, arr);
+                    } else {
+                      roots.push(ep);
+                    }
+                  }
+                  function renderBranch(posts: EphemeralPost[]): React.ReactNode {
+                    return posts.map((ep) => {
+                      const kids = childrenOf.get(ep.nostrEventId) ?? [];
+                      return (
+                        <div key={ep.nostrEventId} className="pl-2">
+                          <EphemeralPostCard post={ep} onReply={onReplyEphemeral} onInscribe={onInscribeEphemeral} onViewTx={onViewTx} />
+                          {kids.length > 0 && (
+                            <div className="ml-3 border-l border-dashed border-white/[0.08]">
+                              {renderBranch(kids)}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    });
+                  }
+                  return renderBranch(roots);
+                })()
               )}
             </div>
           )}
