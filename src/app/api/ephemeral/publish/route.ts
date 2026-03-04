@@ -4,6 +4,7 @@ import { rateLimit, validateContent, errorResponse, log } from "@/lib/api-utils"
 import { sha256 } from "@noble/hashes/sha2.js";
 import { schnorr } from "@noble/curves/secp256k1.js";
 import { hexToBytes, bytesToHex } from "@noble/curves/utils.js";
+import { powWeight } from "@/lib/pow-config";
 
 export const dynamic = "force-dynamic";
 
@@ -224,7 +225,7 @@ export async function POST(request: Request) {
         replyDepth,
         anchoredToBtc,
         powDifficulty,
-        upvoteWeight: BigInt(0),
+        upvoteWeight: powWeight(powDifficulty),
         rawEvent: event as object,
         expiresAt,
       },

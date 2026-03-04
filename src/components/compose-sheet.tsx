@@ -15,11 +15,14 @@ import {
   buildPostEvent,
   broadcastToRelays,
   getSessionPubkey,
+  signEvent,
 } from "@/lib/nostr/client";
-import { mineAndSign } from "@/lib/nostr/pow";
+import { startMining, mineAndSign } from "@/lib/nostr/pow";
+import type { MiningHandle } from "@/lib/nostr/pow";
 import { topicHash as computeTopicHash } from "@/lib/protocol/crypto";
+import { POW, powWeight as computePowWeight } from "@/lib/pow-config";
 
-type Step = "compose" | "mining" | "preview" | "pay" | "status";
+type Step = "compose" | "preview" | "pay" | "status";
 type PaymentStatus =
   | "creating"
   | "waiting"
@@ -68,8 +71,12 @@ export function ComposeSheet({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [copied, setCopied] = useState<"address" | "amount" | null>(null);
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
+  const [minedDifficulty, setMinedDifficulty] = useState(0);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const ephCreatedRef = useRef(false);
+  const miningHandleRef = useRef<MiningHandle | null>(null);
+  const miningDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isReply = replyToId !== null || replyToNostrId != null;
   const isBtcReply = replyToId !== null;
@@ -80,7 +87,54 @@ export function ComposeSheet({
       ? `\u2192 ${topicName}`
       : "new post";
 
-  // Fetch cost estimate on mount (default), then re-fetch as content changes
+  // Background PoW mining: restart (debounced) when content changes
+  useEffect(() => {
+    if (step !== "compose" || !text.trim()) {
+      miningHandleRef.current?.stop();
+      miningHandleRef.current = null;
+      setMinedDifficulty(0);
+      return;
+    }
+
+    if (miningDebounceRef.current) clearTimeout(miningDebounceRef.current);
+
+    miningDebounceRef.current = setTimeout(() => {
+      miningHandleRef.current?.stop();
+      miningHandleRef.current = null;
+
+      try {
+        const { privkey, pubkey } = getOrCreateSessionKeypair();
+        const template = buildPostEvent({
+          content: text.trim(),
+          pubkey,
+          topic: topicName ?? undefined,
+          parentContentHash: isBtcReply ? replyToId : undefined,
+          parentNostrId: isNostrReply ? replyToNostrId : undefined,
+        });
+
+        const { handle } = startMining(
+          template,
+          Number.MAX_SAFE_INTEGER,
+          privkey,
+          (p) => setMinedDifficulty(p.currentDifficulty),
+        );
+        miningHandleRef.current = handle;
+      } catch {}
+    }, 500);
+
+    return () => {
+      if (miningDebounceRef.current) clearTimeout(miningDebounceRef.current);
+    };
+  }, [text, step, topicName, replyToId, replyToNostrId, isBtcReply, isNostrReply]);
+
+  // Cleanup mining on unmount
+  useEffect(() => {
+    return () => {
+      miningHandleRef.current?.stop();
+      if (miningDebounceRef.current) clearTimeout(miningDebounceRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     fetch("/api/costs")
       .then((r) => r.json())
@@ -107,7 +161,6 @@ export function ComposeSheet({
     return () => { clearTimeout(timer); controller.abort(); };
   }, [text, isReply]);
 
-  // Countdown timer for payment expiry
   useEffect(() => {
     if (!payment?.expiresAt) return;
     const update = () => {
@@ -120,7 +173,6 @@ export function ComposeSheet({
     return () => clearInterval(iv);
   }, [payment?.expiresAt]);
 
-  // Poll payment status
   useEffect(() => {
     if (step !== "pay" || !payment?.id || payStatus !== "waiting") return;
     pollRef.current = setInterval(async () => {
@@ -145,7 +197,6 @@ export function ComposeSheet({
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [step, payment?.id, payStatus]);
 
-  // Continue polling on status step until confirmed
   useEffect(() => {
     if (step !== "status" || !payment?.id || payStatus === "confirmed") return;
     const iv = setInterval(async () => {
@@ -167,25 +218,34 @@ export function ComposeSheet({
 
   const sessionPubkey = getSessionPubkey();
 
-  // ── Nostr free posting path ──────────────────────────────────────────────────
   const handlePostFree = useCallback(async () => {
-    if (!text.trim()) return;
-    setStep("mining");
+    if (!text.trim() || isSubmitting) return;
+    setIsSubmitting(true);
 
     try {
       const { privkey, pubkey } = getOrCreateSessionKeypair();
-      const template = buildPostEvent({
-        content: text.trim(),
-        pubkey,
-        topic: topicName ?? undefined,
-        parentContentHash: isBtcReply ? replyToId : undefined,
-        parentNostrId: isNostrReply ? replyToNostrId : undefined,
-      });
 
-      const { promise } = mineAndSign(template, privkey, 8);
-      const signed = await promise;
+      // Try to use background-mined result if it meets minimum
+      const bestEvent = miningHandleRef.current?.stop() ?? null;
+      miningHandleRef.current = null;
 
-      // Publish to our portal (stores + relays)
+      let signed;
+      if (bestEvent && minedDifficulty >= POW.MIN_POST) {
+        signed = signEvent(bestEvent, privkey);
+      } else {
+        const template = buildPostEvent({
+          content: text.trim(),
+          pubkey,
+          topic: topicName ?? undefined,
+          parentContentHash: isBtcReply ? replyToId : undefined,
+          parentNostrId: isNostrReply ? replyToNostrId : undefined,
+        });
+        const { promise } = mineAndSign(template, privkey, POW.MIN_POST);
+        signed = await promise;
+      }
+
+      const actualDifficulty = Math.max(minedDifficulty, POW.MIN_POST);
+
       const res = await fetch("/api/ephemeral/publish", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -193,7 +253,6 @@ export function ComposeSheet({
       });
       const data = await res.json();
 
-      // Also broadcast directly from client (best-effort)
       broadcastToRelays(signed).catch(() => {});
 
       let ephTopicHash: string | null = null;
@@ -213,8 +272,8 @@ export function ComposeSheet({
         parentNostrId: isNostrReply ? (replyToNostrId ?? null) : null,
         replyDepth: isNostrReply ? 1 : 0,
         anchoredToBtc: isBtcReply,
-        powDifficulty: 8,
-        upvoteWeight: 0,
+        powDifficulty: actualDifficulty,
+        upvoteWeight: Number(computePowWeight(actualDifficulty)),
         boostCount: 0,
         lastBoostedAt: null,
         expiresAt: data.expiresAt ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
@@ -225,14 +284,15 @@ export function ComposeSheet({
       onSubmitted?.(ephPost);
       onClose();
     } catch (err) {
-      // Fall back to compose on error
-      setStep("compose");
+      setIsSubmitting(false);
       setErrorMsg(err instanceof Error ? err.message : "posting failed");
     }
-  }, [text, topicName, isReply, replyToId, onSubmitted, onClose]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [text, topicName, isReply, replyToId, minedDifficulty, isSubmitting, onSubmitted, onClose]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleNext = useCallback(() => {
     if (!text.trim()) return;
+    miningHandleRef.current?.stop();
+    miningHandleRef.current = null;
     setStep("preview");
   }, [text]);
 
@@ -249,7 +309,6 @@ export function ComposeSheet({
       if (isBtcReply) body.parentHash = replyToId;
       else if (topicName) body.topic = topicName;
 
-      // Create ephemeral post for immediate display (once per compose session)
       if (!ephCreatedRef.current) {
         ephCreatedRef.current = true;
         const ephBody: Record<string, unknown> = {
@@ -265,7 +324,6 @@ export function ComposeSheet({
         }).catch(() => {});
       }
 
-      // Create payment request
       const res = await fetch("/api/payment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -290,7 +348,7 @@ export function ComposeSheet({
       setPayStatus("error");
       setErrorMsg(e instanceof Error ? e.message : "Failed to create payment");
     }
-  }, [text, isReply, replyToId, topicName]);
+  }, [text, isReply, replyToId, topicName, isBtcReply]);
 
   const copyToClipboard = useCallback(
     (value: string, type: "address" | "amount") => {
@@ -308,6 +366,8 @@ export function ComposeSheet({
     return `${m}:${s.toString().padStart(2, "0")}`;
   };
 
+  const postLabel = minedDifficulty > 0 ? `post ${minedDifficulty}z` : "post";
+
   return (
     <Sheet open onOpenChange={(open) => !open && onClose()}>
       <SheetContent
@@ -321,19 +381,16 @@ export function ComposeSheet({
           >
             {step === "compose"
               ? label
-              : step === "mining"
-                ? "signing\u2026"
-                : step === "preview"
-                  ? "preview"
-                  : step === "pay"
-                    ? "pay to post"
-                    : payStatus === "confirmed"
-                      ? "posted"
-                      : "broadcasting\u2026"}
+              : step === "preview"
+                ? "preview"
+                : step === "pay"
+                  ? "pay to post"
+                  : payStatus === "confirmed"
+                    ? "posted"
+                    : "broadcasting\u2026"}
           </SheetTitle>
         </SheetHeader>
 
-        {/* ── STEP 1: COMPOSE ── */}
         {step === "compose" && (
           <>
             <div className="flex-1 overflow-y-auto p-4">
@@ -346,12 +403,10 @@ export function ComposeSheet({
               />
             </div>
             <div className="flex items-center justify-between px-4 py-3 border-t border-border shrink-0">
-              {/* Session label */}
               <span className={`text-[10px] text-white/15 font-mono truncate max-w-[120px]`}>
-                {sessionPubkey ? sessionPubkey.slice(0, 8) + "…" : ""}
+                {sessionPubkey ? sessionPubkey.slice(0, 8) + "\u2026" : ""}
               </span>
               <div className="flex items-center gap-2">
-                {/* Make permanent (secondary) */}
                 {cost && (
                   <button
                     className={`px-3 py-2 ${ts(sz)} tracking-wide transition-colors text-white/25 hover:text-white/50 ${
@@ -364,37 +419,25 @@ export function ComposeSheet({
                     ₿
                   </button>
                 )}
-                {/* Post free (primary) */}
                 <button
                   className={`px-5 py-2 ${ts(sz)} tracking-wide transition-colors ${
-                    text.trim()
+                    text.trim() && !isSubmitting
                       ? "text-black bg-white hover:bg-white/90"
                       : "text-black/40 bg-white/20 cursor-not-allowed"
                   }`}
                   onClick={handlePostFree}
-                  disabled={!text.trim()}
+                  disabled={!text.trim() || isSubmitting}
                 >
-                  post
+                  {isSubmitting ? "posting\u2026" : postLabel}
                 </button>
               </div>
             </div>
           </>
         )}
 
-        {/* ── STEP 1b: MINING (Nostr PoW) ── */}
-        {step === "mining" && (
-          <div className="flex-1 flex flex-col items-center justify-center gap-3 p-4">
-            <span className="h-2 w-2 rounded-full bg-white/20 animate-pulse" />
-            <span className={`${ts(sz)} text-white/30 animate-pulse`}>signing\u2026</span>
-            <span className="text-[10px] text-white/15">proof-of-work</span>
-          </div>
-        )}
-
-        {/* ── STEP 2: PREVIEW ── */}
         {step === "preview" && (
           <>
             <div className="flex-1 overflow-y-auto p-4">
-              {/* Post preview */}
               <div className="border border-border/50 rounded-lg p-4 mb-4">
                 {topicName && !isReply && (
                   <span className={`${ts(sz)} text-burn/60 block mb-1`}>
@@ -406,7 +449,6 @@ export function ComposeSheet({
                 </p>
               </div>
 
-              {/* Cost breakdown */}
               {cost && (
                 <div className="space-y-1.5">
                   <div className="flex justify-between">
@@ -448,7 +490,6 @@ export function ComposeSheet({
           </>
         )}
 
-        {/* ── STEP 3: PAY ── */}
         {step === "pay" && (
           <>
             <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center">
@@ -474,7 +515,6 @@ export function ComposeSheet({
 
               {(payStatus === "waiting" || payStatus === "expired") && payment && (
                 <div className="flex flex-col items-center gap-4 w-full">
-                  {/* QR Code */}
                   <div className="bg-white p-3 rounded-lg">
                     <QRCodeSVG
                       value={payment.bitcoinUri}
@@ -485,7 +525,6 @@ export function ComposeSheet({
                     />
                   </div>
 
-                  {/* Amount */}
                   <button
                     onClick={() => copyToClipboard(String(payment.amountSats), "amount")}
                     className="group flex items-center gap-1.5"
@@ -498,7 +537,6 @@ export function ComposeSheet({
                     </span>
                   </button>
 
-                  {/* Address */}
                   <button
                     onClick={() => copyToClipboard(payment.address, "address")}
                     className="group w-full px-3"
@@ -511,7 +549,6 @@ export function ComposeSheet({
                     </span>
                   </button>
 
-                  {/* Open in wallet */}
                   <a
                     href={payment.bitcoinUri}
                     className={`w-full text-center px-4 py-2.5 ${ts(sz)} tracking-wide text-white/60 border border-border/50 hover:border-border hover:text-white/80 transition-colors`}
@@ -519,7 +556,6 @@ export function ComposeSheet({
                     open in wallet
                   </a>
 
-                  {/* Status / countdown */}
                   <div className="flex items-center gap-2">
                     {payStatus === "waiting" && (
                       <>
@@ -558,7 +594,6 @@ export function ComposeSheet({
           </>
         )}
 
-        {/* ── STEP 4: STATUS ── */}
         {step === "status" && (
           <div className="flex-1 flex flex-col items-center justify-center p-4 gap-3">
             {payStatus === "broadcasting" && (

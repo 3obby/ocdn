@@ -29,6 +29,7 @@ type LeaderboardEntry = {
   text: string;
   authorPubkey: string;
   powDifficulty: number;
+  equivalentZeros?: number;
   topic?: string | null;
   topicHash?: string | null;
   createdAt: string;
@@ -152,7 +153,7 @@ function LeaderboardSection({
                       {entry.text}
                     </span>
                     <span className={`text-[10px] tabular-nums shrink-0 font-mono ${isFirst ? "text-yellow-400" : "text-white/25"}`}>
-                      ⚡{entry.powDifficulty}
+                      {entry.equivalentZeros ?? entry.powDifficulty}z
                     </span>
                   </div>
                 );

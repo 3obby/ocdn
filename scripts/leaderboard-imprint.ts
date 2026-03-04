@@ -32,36 +32,36 @@ async function main() {
 
   console.log(`Leaderboard cycle: ${windowStart.toISOString()} → ${now.toISOString()}`);
 
-  // Top live ephemeral posts by PoW — all surviving anchored content competes
   const topEphemeral = await prisma.ephemeralPost.findMany({
     where: {
-      powDifficulty: { gt: 0 },
+      upvoteWeight: { gt: 0 },
       expiresAt: { gt: now },
       promotedToHash: null,
       anchoredToBtc: true,
     },
-    orderBy: { powDifficulty: "desc" },
+    orderBy: { upvoteWeight: "desc" },
     take: TOP_N,
   });
 
-  // Top Bitcoin posts by PoW difficulty in the window (for logging)
   const topBitcoin = await prisma.post.findMany({
     where: {
-      powDifficulty: { gt: 0 },
+      workWeight: { gt: 0 },
       createdAt: { gte: windowStart },
     },
-    orderBy: { powDifficulty: "desc" },
+    orderBy: { workWeight: "desc" },
     take: TOP_N,
   });
 
-  console.log(`\nTop ${TOP_N} ephemeral posts by PoW:`);
+  console.log(`\nTop ${TOP_N} ephemeral posts by cumulative work:`);
   for (const ep of topEphemeral) {
-    console.log(`  ⚡${ep.powDifficulty} — ${ep.content.slice(0, 60)}… [${ep.nostrEventId.slice(0, 12)}]`);
+    const ez = ep.upvoteWeight.toString(2).length - 1;
+    console.log(`  ${ez}z (weight=${ep.upvoteWeight}) — ${ep.content.slice(0, 60)}… [${ep.nostrEventId.slice(0, 12)}]`);
   }
 
-  console.log(`\nTop ${TOP_N} Bitcoin posts by PoW:`);
+  console.log(`\nTop ${TOP_N} Bitcoin posts by cumulative work:`);
   for (const bp of topBitcoin) {
-    console.log(`  ⚡${bp.powDifficulty} — ${bp.content.slice(0, 60)}… [${bp.contentHash.slice(0, 12)}]`);
+    const ez = bp.workWeight > 0n ? bp.workWeight.toString(2).length - 1 : 0;
+    console.log(`  ${ez}z (weight=${bp.workWeight}) — ${bp.content.slice(0, 60)}… [${bp.contentHash.slice(0, 12)}]`);
   }
 
   const fundAddress = process.env.LEADERBOARD_FUND_ADDRESS;
