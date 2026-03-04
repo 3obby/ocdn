@@ -44,10 +44,7 @@ export async function GET(request: Request) {
     };
     if (parentHash) where.parentContentHash = parentHash;
     if (topicHash) where.topicHash = topicHash;
-    if (root) {
-      where.parentContentHash = null;
-      where.parentNostrId = null;
-    }
+    if (root) where.parentContentHash = null;
     if (pubkey) where.nostrPubkey = pubkey;
 
     const orderBy =
