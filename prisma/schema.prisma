@@ -55,6 +55,8 @@ model Post {
 
   viewCount     Int      @default(0) @map("view_count")
   powDifficulty Int      @default(0) @map("pow_difficulty")
+  workWeight    BigInt   @default(0) @map("work_weight")
+  boostCount    Int      @default(0) @map("boost_count")
   createdAt     DateTime @map("created_at") // block timestamp
   indexedAt      DateTime @default(now()) @map("indexed_at")
 
@@ -253,6 +255,7 @@ model NostrBoost {
   targetNostrId     String?  @map("target_nostr_id")
   targetContentHash String?  @map("target_content_hash")
   powDifficulty     Int      @map("pow_difficulty")
+  rawEvent          Json?    @map("raw_event")
   createdAt         DateTime @default(now()) @map("created_at")
 
   @@index([targetNostrId])

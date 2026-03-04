@@ -8,6 +8,7 @@ import {
 } from "@/lib/mock-data";
 import { useTextSize, ts } from "@/lib/text-size";
 import { BoostButton } from "./boost-button";
+import { equivalentZeros } from "@/lib/pow-config";
 import { Pencil } from "lucide-react";
 
 function useCountdown(expiresAt: string) {
@@ -52,22 +53,34 @@ export function EphemeralPostCard({
   optimistic?: boolean;
 }) {
   const sz = useTextSize();
-  const [liveZeros, setLiveZeros] = useState(0);
-  const displayZeros = Math.max(post.powDifficulty, liveZeros);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [liveDifficulty, setLiveDifficulty] = useState(0);
+  const [serverEqZ, setServerEqZ] = useState(() => equivalentZeros(post.upvoteWeight));
   const countdown = useCountdown(post.expiresAt);
   const isUrgent = countdown.endsWith("m") || countdown === "expired";
 
+  const liveContribution = liveDifficulty > 0 ? (1n << BigInt(liveDifficulty)) : 0n;
+  const baseWeight = BigInt(post.upvoteWeight);
+  const displayZeros = liveDifficulty > 0
+    ? equivalentZeros(baseWeight + liveContribution)
+    : serverEqZ;
+  const isMining = liveDifficulty > 0;
+
   const handleMiningProgress = useCallback((d: number) => {
-    setLiveZeros(d);
+    setLiveDifficulty(d);
+  }, []);
+
+  const handleBoosted = useCallback((eqZ: number) => {
+    setLiveDifficulty(0);
+    setServerEqZ(eqZ);
   }, []);
 
   return (
-    <div data-nostr-id={post.nostrEventId} className="relative border border-dashed border-white/[0.08] px-4 py-2.5 bg-black">
-      {/* Header: zeros · countdown · author · time */}
+    <div ref={cardRef} data-nostr-id={post.nostrEventId} className="relative border border-dashed border-white/[0.08] px-4 py-2.5 bg-black">
       <div className={`flex items-center gap-1.5 text-[10px] tabular-nums mb-1`}>
         {displayZeros > 0 && (
           <>
-            <span className={`font-medium ${liveZeros > 0 ? "text-yellow-400/60 animate-pulse" : "text-white/40"}`}>
+            <span className={`font-medium ${isMining ? "text-yellow-400/60 animate-pulse" : "text-white/40"}`}>
               {displayZeros}z
             </span>
             <span className="text-white/10">&middot;</span>
@@ -85,12 +98,10 @@ export function EphemeralPostCard({
         </span>
       </div>
 
-      {/* Content */}
       <p className={`${ts(sz)} text-white/90 leading-snug whitespace-pre-wrap`}>
         {post.content}
       </p>
 
-      {/* Icon CTAs */}
       {!optimistic && (
         <div className="flex items-center gap-2.5 mt-1.5">
           {post.promotedToHash && onViewTx ? (
@@ -112,8 +123,9 @@ export function EphemeralPostCard({
             <BoostButton
               target={{ nostrEventId: post.nostrEventId }}
               size={13}
-              onBoosted={(d) => setLiveZeros(0)}
+              onBoosted={handleBoosted}
               onMiningProgress={handleMiningProgress}
+              containerRef={cardRef}
             />
           </span>
           {onReply && (

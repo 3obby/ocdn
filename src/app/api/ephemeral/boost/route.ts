@@ -4,6 +4,7 @@ import { rateLimit, errorResponse, log } from "@/lib/api-utils";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { schnorr } from "@noble/curves/secp256k1.js";
 import { hexToBytes, bytesToHex } from "@noble/curves/utils.js";
+import { POW, powWeight, equivalentZeros } from "@/lib/pow-config";
 
 export const dynamic = "force-dynamic";
 
@@ -73,22 +74,21 @@ export async function POST(request: Request) {
 
   if (!verifyNostrEvent(event)) return errorResponse("invalid event signature or id");
 
-  const minPoW = Number(process.env.NOSTR_MIN_POW_BOOST ?? "12");
   const powDifficulty = countLeadingZeroBits(event.id);
-  if (powDifficulty < minPoW) {
-    return errorResponse(`insufficient proof-of-work (need ≥${minPoW} bits, got ${powDifficulty})`);
+  if (powDifficulty < POW.MIN_BOOST) {
+    return errorResponse(`insufficient proof-of-work (need ≥${POW.MIN_BOOST} bits, got ${powDifficulty})`);
   }
 
   const targetNostrId = event.tags.find((t) => t[0] === "e")?.[1] ?? null;
+  const targetContentHash = event.tags.find((t) => t[0] === "ocdn-ref")?.[1] ?? null;
 
-  if (!targetNostrId) {
-    return errorResponse("boost must target a nostr event id");
+  if (!targetNostrId && !targetContentHash) {
+    return errorResponse("boost must target a nostr event id or content hash");
   }
 
-  const powWeight = BigInt(1) << BigInt(powDifficulty);
+  const weight = powWeight(powDifficulty);
 
   try {
-    // Dedup
     const existing = await prisma.nostrBoost.findUnique({ where: { nostrEventId: event.id } });
     if (existing) {
       return NextResponse.json({ duplicate: true, powDifficulty: existing.powDifficulty });
@@ -99,47 +99,71 @@ export async function POST(request: Request) {
         nostrEventId: event.id,
         nostrPubkey: event.pubkey,
         targetNostrId,
+        targetContentHash,
         powDifficulty,
+        rawEvent: event as object,
       },
     });
 
-    let updatedPost: { upvoteWeight: bigint; expiresAt: Date; powDifficulty: number } | null = null;
-    const target = await prisma.ephemeralPost.findUnique({
-      where: { nostrEventId: targetNostrId },
-    });
-    if (target) {
-      const BOOST_EXTENSION_MS = 30 * 60 * 1000;
-      const baseDays = Number(process.env.EPHEMERAL_TTL_DAYS ?? "30");
-      const maxTtlMs = Math.max(baseDays / Math.pow(2, target.replyDepth), 1) * 24 * 60 * 60 * 1000;
-      const newExpiry = new Date(
-        Math.min(target.expiresAt.getTime() + BOOST_EXTENSION_MS, target.createdAt.getTime() + maxTtlMs),
-      );
+    let resultWeight: bigint | null = null;
 
-      updatedPost = await prisma.ephemeralPost.update({
+    if (targetNostrId) {
+      const target = await prisma.ephemeralPost.findUnique({
         where: { nostrEventId: targetNostrId },
-        data: {
-          upvoteWeight: { increment: powWeight },
-          boostCount: { increment: 1 },
-          lastBoostedAt: new Date(),
-          expiresAt: newExpiry,
-          ...(powDifficulty > target.powDifficulty ? { powDifficulty } : {}),
-        },
-        select: { upvoteWeight: true, expiresAt: true, powDifficulty: true },
       });
+      if (target) {
+        const baseDays = Number(process.env.EPHEMERAL_TTL_DAYS ?? "30");
+        const maxTtlMs = Math.max(baseDays / Math.pow(2, target.replyDepth), 1) * 24 * 60 * 60 * 1000;
+        const newExpiry = new Date(
+          Math.min(
+            target.expiresAt.getTime() + POW.BOOST_TTL_EXTENSION_MS,
+            target.createdAt.getTime() + maxTtlMs,
+          ),
+        );
+
+        const updated = await prisma.ephemeralPost.update({
+          where: { nostrEventId: targetNostrId },
+          data: {
+            upvoteWeight: { increment: weight },
+            boostCount: { increment: 1 },
+            lastBoostedAt: new Date(),
+            expiresAt: newExpiry,
+          },
+          select: { upvoteWeight: true },
+        });
+        resultWeight = updated.upvoteWeight;
+      }
+    }
+
+    if (targetContentHash) {
+      const btcPost = await prisma.post.findUnique({
+        where: { contentHash: targetContentHash },
+        select: { contentHash: true },
+      });
+      if (btcPost) {
+        const updated = await prisma.post.update({
+          where: { contentHash: targetContentHash },
+          data: {
+            workWeight: { increment: weight },
+            boostCount: { increment: 1 },
+          },
+          select: { workWeight: true },
+        });
+        resultWeight = updated.workWeight;
+      }
     }
 
     log("info", "api/ephemeral/boost", "boost recorded", {
       pow: powDifficulty,
-      target: targetNostrId,
+      target: targetNostrId ?? targetContentHash,
     });
 
     return NextResponse.json(
       {
         powDifficulty,
-        powWeight: powWeight.toString(),
-        upvoteWeight: updatedPost?.upvoteWeight?.toString() ?? null,
-        expiresAt: updatedPost?.expiresAt?.toISOString() ?? null,
-        targetPowDifficulty: updatedPost?.powDifficulty ?? null,
+        powWeight: weight.toString(),
+        upvoteWeight: resultWeight?.toString() ?? null,
+        equivalentZeros: resultWeight != null ? equivalentZeros(resultWeight) : powDifficulty,
       },
       { status: 201 },
     );

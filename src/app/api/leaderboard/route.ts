@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { rateLimit, errorResponse, log } from "@/lib/api-utils";
+import { equivalentZeros } from "@/lib/pow-config";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,7 @@ type LeaderboardEntry = {
   text: string;
   authorPubkey: string;
   powDifficulty: number;
+  equivalentZeros: number;
   topic?: string | null;
   topicHash?: string | null;
   createdAt: string;
@@ -43,11 +45,11 @@ export async function GET(request: Request) {
 
     const ephPosts = await prisma.ephemeralPost.findMany({
       where: {
-        powDifficulty: { gt: 0 },
+        upvoteWeight: { gt: 0 },
         expiresAt: { gt: now },
         createdAt: { gte: windowStart },
       },
-      orderBy: { powDifficulty: "desc" },
+      orderBy: { upvoteWeight: "desc" },
       take: limit,
     });
 
@@ -81,6 +83,7 @@ export async function GET(request: Request) {
         text: ep.content,
         authorPubkey: ep.nostrPubkey,
         powDifficulty: ep.powDifficulty,
+        equivalentZeros: equivalentZeros(ep.upvoteWeight),
         topic,
         topicHash,
         createdAt: ep.createdAt.toISOString(),
