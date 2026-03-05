@@ -1,6 +1,11 @@
 import type { NextConfig } from "next";
 
 const signerUrl = process.env.SIGNER_URL;
+if (signerUrl) {
+  console.log(`[next.config] SIGNER_URL=${signerUrl} — rewrites enabled`);
+} else {
+  console.log("[next.config] SIGNER_URL not set — rewrites disabled");
+}
 
 const nextConfig: NextConfig = {
   output: "standalone",
