@@ -5,6 +5,7 @@ import { PrismaNeon } from "@prisma/adapter-neon";
 import { PrismaClient } from "../src/generated/prisma/client.js";
 import { BitcoinRpc } from "../src/lib/bitcoin/rpc.js";
 import { runIndexer } from "../src/lib/indexer/scanner.js";
+import { runTxMonitor } from "../src/lib/bitcoin/tx-monitor.js";
 import { subscribeToOcdnEvents, type NostrEvent } from "../src/lib/nostr/relay-sub.js";
 
 neonConfig.webSocketConstructor = ws;
@@ -77,11 +78,22 @@ async function main() {
     } catch {}
   }, 15 * 60 * 1000);
 
+  // Tx monitor: rebroadcast stuck reveals, confirm completed txs
+  const txMonitorInterval = setInterval(async () => {
+    try {
+      await runTxMonitor(rpc, prisma);
+    } catch (e) {
+      slog("warn", "tx monitor error", { error: String(e) });
+    }
+  }, 60_000);
+  slog("info", "tx monitor started", { intervalMs: 60_000 });
+
   const _shutdown = shutdown;
   process.removeAllListeners("SIGINT");
   process.removeAllListeners("SIGTERM");
   const shutdownFull = async () => {
     clearInterval(cleanupInterval);
+    clearInterval(txMonitorInterval);
     nostrSub.close();
     await _shutdown();
   };

@@ -107,6 +107,7 @@ export async function POST(request: Request) {
         commitTxid: txid,
         txType: "signal",
         payload: { refs: serializableRefs },
+        commitHex: txResult.hex,
         status: "revealed",
         feeRate,
         attempts: 1,
