@@ -90,6 +90,29 @@ export async function processBlock(
     }
   }
 
+  // Phase 4: mark any matching PendingTx records as confirmed
+  if (result.posts > 0 || result.burns > 0 || result.signals > 0) {
+    const confirmedTxids: string[] = [];
+    for (const item of items.envelopes) {
+      if (item.valid) confirmedTxids.push(item.txid);
+    }
+    for (const item of items.opReturns) {
+      confirmedTxids.push(item.txid);
+    }
+    if (confirmedTxids.length > 0) {
+      await prisma.pendingTx.updateMany({
+        where: {
+          status: { not: "confirmed" },
+          OR: [
+            { revealTxid: { in: confirmedTxids } },
+            { commitTxid: { in: confirmedTxids } },
+          ],
+        },
+        data: { status: "confirmed" },
+      });
+    }
+  }
+
   return result;
 }
 

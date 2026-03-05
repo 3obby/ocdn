@@ -80,6 +80,7 @@ export async function POST(request: Request) {
         commitTxid: txid,
         txType: "burn",
         payload: { targetHash: hashResult.value, amount },
+        commitHex: txResult.hex,
         status: "revealed",
         feeRate,
         attempts: 1,

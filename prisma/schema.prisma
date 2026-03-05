@@ -178,6 +178,9 @@ model PendingTx {
   revealTxid    String?  @map("reveal_txid")
   txType        String   @map("tx_type") // "post", "reply", "burn", "signal"
   payload       Json     // serialized envelope or OP_RETURN data
+  commitHex     String?  @map("commit_hex")
+  revealHex     String?  @map("reveal_hex")
+  scriptTree    Json?    @map("script_tree")
   status        String   @default("queued") // queued, committed, revealed, confirmed, failed
   feeRate       Int?     @map("fee_rate") // sat/vB at time of construction
   attempts      Int      @default(0)
