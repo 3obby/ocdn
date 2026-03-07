@@ -40,6 +40,8 @@ function useCountdown(expiresAt: string) {
 
 export function EphemeralPostCard({
   post,
+  isExpanded = false,
+  onExpand,
   onMakePermanent,
   onInscribe,
   onViewTx,
@@ -47,6 +49,8 @@ export function EphemeralPostCard({
   optimistic = false,
 }: {
   post: EphemeralPost;
+  isExpanded?: boolean;
+  onExpand?: (id: string) => void;
   onMakePermanent?: (post: EphemeralPost) => void;
   onInscribe?: (post: EphemeralPost) => void;
   onViewTx?: (contentHash: string) => void;
@@ -76,8 +80,40 @@ export function EphemeralPostCard({
     setServerEqZ(eqZ);
   }, []);
 
+  // ── Collapsed: single-line preview ──
+  if (!isExpanded && !optimistic) {
+    const plainText = post.content.replace(/\[[^\]]*\]\([^)]+\)/g, "").replace(/\n+/g, " ").trim();
+    return (
+      <div
+        data-nostr-id={post.nostrEventId}
+        onClick={() => onExpand?.(post.nostrEventId)}
+        className="relative cursor-pointer hover:bg-white/[0.03] transition-all duration-200 py-2 px-4"
+      >
+        <div className="flex items-center min-w-0">
+          <span className={`${ts(sz)} leading-snug text-white/70 truncate flex-1 min-w-0`}>
+            {plainText}
+          </span>
+          <div className="shrink-0 flex items-center gap-1.5 pl-3 text-[10px] tabular-nums">
+            {displayZeros > 0 && (
+              <span className="text-white/30">{displayZeros}z</span>
+            )}
+            <span className={isUrgent ? "text-orange-400/50" : "text-white/20"}>
+              {countdown}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Expanded: full content + metadata + actions ──
   return (
-    <div ref={cardRef} data-nostr-id={post.nostrEventId} className="relative border border-dashed border-white/[0.08] px-4 py-2.5 bg-black">
+    <div
+      ref={cardRef}
+      data-nostr-id={post.nostrEventId}
+      onClick={() => onExpand?.(post.nostrEventId)}
+      className="relative border border-dashed border-white/[0.08] px-4 py-2.5 bg-white/[0.04] cursor-pointer"
+    >
       <div className={`flex items-center gap-1.5 text-[10px] tabular-nums mb-1`}>
         {displayZeros > 0 && (
           <>
