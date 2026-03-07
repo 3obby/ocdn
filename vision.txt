@@ -131,6 +131,15 @@ Infrastructure consequences:
     pipeline — UTXO management, fee policy, inclusion bidding — is a
     separate system with its own failure modes.
 
+Ephemeral layer:
+
+17. Parent must outlive children.
+    An ephemeral post's expiration time must be ≥ the expiration time of
+    every child (reply) beneath it. If a parent disappears while children
+    remain, the children become orphans with no navigable context. This
+    is enforced at write time: child expiresAt = min(computed_ttl,
+    parent.expiresAt). Applies to both organic posts and seeded content.
+
 ---
 
 TRANSACTION TYPES
@@ -730,7 +739,26 @@ Low-responsibility defaults (resolved):
                     alternative script structure, not protocol changes.
                     Burns and Signals (OP_RETURN ≤80 bytes) are immune.
 
-  Bootstrap         Builders seed content. No incentive mechanism.
+  Bootstrap         Builders seed the ephemeral layer with external
+                    content. Sources include 4chan /biz/, Reddit,
+                    Hacker News, and similar high-signal forums.
+                    Scraped threads become root ephemeral posts
+                    (topics); scraped replies become child ephemeral
+                    posts. Content is stripped to plain text, signed
+                    by a dedicated seeder Nostr keypair, and ingested
+                    via the /api/seed/ingest endpoint (API-key auth,
+                    no PoW required — the key is the trust mechanism).
+                    Seeded content expires under the same TTL rules
+                    as organic posts; it serves as engagement bait
+                    that real users can reply to, boost, or promote
+                    to Bitcoin. The seeder pubkey is known; seeded
+                    content is distinguishable but not visually
+                    labeled (blends with organic content to avoid
+                    a two-tier UX). Scraping runs daily via cron;
+                    dedup is by deterministic Nostr event ID (same
+                    input = same event = skip). No incentive mechanism
+                    beyond the content itself — the seeder operates at
+                    cost to bootstrap engagement.
 
 ---
 
@@ -1077,3 +1105,58 @@ the multi-envelope-per-script pattern should be explicitly blessed by the indexe
    testbed — realistic mempool behavior, free sats.
 
    sure, signet.
+
+we may display sterile/safe multimedia to viewers in a later sprint- 
+Here’s how the current “safe embed” tech maps to your case and how to use it.
+
+---
+
+## 1. **Sanitizer API** (HTML only)
+
+For **4chan post text** (HTML with `<br>`, `<span class="quote">`, links, etc.):
+
+- Use **`Element.setHTML(unsafe, { sanitizer })`** instead of `innerHTML`.
+- The Sanitizer API strips scripts and dangerous markup; you can allow only safe tags/attributes.
+- So you can **render post HTML safely** without XSS. This doesn’t cover images.
+
+---
+
+## 2. **Images: “transmit safely” = proxy + re-encode**
+
+To **show images** “transparently” but **without giving users the raw third‑party bytes**:
+
+- **Idea:** Never send the original file to the client. Fetch it on your side, **decode to pixels**, **re-encode to a new image**, then send or display that.
+- Effects:
+  - EXIF/metadata (and a lot of hidden tricks) are dropped.
+  - You’re not serving 4chan’s exact bytes; you’re serving a new image you generated.
+  - User only ever gets your (proxied and re-encoded) content.
+
+**Ways to do it:**
+
+| Where | How | Pros / cons |
+|-------|-----|-------------|
+| **Server** | Proxy the 4chan URL → decode (e.g. sharp) → re-encode (JPEG/PNG/WebP) → stream response | One place to enforce type/size; no client CPU; works in all browsers. |
+| **Client** | Your proxy returns the image; JS does `fetch(proxyUrl) → createImageBitmap(blob) → draw to OffscreenCanvas → toBlob() → createObjectURL()` and you display the blob URL | No server image processing; re-encode happens in the browser so user still only sees “your” pixels, not raw 4chan file. |
+
+So “new tech” that helps here is mainly **re-encoding** (server or client) plus **Sanitizer** for HTML. Both are widely supported.
+
+---
+
+## 3. **Fenced Frames** (and why they’re not the right tool)
+
+- Fenced Frames are for **Privacy Sandbox** (ads, FLEDGE, Shared Storage).
+- They **don’t** take a normal `src` URL; they need a `FencedFrameConfig` and special reporting/shared-storage setup.
+- So they’re **not** a general “embed this image safely” mechanism for arbitrary 4chan media.
+
+---
+
+## 4. **Concrete “safe and transparent” setup**
+
+- **HTML:** When you render 4chan post body, use the **Sanitizer API** (`setHTML`) so scripts and dangerous attributes are removed. Content is “transmitted” (shown) transparently, but only safe markup is rendered.
+- **Images (and optionally video):**
+  - **Proxy** the 4chan URL on your server (allowlist `i.4cdn.org`, validate `Content-Type`).
+  - **Re-encode** before the user sees it:
+    - **Server:** e.g. Next API route that fetches from 4chan, runs the bytes through **sharp** (or similar), outputs a new JPEG/WebP and streams it. User gets only your re-encoded image.
+    - **Client:** Same proxy URL; in the page you `fetch` it, `createImageBitmap`, draw to canvas, `toBlob()`, then set an `<img src={objectURL}>` (or use the blob in a video element). User still only sees re-encoded pixels, not the original file.
+
+That way you **show/transmit the content** (so it feels transparent), but you **don’t expose users to the raw resource**: no EXIF, no odd image tricks, and the browser never loads the original 4chan URL directly. The only “new” tech you need is Sanitizer for HTML and re-encoding (server or client) for media.

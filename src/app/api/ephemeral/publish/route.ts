@@ -170,7 +170,7 @@ export async function POST(request: Request) {
   if (parentNostrId) {
     const parentEph = await prisma.ephemeralPost.findUnique({
       where: { nostrEventId: parentNostrId },
-      select: { replyDepth: true, parentContentHash: true, topicHash: true, topic: true },
+      select: { replyDepth: true, parentContentHash: true, topicHash: true, topic: true, expiresAt: true },
     });
     if (parentEph) {
       replyDepth = parentEph.replyDepth + 1;
@@ -197,7 +197,18 @@ export async function POST(request: Request) {
     anchoredToBtc = btcTopicCount > 0;
   }
 
-  const expiresAt = new Date(Date.now() + getTtlMs(replyDepth));
+  let expiresAt = new Date(Date.now() + getTtlMs(replyDepth));
+
+  // Enforce invariant: child must not outlive its parent
+  if (parentNostrId) {
+    const parentEphExpiry = await prisma.ephemeralPost.findUnique({
+      where: { nostrEventId: parentNostrId },
+      select: { expiresAt: true },
+    });
+    if (parentEphExpiry && expiresAt > parentEphExpiry.expiresAt) {
+      expiresAt = parentEphExpiry.expiresAt;
+    }
+  }
 
   try {
     // Dedup by event ID
