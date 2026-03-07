@@ -350,27 +350,66 @@ function TopicsFeed({
     ephByTopic.set(key, arr);
   }
 
-  function renderEphBranch(epPosts: EphemeralPost[]): React.ReactNode {
-    return epPosts.map((ep) => {
-      const kids = ephChildrenOf.get(ep.nostrEventId) ?? [];
-      return (
-        <div key={ep.nostrEventId}>
-          <EphemeralPostCard
-            post={ep}
-            optimistic={myEphIds.has(ep.nostrEventId)}
-            onReply={onReplyEphemeral}
-            onInscribe={onInscribeEphemeral}
-            onViewTx={expandPost}
-          />
-          {kids.length > 0 && (
-            <div className="ml-3 border-l border-dashed border-white/[0.08]">
-              {renderEphBranch(kids)}
-            </div>
-          )}
-        </div>
-      );
-    });
+  const [expandedEphId, setExpandedEphId] = useState<string | null>(null);
+  const [showMore, setShowMore] = useState<Set<string>>(new Set());
+
+  const CHILD_LIMITS = [3, 2] as const;
+  const CHILD_MAX_DEPTH = CHILD_LIMITS.length;
+  const ROOT_LIMIT = 7;
+
+  function toggleShowMore(key: string) {
+    setShowMore((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   }
+
+  function handleExpandEph(id: string) {
+    setExpandedEphId((prev) => (prev === id ? null : id));
+  }
+
+  // Render ephemeral children when a post is expanded (depth starts at 0 = direct children)
+  function renderEphChildren(epPosts: EphemeralPost[], depth: number, parentKey: string): React.ReactNode {
+    if (depth >= CHILD_MAX_DEPTH) return null;
+    const limit = CHILD_LIMITS[depth];
+    const smKey = `${parentKey}:c${depth}`;
+    const showAll = showMore.has(smKey);
+    const vis = showAll ? epPosts : epPosts.slice(0, limit);
+    const rem = epPosts.length - vis.length;
+
+    return (
+      <>
+        {vis.map((ep) => {
+          const kids = ephChildrenOf.get(ep.nostrEventId) ?? [];
+          const isExp = expandedEphId === ep.nostrEventId;
+          return (
+            <div key={ep.nostrEventId}>
+              <EphemeralPostCard
+                post={ep}
+                isExpanded={isExp || myEphIds.has(ep.nostrEventId)}
+                onExpand={handleExpandEph}
+                optimistic={myEphIds.has(ep.nostrEventId)}
+                onReply={onReplyEphemeral}
+                onInscribe={onInscribeEphemeral}
+                onViewTx={expandPost}
+              />
+              {kids.length > 0 && isExp && (
+                <div className="ml-3 border-l border-dashed border-white/[0.08]">
+                  {renderEphChildren(kids, depth + 1, ep.nostrEventId)}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {rem > 0 && (
+          <button onClick={() => toggleShowMore(smKey)} className="w-full py-1.5 text-[11px] text-white/20 hover:text-white/40 transition-colors">
+            +{rem} more
+          </button>
+        )}
+      </>
+    );
+  }
+
+  type FeedItem =
+    | { kind: "btc"; post: Post }
+    | { kind: "eph"; post: EphemeralPost };
 
   const hasContent = groups.length > 0 || untaggedPosts.length > 0 || ewPosts.length > 0 || allEph.length > 0;
 
@@ -392,6 +431,17 @@ function TopicsFeed({
   ) => {
     const isCollapsed = collapsedTopics.has(sectionKey);
     const totalBurned = topic?.totalBurned ?? 0;
+
+    // Merge BTC + ephemeral into one sorted list (BTC first by burnTotal, then ephemeral by upvoteWeight)
+    const items: FeedItem[] = [
+      ...sectionPosts.map((p): FeedItem => ({ kind: "btc", post: p })),
+      ...(sectionEph ?? []).map((p): FeedItem => ({ kind: "eph", post: p })),
+    ];
+
+    const smKey = `sec:${sectionKey}`;
+    const rootShowAll = showMore.has(smKey);
+    const visibleItems = rootShowAll ? items : items.slice(0, ROOT_LIMIT);
+    const hiddenCount = items.length - visibleItems.length;
 
     return (
       <div key={sectionKey} className="bg-[#111111] mb-2">
@@ -434,21 +484,51 @@ function TopicsFeed({
         )}
         {!isCollapsed && (
           <div className="pl-4">
-            {sectionPosts.flatMap((p) => [
-              <FeedCard key={p.id} post={p} onExpand={expandPost} onVisible={onPostVisible} onReply={onReply} expandPreview={expandPreview} isExpanded={expandedPostId === p.id} />,
-              ...(expandedPostId === p.id ? [
-                <InlineThread
-                  key={`thread-${p.id}`}
-                  postId={p.id}
-                  onReply={onReply ?? (() => {})}
-                  onReplyEphemeral={onReplyEphemeral}
-                  onInscribeEphemeral={onInscribeEphemeral}
+            {visibleItems.flatMap((item) => {
+              if (item.kind === "btc") {
+                const p = item.post;
+                return [
+                  <FeedCard key={p.id} post={p} onExpand={expandPost} onVisible={onPostVisible} onReply={onReply} expandPreview={expandPreview} isExpanded={expandedPostId === p.id} />,
+                  ...(expandedPostId === p.id ? [
+                    <InlineThread
+                      key={`thread-${p.id}`}
+                      postId={p.id}
+                      onReply={onReply ?? (() => {})}
+                      onReplyEphemeral={onReplyEphemeral}
+                      onInscribeEphemeral={onInscribeEphemeral}
+                      onViewTx={expandPost}
+                      initialEphemeralPosts={myEph?.filter((e) => e.parentContentHash === p.id)}
+                    />
+                  ] : []),
+                ];
+              }
+              // ephemeral item
+              const ep = item.post;
+              const kids = ephChildrenOf.get(ep.nostrEventId) ?? [];
+              const isExp = expandedEphId === ep.nostrEventId;
+              return [
+                <EphemeralPostCard
+                  key={ep.nostrEventId}
+                  post={ep}
+                  isExpanded={isExp || myEphIds.has(ep.nostrEventId)}
+                  onExpand={handleExpandEph}
+                  optimistic={myEphIds.has(ep.nostrEventId)}
+                  onReply={onReplyEphemeral}
+                  onInscribe={onInscribeEphemeral}
                   onViewTx={expandPost}
-                  initialEphemeralPosts={myEph?.filter((e) => e.parentContentHash === p.id)}
-                />
-              ] : []),
-            ])}
-            {sectionEph && sectionEph.length > 0 && renderEphBranch(sectionEph)}
+                />,
+                ...(isExp && kids.length > 0 ? [
+                  <div key={`eph-kids-${ep.nostrEventId}`} className="ml-3 border-l border-dashed border-white/[0.08]">
+                    {renderEphChildren(kids, 0, ep.nostrEventId)}
+                  </div>,
+                ] : []),
+              ];
+            })}
+            {hiddenCount > 0 && (
+              <button onClick={() => toggleShowMore(smKey)} className="w-full py-1.5 text-[11px] text-white/20 hover:text-white/40 transition-colors">
+                +{hiddenCount} more
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -540,6 +620,8 @@ export default function Home() {
   const [threadPostId, setThreadPostId] = useState<string | null>(null);
   const [threadTopicName, setThreadTopicName] = useState<string | null>(null);
   const [expandedPostId, setExpandedPostId] = useState<string | null>(null);
+  const [expandedEphIdTopic, setExpandedEphIdTopic] = useState<string | null>(null);
+  const [ephShowMoreTopic, setEphShowMoreTopic] = useState<Set<string>>(new Set());
   const [textSize, setTextSize] = useState<TextSize>("sm");
   const [composing, setComposing] = useState<{
     replyToId: string | null;
@@ -1308,32 +1390,56 @@ export default function Home() {
                           }
                         }
 
-                        function renderTopicBranch(posts: EphemeralPost[], depth: number): React.ReactNode {
-                          return posts.map((ep) => {
-                            const kids = childrenOf.get(ep.nostrEventId) ?? [];
-                            return (
-                              <div key={ep.nostrEventId}>
-                                <EphemeralPostCard
-                                  post={ep}
-                                  optimistic={myTopicIds.has(ep.nostrEventId)}
-                                  onReply={(p) => setComposing({ replyToId: null, replyToNostrId: p.nostrEventId, topicName: p.topic })}
-                                  onInscribe={(p) => setComposing({ replyToId: null, topicName: p.topic, initialText: p.content })}
-                                  onViewTx={(hash) => expandPost(hash)}
-                                />
-                                {kids.length > 0 && (
-                                  <div className="ml-3 border-l border-dashed border-white/[0.08]">
-                                    {renderTopicBranch(kids, depth + 1)}
+                        const topicLimits = [20, 5, 3] as const;
+                        const maxDepth = topicLimits.length;
+
+                        function renderTopicBranch(posts: EphemeralPost[], depth: number, parentKey: string): React.ReactNode {
+                          if (depth >= maxDepth) return null;
+                          const limit = topicLimits[depth];
+                          const smKey = `tv:${parentKey}:d${depth}`;
+                          const showAll = ephShowMoreTopic.has(smKey);
+                          const vis = showAll ? posts : posts.slice(0, limit);
+                          const rem = posts.length - vis.length;
+                          return (
+                            <>
+                              {vis.map((ep) => {
+                                const kids = childrenOf.get(ep.nostrEventId) ?? [];
+                                const isExp = expandedEphIdTopic === ep.nostrEventId;
+                                return (
+                                  <div key={ep.nostrEventId}>
+                                    <EphemeralPostCard
+                                      post={ep}
+                                      isExpanded={isExp || myTopicIds.has(ep.nostrEventId)}
+                                      onExpand={(id) => setExpandedEphIdTopic((prev) => prev === id ? null : id)}
+                                      optimistic={myTopicIds.has(ep.nostrEventId)}
+                                      onReply={(p) => setComposing({ replyToId: null, replyToNostrId: p.nostrEventId, topicName: p.topic })}
+                                      onInscribe={(p) => setComposing({ replyToId: null, topicName: p.topic, initialText: p.content })}
+                                      onViewTx={(hash) => expandPost(hash)}
+                                    />
+                                    {kids.length > 0 && (isExp || depth < maxDepth - 1) && (
+                                      <div className="ml-3 border-l border-dashed border-white/[0.08]">
+                                        {renderTopicBranch(kids, depth + 1, ep.nostrEventId)}
+                                      </div>
+                                    )}
                                   </div>
-                                )}
-                              </div>
-                            );
-                          });
+                                );
+                              })}
+                              {rem > 0 && (
+                                <button
+                                  onClick={() => setEphShowMoreTopic((prev) => { const n = new Set(prev); n.add(smKey); return n; })}
+                                  className="w-full py-1.5 text-[11px] text-white/20 hover:text-white/40 transition-colors"
+                                >
+                                  +{rem} more
+                                </button>
+                              )}
+                            </>
+                          );
                         }
 
                         return (
                           <div className="bg-[#111111] mb-2">
                             <div className="pl-4">
-                              {renderTopicBranch(roots, 0)}
+                              {renderTopicBranch(roots, 0, "topic-root")}
                             </div>
                           </div>
                         );

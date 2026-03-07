@@ -7,6 +7,53 @@ import { ThreadCard } from "./feed-card";
 import { EphemeralPostCard } from "./ephemeral-post-card";
 import { Loader2 } from "lucide-react";
 
+function EphemeralTree({ posts, onReply, onInscribe, onViewTx }: {
+  posts: EphemeralPost[];
+  onReply?: (post: EphemeralPost) => void;
+  onInscribe?: (post: EphemeralPost) => void;
+  onViewTx?: (contentHash: string) => void;
+}) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const childrenOf = new Map<string, EphemeralPost[]>();
+  const roots: EphemeralPost[] = [];
+  for (const ep of posts) {
+    if (ep.parentNostrId && posts.some((p) => p.nostrEventId === ep.parentNostrId)) {
+      const arr = childrenOf.get(ep.parentNostrId) ?? [];
+      arr.push(ep);
+      childrenOf.set(ep.parentNostrId, arr);
+    } else {
+      roots.push(ep);
+    }
+  }
+
+  function renderBranch(items: EphemeralPost[]): React.ReactNode {
+    return items.map((ep) => {
+      const kids = childrenOf.get(ep.nostrEventId) ?? [];
+      const isExp = expandedId === ep.nostrEventId;
+      return (
+        <div key={ep.nostrEventId} className="pl-2">
+          <EphemeralPostCard
+            post={ep}
+            isExpanded={isExp}
+            onExpand={(id) => setExpandedId((prev) => prev === id ? null : id)}
+            onReply={onReply}
+            onInscribe={onInscribe}
+            onViewTx={onViewTx}
+          />
+          {kids.length > 0 && isExp && (
+            <div className="ml-3 border-l border-dashed border-white/[0.08]">
+              {renderBranch(kids)}
+            </div>
+          )}
+        </div>
+      );
+    });
+  }
+
+  return <>{renderBranch(roots)}</>;
+}
+
 function Skeleton({ lines = 1 }: { lines?: number }) {
   return (
     <div className="px-4 py-3 space-y-2 animate-pulse">
@@ -162,35 +209,7 @@ export function InlineThread({
                   <Loader2 className="h-5 w-5 animate-spin text-white/15" />
                 </div>
               ) : (
-                (() => {
-                  const childrenOf = new Map<string, EphemeralPost[]>();
-                  const roots: EphemeralPost[] = [];
-                  for (const ep of ephemeralPosts) {
-                    if (ep.parentNostrId && ephemeralPosts.some((p) => p.nostrEventId === ep.parentNostrId)) {
-                      const arr = childrenOf.get(ep.parentNostrId) ?? [];
-                      arr.push(ep);
-                      childrenOf.set(ep.parentNostrId, arr);
-                    } else {
-                      roots.push(ep);
-                    }
-                  }
-                  function renderBranch(posts: EphemeralPost[]): React.ReactNode {
-                    return posts.map((ep) => {
-                      const kids = childrenOf.get(ep.nostrEventId) ?? [];
-                      return (
-                        <div key={ep.nostrEventId} className="pl-2">
-                          <EphemeralPostCard post={ep} onReply={onReplyEphemeral} onInscribe={onInscribeEphemeral} onViewTx={onViewTx} />
-                          {kids.length > 0 && (
-                            <div className="ml-3 border-l border-dashed border-white/[0.08]">
-                              {renderBranch(kids)}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    });
-                  }
-                  return renderBranch(roots);
-                })()
+                <EphemeralTree posts={ephemeralPosts} onReply={onReplyEphemeral} onInscribe={onInscribeEphemeral} onViewTx={onViewTx} />
               )}
             </div>
           )}
