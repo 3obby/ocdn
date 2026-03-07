@@ -457,6 +457,18 @@ function TopicsFeed({
 
   const rootEph = ephByTopic.get(null) ?? [];
 
+  // Collect topic hashes already rendered via BTC groups
+  const renderedTopicHashes = new Set(groups.map((g) => g.topic?.hash).filter(Boolean));
+
+  // Ephemeral-only topic groups (have topicHash but no BTC posts)
+  const ephOnlyTopics: { hash: string; name: string; posts: EphemeralPost[] }[] = [];
+  for (const [hash, posts] of ephByTopic) {
+    if (hash && !renderedTopicHashes.has(hash) && posts.length > 0) {
+      const name = posts[0].topic ?? hash.slice(0, 8);
+      ephOnlyTopics.push({ hash, name, posts });
+    }
+  }
+
   return (
     <>
       {groups.map((group) => {
@@ -471,6 +483,14 @@ function TopicsFeed({
           eph,
         );
       })}
+      {ephOnlyTopics.map((t) => renderSection(
+        t.hash,
+        "/" + t.name,
+        [],
+        true,
+        { hash: t.hash, name: t.name, totalBurned: 0 },
+        t.posts,
+      ))}
       {(untaggedPosts.length > 0 || rootEph.length > 0) && renderSection("_root", "/", untaggedPosts, true, null, rootEph)}
       {untaggedHasMore && !collapsedTopics.has("_root") && (
         <button
@@ -607,7 +627,7 @@ export default function Home() {
     });
 
     if (effectiveSort === "topics" && f.type === "all") {
-      fetch("/api/ephemeral?root=true&sort=new&limit=20")
+      fetch("/api/ephemeral?root=true&sort=new&limit=200")
         .then((r) => r.ok ? r.json() : { posts: [] })
         .then((data) => {
           if (version !== fetchVersionRef.current) return;
@@ -615,7 +635,7 @@ export default function Home() {
         })
         .catch(() => {});
     } else if (f.type === "topic") {
-      fetch(`/api/ephemeral?topicHash=${f.hash}&sort=new&limit=20`)
+      fetch(`/api/ephemeral?topicHash=${f.hash}&sort=new&limit=200`)
         .then((r) => r.ok ? r.json() : { posts: [] })
         .then((data) => {
           if (version !== fetchVersionRef.current) return;
