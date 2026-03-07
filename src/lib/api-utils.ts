@@ -235,7 +235,7 @@ export function rateLimit(request: Request, type: "read" | "write"): NextRespons
 // ═══ PAGINATION ═══
 
 export const DEFAULT_PAGE_SIZE = 20;
-export const MAX_PAGE_SIZE = 100;
+export const MAX_PAGE_SIZE = 500;
 
 export function parsePageSize(param: string | null): number {
   if (!param) return DEFAULT_PAGE_SIZE;
