@@ -1,0 +1,225 @@
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
+import { requireWriteAuth, errorResponse, log } from "@/lib/api-utils";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { schnorr } from "@noble/curves/secp256k1.js";
+import { hexToBytes, bytesToHex } from "@noble/curves/utils.js";
+import { topicHash as computeTopicHash } from "@/lib/protocol/crypto";
+
+export const dynamic = "force-dynamic";
+
+// ── Nostr event helpers ─────────────────────────────────────────────────────
+
+type NostrEvent = {
+  id: string;
+  pubkey: string;
+  created_at: number;
+  kind: number;
+  tags: string[][];
+  content: string;
+  sig: string;
+};
+
+function makeEvent(
+  privkeyHex: string,
+  content: string,
+  tags: string[][],
+  createdAt: number,
+): NostrEvent {
+  const privkey = hexToBytes(privkeyHex);
+  const pubkey = bytesToHex(schnorr.getPublicKey(privkey));
+  const unsigned = { pubkey, created_at: createdAt, kind: 1, tags, content };
+  const serialized = JSON.stringify([0, unsigned.pubkey, unsigned.created_at, unsigned.kind, unsigned.tags, unsigned.content]);
+  const id = bytesToHex(sha256(new TextEncoder().encode(serialized)));
+  const sig = bytesToHex(schnorr.sign(hexToBytes(id), privkey));
+  return { ...unsigned, id, sig };
+}
+
+// ── TTL (mirrors publish logic) ─────────────────────────────────────────────
+
+function getTtlMs(replyDepth: number): number {
+  const baseDays = Number(process.env.EPHEMERAL_TTL_DAYS ?? "30");
+  const days = baseDays / Math.pow(2, replyDepth);
+  return Math.max(days, 1) * 24 * 60 * 60 * 1000;
+}
+
+// ── Types ───────────────────────────────────────────────────────────────────
+
+interface IngestReply {
+  content: string;
+  sourceId?: string;
+  sourceTs?: number;
+}
+
+interface IngestItem {
+  topic?: string | null;
+  content: string;
+  sourceId?: string;
+  sourceTs?: number;
+  replies?: IngestReply[];
+}
+
+// ── Handler ─────────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/seed/ingest
+ * Headers: x-api-key
+ * Body: { items: IngestItem[] }
+ *
+ * Ingests external content (e.g. scraped 4chan threads) as ephemeral posts.
+ * Signs Nostr events server-side with SEED_NOSTR_PRIVKEY.
+ * Inserts parent-first; child expiresAt is capped at parent's expiresAt.
+ */
+export async function POST(request: Request) {
+  const authErr = requireWriteAuth(request);
+  if (authErr) return authErr;
+
+  const seedKey = process.env.SEED_NOSTR_PRIVKEY;
+  if (!seedKey || seedKey.length !== 64) {
+    return errorResponse("SEED_NOSTR_PRIVKEY not configured (need 64-char hex)", 500);
+  }
+
+  let body: { items?: unknown };
+  try {
+    body = await request.json();
+  } catch {
+    return errorResponse("Invalid JSON body");
+  }
+
+  if (!Array.isArray(body.items) || body.items.length === 0) {
+    return errorResponse("items array is required and must be non-empty");
+  }
+  if (body.items.length > 500) {
+    return errorResponse("max 500 items per request");
+  }
+
+  const items = body.items as IngestItem[];
+  let inserted = 0;
+  let skipped = 0;
+  let errors = 0;
+
+  for (const item of items) {
+    if (!item.content || typeof item.content !== "string" || item.content.trim().length === 0) {
+      errors++;
+      continue;
+    }
+
+    const topic = typeof item.topic === "string" && item.topic.trim() ? item.topic.trim() : null;
+    const content = item.content.trim();
+    const now = Math.floor(Date.now() / 1000);
+    const createdAt = item.sourceTs ?? now;
+
+    // Build tags
+    const tags: string[][] = [["t", "ocdn"]];
+    if (topic) tags.push(["t", topic]);
+    if (item.sourceId) tags.push(["source", item.sourceId]);
+
+    // Compute topic hash
+    let tHash: string | null = null;
+    if (topic) {
+      const normalized = topic.toLowerCase().trim().normalize("NFC");
+      tHash = bytesToHex(computeTopicHash(normalized));
+    }
+
+    const event = makeEvent(seedKey, content, tags, createdAt);
+
+    // Insert root post
+    const rootExpires = new Date(Date.now() + getTtlMs(0));
+    let parentId: string;
+    try {
+      const existing = await prisma.ephemeralPost.findUnique({
+        where: { nostrEventId: event.id },
+        select: { nostrEventId: true },
+      });
+      if (existing) {
+        skipped++;
+        parentId = existing.nostrEventId;
+      } else {
+        const record = await prisma.ephemeralPost.create({
+          data: {
+            nostrEventId: event.id,
+            nostrPubkey: event.pubkey,
+            content,
+            topic,
+            topicHash: tHash,
+            parentContentHash: null,
+            parentNostrId: null,
+            replyDepth: 0,
+            anchoredToBtc: false,
+            powDifficulty: 0,
+            upvoteWeight: 1n,
+            rawEvent: event as object,
+            expiresAt: rootExpires,
+          },
+        });
+        parentId = record.nostrEventId;
+        inserted++;
+      }
+    } catch (err) {
+      log("error", "api/seed/ingest", `root insert failed: ${err}`);
+      errors++;
+      continue;
+    }
+
+    // Insert replies
+    if (Array.isArray(item.replies)) {
+      for (let i = 0; i < item.replies.length; i++) {
+        const reply = item.replies[i];
+        if (!reply.content || typeof reply.content !== "string" || reply.content.trim().length === 0) {
+          errors++;
+          continue;
+        }
+
+        const replyContent = reply.content.trim();
+        const replyTs = reply.sourceTs ?? (createdAt + i + 1);
+        const replyTags: string[][] = [
+          ["t", "ocdn"],
+          ["e", parentId, "", "reply"],
+        ];
+        if (topic) replyTags.push(["t", topic]);
+        if (reply.sourceId) replyTags.push(["source", reply.sourceId]);
+
+        const replyEvent = makeEvent(seedKey, replyContent, replyTags, replyTs);
+        const replyDepth = 1;
+        let replyExpires = new Date(Date.now() + getTtlMs(replyDepth));
+        if (replyExpires > rootExpires) replyExpires = rootExpires;
+
+        try {
+          const existing = await prisma.ephemeralPost.findUnique({
+            where: { nostrEventId: replyEvent.id },
+            select: { nostrEventId: true },
+          });
+          if (existing) {
+            skipped++;
+            continue;
+          }
+          await prisma.ephemeralPost.create({
+            data: {
+              nostrEventId: replyEvent.id,
+              nostrPubkey: replyEvent.pubkey,
+              content: replyContent,
+              topic,
+              topicHash: tHash,
+              parentContentHash: null,
+              parentNostrId: parentId,
+              replyDepth,
+              anchoredToBtc: false,
+              powDifficulty: 0,
+              upvoteWeight: 1n,
+              rawEvent: replyEvent as object,
+              expiresAt: replyExpires,
+            },
+          });
+          inserted++;
+        } catch (err) {
+          log("error", "api/seed/ingest", `reply insert failed: ${err}`);
+          errors++;
+        }
+      }
+    }
+  }
+
+  log("info", "api/seed/ingest", "batch complete", { inserted, skipped, errors });
+
+  return NextResponse.json({ inserted, skipped, errors }, { status: inserted > 0 ? 201 : 200 });
+}

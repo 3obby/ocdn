@@ -1,0 +1,2 @@
+# For scripts that need Python deps (e.g. scrape_4chan_biz.py)
+requests>=2.28.0

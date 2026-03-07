@@ -41,4 +41,5 @@ yarn-error.log*
 next-env.d.ts
 
 creds.txt
+/data
 /src/generated/prisma
