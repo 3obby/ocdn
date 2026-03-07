@@ -8,6 +8,7 @@ import {
 } from "@/lib/mock-data";
 import { useTextSize, ts } from "@/lib/text-size";
 import { BoostButton } from "./boost-button";
+import { PostContent } from "./post-content";
 import { equivalentZeros } from "@/lib/pow-config";
 import { Pencil } from "lucide-react";
 
@@ -99,7 +100,7 @@ export function EphemeralPostCard({
       </div>
 
       <p className={`${ts(sz)} text-white/90 leading-snug whitespace-pre-wrap`}>
-        {post.content}
+        <PostContent content={post.content} />
       </p>
 
       {!optimistic && (

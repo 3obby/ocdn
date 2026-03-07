@@ -49,6 +49,7 @@ interface IngestReply {
   content: string;
   sourceId?: string;
   sourceTs?: number;
+  parentSourceId?: string;
 }
 
 interface IngestItem {
@@ -57,6 +58,12 @@ interface IngestItem {
   sourceId?: string;
   sourceTs?: number;
   replies?: IngestReply[];
+}
+
+interface InsertedEntry {
+  nostrEventId: string;
+  expiresAt: Date;
+  replyDepth: number;
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────────
@@ -69,6 +76,7 @@ interface IngestItem {
  * Ingests external content (e.g. scraped 4chan threads) as ephemeral posts.
  * Signs Nostr events server-side with SEED_NOSTR_PRIVKEY.
  * Inserts parent-first; child expiresAt is capped at parent's expiresAt.
+ * Supports parentSourceId on replies for proper nested threading.
  */
 export async function POST(request: Request) {
   const authErr = requireWriteAuth(request);
@@ -109,12 +117,10 @@ export async function POST(request: Request) {
     const now = Math.floor(Date.now() / 1000);
     const createdAt = item.sourceTs ?? now;
 
-    // Build tags
     const tags: string[][] = [["t", "ocdn"]];
     if (topic) tags.push(["t", topic]);
     if (item.sourceId) tags.push(["source", item.sourceId]);
 
-    // Compute topic hash
     let tHash: string | null = null;
     if (topic) {
       const normalized = topic.toLowerCase().trim().normalize("NFC");
@@ -123,9 +129,12 @@ export async function POST(request: Request) {
 
     const event = makeEvent(seedKey, content, tags, createdAt);
 
+    // sourceId → inserted entry map for resolving parentSourceId within this item
+    const sourceMap = new Map<string, InsertedEntry>();
+
     // Insert root post
     const rootExpires = new Date(Date.now() + getTtlMs(0));
-    let parentId: string;
+    let rootId: string;
     try {
       const existing = await prisma.ephemeralPost.findUnique({
         where: { nostrEventId: event.id },
@@ -133,7 +142,7 @@ export async function POST(request: Request) {
       });
       if (existing) {
         skipped++;
-        parentId = existing.nostrEventId;
+        rootId = existing.nostrEventId;
       } else {
         const record = await prisma.ephemeralPost.create({
           data: {
@@ -152,7 +161,7 @@ export async function POST(request: Request) {
             expiresAt: rootExpires,
           },
         });
-        parentId = record.nostrEventId;
+        rootId = record.nostrEventId;
         inserted++;
       }
     } catch (err) {
@@ -161,7 +170,11 @@ export async function POST(request: Request) {
       continue;
     }
 
-    // Insert replies
+    if (item.sourceId) {
+      sourceMap.set(item.sourceId, { nostrEventId: rootId, expiresAt: rootExpires, replyDepth: 0 });
+    }
+
+    // Insert replies — process in order so earlier replies are in sourceMap for later ones
     if (Array.isArray(item.replies)) {
       for (let i = 0; i < item.replies.length; i++) {
         const reply = item.replies[i];
@@ -170,19 +183,32 @@ export async function POST(request: Request) {
           continue;
         }
 
+        // Resolve parent: look up parentSourceId in map, fall back to root
+        let parentNostrId = rootId;
+        let parentExpires = rootExpires;
+        let parentDepth = 0;
+
+        if (reply.parentSourceId && sourceMap.has(reply.parentSourceId)) {
+          const parent = sourceMap.get(reply.parentSourceId)!;
+          parentNostrId = parent.nostrEventId;
+          parentExpires = parent.expiresAt;
+          parentDepth = parent.replyDepth;
+        }
+
+        const replyDepth = parentDepth + 1;
         const replyContent = reply.content.trim();
         const replyTs = reply.sourceTs ?? (createdAt + i + 1);
         const replyTags: string[][] = [
           ["t", "ocdn"],
-          ["e", parentId, "", "reply"],
+          ["e", parentNostrId, "", "reply"],
         ];
         if (topic) replyTags.push(["t", topic]);
         if (reply.sourceId) replyTags.push(["source", reply.sourceId]);
 
         const replyEvent = makeEvent(seedKey, replyContent, replyTags, replyTs);
-        const replyDepth = 1;
+
         let replyExpires = new Date(Date.now() + getTtlMs(replyDepth));
-        if (replyExpires > rootExpires) replyExpires = rootExpires;
+        if (replyExpires > parentExpires) replyExpires = parentExpires;
 
         try {
           const existing = await prisma.ephemeralPost.findUnique({
@@ -191,9 +217,12 @@ export async function POST(request: Request) {
           });
           if (existing) {
             skipped++;
+            if (reply.sourceId) {
+              sourceMap.set(reply.sourceId, { nostrEventId: existing.nostrEventId, expiresAt: replyExpires, replyDepth });
+            }
             continue;
           }
-          await prisma.ephemeralPost.create({
+          const record = await prisma.ephemeralPost.create({
             data: {
               nostrEventId: replyEvent.id,
               nostrPubkey: replyEvent.pubkey,
@@ -201,7 +230,7 @@ export async function POST(request: Request) {
               topic,
               topicHash: tHash,
               parentContentHash: null,
-              parentNostrId: parentId,
+              parentNostrId: parentNostrId,
               replyDepth,
               anchoredToBtc: false,
               powDifficulty: 0,
@@ -210,6 +239,9 @@ export async function POST(request: Request) {
               expiresAt: replyExpires,
             },
           });
+          if (reply.sourceId) {
+            sourceMap.set(reply.sourceId, { nostrEventId: record.nostrEventId, expiresAt: replyExpires, replyDepth });
+          }
           inserted++;
         } catch (err) {
           log("error", "api/seed/ingest", `reply insert failed: ${err}`);

@@ -3,11 +3,14 @@
 Transform a scraped 4chan /biz/ catalog JSON and ingest it into OCDN as
 ephemeral posts via the /api/seed/ingest endpoint.
 
-Reads the most recent catalog file from data/4chan_biz/, strips HTML,
-extracts topics (thread subjects) and replies, then POSTs the batch.
-
-Supports drip-feed mode: instead of posting everything at once, spreads
-threads evenly over --drip-hours so content appears gradually.
+Features:
+- All threads are filed under topic "biz"
+- Parses >>N quotelinks from HTML to build proper reply trees
+- Rewrites >>N refs in body:
+    parent ref  → stripped (tree structure shows parentage)
+    known ref   → [>>N](ocdn:4chan:biz:N)  (frontend renders as internal link)
+    unknown ref → [<+N>](https://boards.4chan.org/biz/thread/THREAD#pN)
+- Supports drip-feed mode (--drip-hours)
 
 Usage:
   python scripts/seed_4chan_biz.py [--api-url URL] [--api-key KEY] [--drip-hours N]
@@ -18,7 +21,7 @@ Env vars (override CLI flags):
 """
 
 import argparse
-import html
+import html as html_mod
 import json
 import re
 import sys
@@ -33,6 +36,11 @@ except ImportError:
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "4chan_biz"
 LOG_PREFIX = "[seed]"
+BOARD = "biz"
+TOPIC = "biz"
+
+QUOTELINK_RE = re.compile(r'<a\s+href="[^"]*#p(\d+)"[^>]*class="quotelink"[^>]*>[^<]*</a>', re.I)
+BARE_REF_RE = re.compile(r'>>(\d+)')
 
 
 def log(msg: str) -> None:
@@ -40,21 +48,88 @@ def log(msg: str) -> None:
     print(f"{LOG_PREFIX} {ts}  {msg}", file=sys.stderr, flush=True)
 
 
-# ── HTML → plain text ───────────────────────────────────────────────────────
+# ── Reference extraction ─────────────────────────────────────────────────────
 
-def html_to_text(raw: str | None) -> str:
+def extract_refs(raw_html: str | None) -> list[int]:
+    """Extract all >>N post numbers from raw 4chan HTML, preserving order."""
+    if not raw_html:
+        return []
+    refs = []
+    seen = set()
+    for m in QUOTELINK_RE.finditer(raw_html):
+        n = int(m.group(1))
+        if n not in seen:
+            refs.append(n)
+            seen.add(n)
+    return refs
+
+
+# ── HTML → text with reference rewriting ─────────────────────────────────────
+
+def html_to_text_with_refs(
+    raw_html: str | None,
+    thread_no: int,
+    parent_no: int | None,
+    known_nos: set[int],
+) -> str:
+    """Convert 4chan HTML to plain text, rewriting >>N references.
+
+    - parent_no ref (first ref = direct parent): stripped entirely
+    - known ref (in our batch): [>>N](ocdn:4chan:biz:N)
+    - unknown ref: [<+N>](https://boards.4chan.org/biz/thread/THREAD#pN)
+    """
+    if not raw_html:
+        return ""
+
+    text = raw_html
+
+    def replace_quotelink(m: re.Match) -> str:
+        n = int(m.group(1))
+        if n == parent_no:
+            return ""
+        if n in known_nos:
+            return f"\x00OCDN_REF[>>{n}](ocdn:4chan:{BOARD}:{n})\x00"
+        return f"\x00OCDN_REF[+{n}](https://boards.4chan.org/{BOARD}/thread/{thread_no}#p{n})\x00"
+
+    text = QUOTELINK_RE.sub(replace_quotelink, text)
+
+    text = re.sub(r"<br\s*/?>", "\n", text)
+    text = re.sub(r"<wbr\s*/?>", "", text)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = html_mod.unescape(text)
+
+    # Clean up any bare >>N that survived (e.g. in greentext without <a> tags)
+    def replace_bare_ref(m: re.Match) -> str:
+        n = int(m.group(1))
+        if n == parent_no:
+            return ""
+        if n in known_nos:
+            return f"[>>{n}](ocdn:4chan:{BOARD}:{n})"
+        return f"[+{n}](https://boards.4chan.org/{BOARD}/thread/{thread_no}#p{n})"
+
+    text = BARE_REF_RE.sub(replace_bare_ref, text)
+
+    # Unwrap sentinel-protected refs
+    text = text.replace("\x00OCDN_REF", "").replace("\x00", "")
+
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def html_to_text_simple(raw: str | None) -> str:
+    """Simple HTML strip for OP bodies (no ref rewriting needed for OP)."""
     if not raw:
         return ""
     text = raw
     text = re.sub(r"<br\s*/?>", "\n", text)
     text = re.sub(r"<wbr\s*/?>", "", text)
     text = re.sub(r"<[^>]+>", "", text)
-    text = html.unescape(text)
+    text = html_mod.unescape(text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
 
-# ── Catalog → ingest items ──────────────────────────────────────────────────
+# ── Catalog → ingest items ───────────────────────────────────────────────────
 
 def catalog_to_items(catalog: list) -> list[dict]:
     items = []
@@ -64,40 +139,63 @@ def catalog_to_items(catalog: list) -> list[dict]:
                 continue
 
             thread_no = thread.get("no", 0)
-            subject = html_to_text(thread.get("sub"))
-            body = html_to_text(thread.get("com"))
-
+            body = html_to_text_simple(thread.get("com"))
             if not body:
                 continue
 
-            topic = subject if subject else None
+            raw_replies = thread.get("last_replies", [])
 
-            replies = []
-            for reply in thread.get("last_replies", []):
-                reply_body = html_to_text(reply.get("com"))
-                if not reply_body:
+            # Collect all post numbers in this thread for "known" lookup
+            known_nos: set[int] = {thread_no}
+            for r in raw_replies:
+                known_nos.add(r.get("no", 0))
+
+            # Build reply tree: first >>ref matching a known post = parent
+            reply_data: list[dict] = []
+            for r in raw_replies:
+                r_no = r.get("no", 0)
+                r_html = r.get("com")
+                refs = extract_refs(r_html)
+
+                # Determine parent: first ref that's in our known set
+                parent_ref_no = None
+                for ref_no in refs:
+                    if ref_no in known_nos and ref_no != r_no:
+                        parent_ref_no = ref_no
+                        break
+                # Fallback: parent is the thread OP
+                if parent_ref_no is None:
+                    parent_ref_no = thread_no
+
+                content = html_to_text_with_refs(
+                    r_html, thread_no, parent_ref_no, known_nos,
+                )
+                if not content:
                     continue
-                replies.append({
-                    "content": reply_body,
-                    "sourceId": f"4chan:biz:{reply.get('no', 0)}",
-                    "sourceTs": reply.get("time", 0),
+
+                parent_source_id = f"4chan:{BOARD}:{parent_ref_no}"
+
+                reply_data.append({
+                    "content": content,
+                    "sourceId": f"4chan:{BOARD}:{r_no}",
+                    "sourceTs": r.get("time", 0),
+                    "parentSourceId": parent_source_id,
                 })
 
             items.append({
-                "topic": topic,
+                "topic": TOPIC,
                 "content": body,
-                "sourceId": f"4chan:biz:{thread_no}",
+                "sourceId": f"4chan:{BOARD}:{thread_no}",
                 "sourceTs": thread.get("time", 0),
-                "replies": replies,
+                "replies": reply_data,
             })
 
     return items
 
 
-# ── Post one thread (parent + replies) to the ingest API ────────────────────
+# ── Post one thread to the ingest API ────────────────────────────────────────
 
 def post_item(session: requests.Session, url: str, item: dict) -> dict:
-    """POST a single thread+replies to the ingest endpoint. Returns stats."""
     resp = session.post(url, json={"items": [item]}, timeout=60)
     if resp.status_code in (200, 201):
         return resp.json()
@@ -106,7 +204,7 @@ def post_item(session: requests.Session, url: str, item: dict) -> dict:
         return {"inserted": 0, "skipped": 0, "errors": 1}
 
 
-# ── Main ────────────────────────────────────────────────────────────────────
+# ── Main ─────────────────────────────────────────────────────────────────────
 
 def main() -> None:
     import os
@@ -120,7 +218,6 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Print item count without POSTing")
     args = parser.parse_args()
 
-    # Find catalog file
     if args.catalog:
         catalog_path = args.catalog
     else:
@@ -136,15 +233,18 @@ def main() -> None:
 
     items = catalog_to_items(catalog)
     total_replies = sum(len(it.get("replies", [])) for it in items)
-    log(f"Transformed {len(items)} threads ({total_replies} replies)")
+    log(f"Transformed {len(items)} threads ({total_replies} replies), topic={TOPIC}")
 
     if args.dry_run:
-        for it in items[:5]:
+        for it in items[:3]:
             print(json.dumps({
                 "topic": it["topic"],
-                "content": it["content"][:120] + ("..." if len(it["content"]) > 120 else ""),
-                "replies": len(it.get("replies", [])),
-            }, indent=2))
+                "content": it["content"][:100] + "...",
+                "replies": [
+                    {"content": r["content"][:80] + "...", "parentSourceId": r.get("parentSourceId")}
+                    for r in it.get("replies", [])[:3]
+                ],
+            }, indent=2, ensure_ascii=False))
         log(f"{len(items)} total, dry-run — nothing posted")
         return
 
@@ -159,7 +259,6 @@ def main() -> None:
         "x-api-key": args.api_key,
     })
 
-    # Compute delay between threads for drip-feed
     drip_seconds = args.drip_hours * 3600
     delay = drip_seconds / max(len(items), 1) if drip_seconds > 0 else 0
 
@@ -177,8 +276,7 @@ def main() -> None:
         total_errors += result.get("errors", 0)
 
         n_replies = len(item.get("replies", []))
-        topic_label = (item.get("topic") or "(no topic)")[:50]
-        log(f"  [{i+1}/{len(items)}] {topic_label}  +{result.get('inserted',0)} new, "
+        log(f"  [{i+1}/{len(items)}] +{result.get('inserted',0)} new, "
             f"{result.get('skipped',0)} dup, {n_replies} replies")
 
         if delay > 0 and i < len(items) - 1:
