@@ -1,0 +1,162 @@
+OCDN Frontend UX Overhaul — Discovery → Read → Contribute
+
+You are working on ocdn, a Next.js 16 / React 19 forum where posts exist on two layers:
+  1. Bitcoin layer (permanent): Post, Reply types — ranked by sats burned, stored on-chain
+  2. Nostr/ephemeral layer (temporary): EphemeralPost type — ranked by PoW upvotes, expire over time
+
+The codebase is at /Users/dev/code/ocdn. The live site is https://ocdn.vercel.app/.
+The app is a dark-themed single-page feed. Bitcoin posts are the highest-authority content;
+ephemeral posts (including seeded 4chan /biz/ content) fill the space below.
+
+─── CURRENT STATE (what exists) ──────────────────────────────────────────────
+
+Architecture:
+- src/app/page.tsx: ~1400-line Home component. Contains TopicsFeed which renders
+  topic sections. Each section has a header (/topicName v) and a merged list of
+  BTC posts (FeedCard) + ephemeral posts (EphemeralPostCard).
+- src/components/feed-card.tsx: FeedCard (BTC) — collapsed single-line by default,
+  click to expand. Expanded shows metadata + full text. FeedCard triggers InlineThread.
+- src/components/ephemeral-post-card.tsx: EphemeralPostCard — has collapsed mode
+  (single-line truncated text + countdown) and expanded mode (full content + metadata
+  + boost/reply/inscribe actions). Controlled by isExpanded/onExpand props.
+- src/components/inline-thread.tsx: InlineThread — fetches /api/thread/{id} to show
+  BTC reply chain when a BTC post is expanded. Also shows ephemeral replies beneath.
+- src/components/post-content.tsx: PostContent — parses [text](url) markdown-style
+  links in content. ocdn: scheme = internal ref, https: = external link.
+- src/lib/mock-data.ts: Type definitions (Post, EphemeralPost, Topic, etc.)
+
+Data flow:
+- /api/feed returns BTC posts grouped by topic (TopicGroup[])
+- /api/ephemeral?root=true&sort=new&limit=200 returns ephemeral root posts
+- All data is fetched on mount, stored in state. Ephemeral tree (parent→children)
+  is built client-side from the flat list using parentNostrId.
+- renderSection() merges BTC + ephemeral into one FeedItem[] per topic section.
+  BTC posts appear first, ephemeral below. 7-item preview limit at root level.
+
+What's broken / incomplete:
+1. PREVIEW DEPTH: The initial view shows 7 root-level collapsed posts per section,
+   but does NOT show any children/grandchildren beneath them by default. Children
+   only appear AFTER clicking a post to expand it. The desired behavior: show 3
+   children (collapsed) and 2 grandchildren (collapsed) per root in the initial view,
+   WITHOUT requiring a click. This gives the user a sense of thread depth on arrival.
+   Currently renderEphChildren() is only called when isExp===true (line ~393, ~520).
+
+2. THREAD FOCUS MODE: Clicking any post (BTC or ephemeral) should transition smoothly
+   into a "thread view" — the clicked post becomes the focal point, its full reply
+   chain expands below, and sibling/unrelated posts fade or scroll away. Currently
+   BTC posts do this (via InlineThread which fetches the thread API), but ephemeral
+   posts just toggle expanded in-place without any thread-focus behavior.
+
+3. NAVIGATION FLOW: There's no coherent entry→discover→read→contribute journey:
+   - Entry: user lands on the feed, sees topic sections with collapsed posts. OK.
+   - Discover: user can scan topics, see previewed threads with nested replies. BROKEN
+     (no children shown by default).
+   - Read: user clicks a post, enters thread view, reads the full conversation.
+     PARTIALLY WORKING (BTC yes, ephemeral no thread view).
+   - Contribute: user replies or composes from thread view. The ComposeSheet exists
+     but is only reachable via tiny icons. Should be more prominent in thread view.
+
+─── DESIRED UX ───────────────────────────────────────────────────────────────
+
+DISCOVERY VIEW (default, landing page):
+
+  /ocdn                                              (topic header)
+    BTC post: "Why Bitcoin matters..."               (1-line collapsed)
+      > BTC reply: "Because censorship..."           (1-line, indented)
+        > Eph reply: "Agreed, also..."               (1-line, deeper)
+        > Eph reply: "Not sure about..."             (1-line, deeper)
+      > BTC reply: "The fee market is..."            (1-line, indented)
+      > Eph reply: "What about lightning?"           (1-line, indented)
+      +4 more
+    Eph post: "Hawk Tuah coin rational?"             (1-line collapsed)
+      > Eph reply: "No, she got played"              (1-line, indented)
+      > Eph reply: "Just bought 5000 Jasmy"          (1-line, indented)
+      +1 more
+    +174 more
+
+  /biz                                               (ephemeral-only topic)
+    Eph post: "golden bear run edition..."           (1-line)
+      > Eph reply: "Petrobras also good"             (1-line)
+        > Eph reply: ">PETROBRAS"                    (1-line)
+      > Eph reply: "EQNR on monday"                 (1-line)
+      > Eph reply: "Shilling for Guitar"             (1-line)
+    Eph post: "stock market general..."              (1-line)
+      ...
+    +174 more
+
+Key points:
+- Each root shows up to 3 children, each child shows up to 2 grandchildren, ALL
+  in collapsed single-line format. No click required to see this preview tree.
+- The "+N more" appears at each level where there are hidden items.
+- The entire tree is preloaded in memory; this is purely a rendering budget.
+
+THREAD VIEW (click any post):
+
+Clicking any post transitions to a focused thread view:
+- The clicked post expands fully (content, metadata, actions)
+- Its reply chain expands below — all children visible, collapsed by default,
+  click any child to expand it and see its subtree
+- A "back to feed" affordance at the top (or swipe/back button)
+- The reply/compose button is prominent at the bottom of the thread
+- BTC thread view: fetches /api/thread/{id} for the BTC chain, plus ephemeral
+  replies below (existing InlineThread behavior)
+- Ephemeral thread view: shows ephemeral reply tree from client-side data,
+  same expand-on-click for deeper levels
+
+CONTRIBUTE:
+- In thread view, a persistent "reply" affordance at the bottom
+- Clicking opens ComposeSheet pre-targeted to the focused post
+- After submitting, the new post appears optimistically in the thread
+
+─── SPECIFIC CODE CHANGES NEEDED ─────────────────────────────────────────────
+
+1. SHOW CHILDREN IN DISCOVERY VIEW (the main bug):
+   In page.tsx renderSection(), when rendering ephemeral items at the root level,
+   also render their first 3 children (collapsed) and first 2 grandchildren
+   (collapsed) by default — even when the root is NOT expanded.
+
+   Currently (line ~505-525 in page.tsx), children only render when isExp is true:
+     ...(isExp && kids.length > 0 ? [<div>renderEphChildren(...)</div>] : [])
+   Change this to always render a preview tree (limited depth), and when isExp
+   is true, render the FULL children list (uncapped).
+
+   Similarly for BTC posts: when a BTC post is NOT expanded, show its ephemeral
+   children count or first few as collapsed 1-liners beneath it.
+
+2. EPHEMERAL THREAD VIEW:
+   When an ephemeral post is clicked (handleExpandEph), instead of just toggling
+   isExpanded in place, transition to a thread-focused view:
+   - Scroll the post to the top
+   - Show its full reply tree below (all children, not just 3/2 limited)
+   - Collapse/hide other root posts (or navigate to a thread sub-view)
+   This should feel like BTC's expandPost→InlineThread flow but for ephemeral.
+
+3. UNIFIED NAVIGATION STATE:
+   Consider a single "focusedItem" state: { kind: "btc"|"eph", id: string } | null
+   When null: discovery view (all sections, preview trees).
+   When set: thread view (focused post + full reply tree).
+   Both BTC expandPost and ephemeral handleExpandEph should set this.
+
+4. BACK NAVIGATION:
+   Thread view needs a way back to the discovery feed. BTC already uses
+   window.history pushState/popState (openThread/closeThread in page.tsx).
+   Ephemeral thread view should do the same.
+
+─── FILES TO MODIFY ──────────────────────────────────────────────────────────
+
+- src/app/page.tsx — renderSection, renderEphChildren, state management
+- src/components/ephemeral-post-card.tsx — no changes needed (already has collapsed/expanded)
+- src/components/inline-thread.tsx — already handles BTC thread + ephemeral tree
+- src/components/feed-card.tsx — possibly show child count or preview beneath BTC posts
+
+─── CONSTRAINTS ──────────────────────────────────────────────────────────────
+
+- Do NOT create new files unless absolutely necessary
+- Do NOT create documentation
+- Test with: npx next build (the user verifies manually)
+- The app is deployed on Vercel; push to git triggers deploy
+- All ephemeral data is already loaded client-side; no new API calls needed
+  for the preview trees
+- BTC thread data requires a fetch to /api/thread/{id} (existing behavior, keep it)
+- The dark theme (#111111 bg, white text) is intentional; keep it
+- Mobile-first: indentation (ml-3 per level) must not overflow on small screens
