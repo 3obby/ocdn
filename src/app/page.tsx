@@ -770,7 +770,7 @@ export default function Home() {
     });
 
     if (effectiveSort === "topics" && f.type === "all") {
-      fetch("/api/ephemeral?root=true&sort=new&limit=200")
+      fetch("/api/ephemeral?root=true&sort=new&limit=100")
         .then((r) => r.ok ? r.json() : { posts: [] })
         .then((data) => {
           if (version !== fetchVersionRef.current) return;
@@ -778,7 +778,7 @@ export default function Home() {
         })
         .catch(() => {});
     } else if (f.type === "topic") {
-      fetch(`/api/ephemeral?topicHash=${f.hash}&sort=new&limit=200`)
+      fetch(`/api/ephemeral?topicHash=${f.hash}&sort=new&limit=500`)
         .then((r) => r.ok ? r.json() : { posts: [] })
         .then((data) => {
           if (version !== fetchVersionRef.current) return;
