@@ -134,6 +134,7 @@ def catalog_to_items(catalog: list, board: str, topic: str) -> list[dict]:
             if not body:
                 continue
 
+            total_replies = thread.get("replies", 0)
             raw_replies = thread.get("last_replies", [])
 
             known_nos: set[int] = {thread_no}
@@ -173,6 +174,7 @@ def catalog_to_items(catalog: list, board: str, topic: str) -> list[dict]:
                 "sourceId": f"4chan:{board}:{thread_no}",
                 "sourceTs": thread.get("time", 0),
                 "replies": reply_data,
+                "upvoteWeight": 1 + total_replies,
             })
 
     return items

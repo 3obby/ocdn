@@ -50,6 +50,7 @@ interface IngestReply {
   sourceId?: string;
   sourceTs?: number;
   parentSourceId?: string;
+  upvoteWeight?: number;
 }
 
 interface IngestItem {
@@ -58,6 +59,7 @@ interface IngestItem {
   sourceId?: string;
   sourceTs?: number;
   replies?: IngestReply[];
+  upvoteWeight?: number;
 }
 
 interface InsertedEntry {
@@ -132,15 +134,22 @@ export async function POST(request: Request) {
     // sourceId → inserted entry map for resolving parentSourceId within this item
     const sourceMap = new Map<string, InsertedEntry>();
 
-    // Insert root post
+    // Insert root post (upsert: update weight on re-ingest)
     const rootExpires = new Date(Date.now() + getTtlMs(0));
+    const rootWeight = BigInt(item.upvoteWeight ?? 1);
     let rootId: string;
     try {
       const existing = await prisma.ephemeralPost.findUnique({
         where: { nostrEventId: event.id },
-        select: { nostrEventId: true },
+        select: { nostrEventId: true, upvoteWeight: true },
       });
       if (existing) {
+        if (rootWeight > 1n && rootWeight !== existing.upvoteWeight) {
+          await prisma.ephemeralPost.update({
+            where: { nostrEventId: existing.nostrEventId },
+            data: { upvoteWeight: rootWeight },
+          });
+        }
         skipped++;
         rootId = existing.nostrEventId;
       } else {
@@ -156,7 +165,7 @@ export async function POST(request: Request) {
             replyDepth: 0,
             anchoredToBtc: false,
             powDifficulty: 0,
-            upvoteWeight: 1n,
+            upvoteWeight: rootWeight,
             rawEvent: event as object,
             expiresAt: rootExpires,
           },
@@ -210,12 +219,19 @@ export async function POST(request: Request) {
         let replyExpires = new Date(Date.now() + getTtlMs(replyDepth));
         if (replyExpires > parentExpires) replyExpires = parentExpires;
 
+        const replyWeight = BigInt(reply.upvoteWeight ?? 1);
         try {
           const existing = await prisma.ephemeralPost.findUnique({
             where: { nostrEventId: replyEvent.id },
-            select: { nostrEventId: true },
+            select: { nostrEventId: true, upvoteWeight: true },
           });
           if (existing) {
+            if (replyWeight > 1n && replyWeight !== existing.upvoteWeight) {
+              await prisma.ephemeralPost.update({
+                where: { nostrEventId: existing.nostrEventId },
+                data: { upvoteWeight: replyWeight },
+              });
+            }
             skipped++;
             if (reply.sourceId) {
               sourceMap.set(reply.sourceId, { nostrEventId: existing.nostrEventId, expiresAt: replyExpires, replyDepth });
@@ -234,7 +250,7 @@ export async function POST(request: Request) {
               replyDepth,
               anchoredToBtc: false,
               powDifficulty: 0,
-              upvoteWeight: 1n,
+              upvoteWeight: replyWeight,
               rawEvent: replyEvent as object,
               expiresAt: replyExpires,
             },
