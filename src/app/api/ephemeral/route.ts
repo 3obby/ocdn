@@ -38,6 +38,57 @@ export async function GET(request: Request) {
   }
 
   try {
+    // Balanced fetch for the "all topics" home feed: 3 queries total
+    // 1) all true roots (parentNostrId IS NULL) — every topic represented
+    // 2) their direct children  3) grandchildren
+    if (root && !topicHash && !parentHash && !pubkey && !cursor) {
+      const now = new Date();
+      const expiry = { gt: now };
+
+      const roots = await prisma.ephemeralPost.findMany({
+        where: {
+          parentContentHash: null,
+          parentNostrId: null,
+          expiresAt: expiry,
+          promotedToHash: null,
+        },
+        orderBy: sort === "top"
+          ? [{ upvoteWeight: order }, { createdAt: order }]
+          : [{ createdAt: order }],
+      });
+
+      const seen = new Set(roots.map((p) => p.nostrEventId));
+      const allPosts = [...roots];
+
+      if (seen.size > 0) {
+        const children = await prisma.ephemeralPost.findMany({
+          where: { parentNostrId: { in: [...seen] }, expiresAt: expiry, promotedToHash: null },
+        });
+        const newChildIds: string[] = [];
+        for (const c of children) {
+          if (!seen.has(c.nostrEventId)) {
+            seen.add(c.nostrEventId);
+            allPosts.push(c);
+            newChildIds.push(c.nostrEventId);
+          }
+        }
+
+        if (newChildIds.length > 0) {
+          const grandchildren = await prisma.ephemeralPost.findMany({
+            where: { parentNostrId: { in: newChildIds }, expiresAt: expiry, promotedToHash: null },
+          });
+          for (const gc of grandchildren) {
+            if (!seen.has(gc.nostrEventId)) {
+              seen.add(gc.nostrEventId);
+              allPosts.push(gc);
+            }
+          }
+        }
+      }
+
+      return NextResponse.json({ posts: allPosts.map(mapEphemeralPost) });
+    }
+
     const where: Record<string, unknown> = {
       expiresAt: { gt: new Date() },
       promotedToHash: null,
