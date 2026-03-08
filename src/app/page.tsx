@@ -377,11 +377,32 @@ function TopicsFeed({
     const isClosing = expandedEphIds.has(id);
     const wasEmpty = expandedEphIds.size === 0;
 
+    // Walk ancestors (for context above) and descendants (for full thread below)
+    const toExpand = new Set<string>();
+    if (!isClosing) {
+      toExpand.add(id);
+      let cur = ephById.get(id);
+      while (cur?.parentNostrId && ephById.has(cur.parentNostrId)) {
+        toExpand.add(cur.parentNostrId);
+        cur = ephById.get(cur.parentNostrId);
+      }
+      const queue = ephChildrenOf.get(id) ?? [];
+      for (let i = 0; i < queue.length; i++) {
+        const child = queue[i];
+        toExpand.add(child.nostrEventId);
+        const grandkids = ephChildrenOf.get(child.nostrEventId);
+        if (grandkids) for (const gk of grandkids) queue.push(gk);
+      }
+    }
+
     flushSync(() => {
       setExpandedEphIds((prev) => {
         const next = new Set(prev);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
+        if (isClosing) {
+          next.delete(id);
+        } else {
+          for (const eid of toExpand) next.add(eid);
+        }
         return next;
       });
     });

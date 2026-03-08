@@ -1,18 +1,28 @@
 #!/usr/bin/env bash
 #
-# Scrape 4chan /biz/ catalog, then drip-feed threads to the OCDN ingest API
-# over 4 hours. Designed to run every 8 hours via cron.
+# Scrape multiple 4chan board catalogs, then drip-feed each to the OCDN
+# ingest API. Boards are processed sequentially with delays between scrapes
+# (respects 4chan API rate limits) and each seed phase is drip-fed over a
+# share of the cycle window.
+#
+# Boards: biz, g, pol, lit, fit, adv
+#
+# Designed to run every 8 hours via cron. With 6 boards and 8h cycle,
+# each board gets ~1h of drip time plus buffer.
 #
 # crontab entry:
-#   0 */8 * * * /home/ocdn/ocdn/scripts/biz-scrape-and-seed.sh >> /home/ocdn/ocdn/logs/biz-seed.log 2>&1
+#   0 */8 * * * /home/ocdn/ocdn/scripts/biz-scrape-and-seed.sh >> /home/ocdn/ocdn/logs/seed.log 2>&1
 #
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 VENV_DIR="$PROJECT_DIR/.venv-seed"
-DATA_DIR="$PROJECT_DIR/data/4chan_biz"
-LOG_PREFIX="[biz-pipeline]"
+LOG_PREFIX="[seed-pipeline]"
+
+BOARDS=(biz g pol lit fit adv)
+SCRAPE_DELAY=3        # seconds between board scrapes (4chan asks ≤1 req/sec)
+DRIP_HOURS_PER=1.0    # drip-feed duration per board
 
 log() { echo "$LOG_PREFIX $(date '+%Y-%m-%d %H:%M:%S')  $*"; }
 
@@ -29,12 +39,20 @@ if [ ! -d "$VENV_DIR" ]; then
 fi
 source "$VENV_DIR/bin/activate"
 
-# ── Phase 1: Scrape ─────────────────────────────────────────────────────────
-log "Phase 1: Scraping /biz/ catalog"
-python3 "$SCRIPT_DIR/scrape_4chan_biz.py" --out-dir "$DATA_DIR"
+# ── Phase 1: Scrape all boards ──────────────────────────────────────────────
+log "Phase 1: Scraping ${#BOARDS[@]} boards: ${BOARDS[*]}"
+for board in "${BOARDS[@]}"; do
+  data_dir="$PROJECT_DIR/data/4chan_${board}"
+  log "  Scraping /${board}/"
+  python3 "$SCRIPT_DIR/scrape_4chan_biz.py" --board "$board" --out-dir "$data_dir"
+  sleep "$SCRAPE_DELAY"
+done
 
-# ── Phase 2: Seed (drip over 4 hours) ───────────────────────────────────────
-log "Phase 2: Seeding to $OCDN_API_URL (drip over 4h)"
-python3 "$SCRIPT_DIR/seed_4chan_biz.py" --drip-hours 4
+# ── Phase 2: Seed each board sequentially ────────────────────────────────────
+log "Phase 2: Seeding ${#BOARDS[@]} boards to ${OCDN_API_URL:-https://ocdn.vercel.app} (${DRIP_HOURS_PER}h each)"
+for board in "${BOARDS[@]}"; do
+  log "  Seeding /${board}/ (drip over ${DRIP_HOURS_PER}h)"
+  python3 "$SCRIPT_DIR/seed_4chan_biz.py" --board "$board" --drip-hours "$DRIP_HOURS_PER"
+done
 
-log "Pipeline complete"
+log "Pipeline complete (${#BOARDS[@]} boards)"
