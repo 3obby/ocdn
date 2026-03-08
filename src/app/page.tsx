@@ -422,8 +422,13 @@ function TopicsFeed({
   }
 
   function renderEphTree(epPosts: EphemeralPost[], depth: number, mode: "preview" | "thread"): React.ReactNode {
-    const limit = mode === "preview" && depth < CHILD_MAX_DEPTH
-      ? CHILD_LIMITS[depth] : epPosts.length;
+    const smKey = `eph:${epPosts[0]?.nostrEventId}:d${depth}`;
+    const isShowAll = showMore.has(smKey);
+    const limit = isShowAll
+      ? epPosts.length
+      : mode === "preview" && depth < CHILD_MAX_DEPTH
+        ? CHILD_LIMITS[depth]
+        : epPosts.length;
     const vis = epPosts.slice(0, limit);
     const rem = epPosts.length - vis.length;
 
