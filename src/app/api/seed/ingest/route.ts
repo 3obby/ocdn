@@ -141,13 +141,21 @@ export async function POST(request: Request) {
     try {
       const existing = await prisma.ephemeralPost.findUnique({
         where: { nostrEventId: event.id },
-        select: { nostrEventId: true, upvoteWeight: true },
+        select: { nostrEventId: true, upvoteWeight: true, topicHash: true },
       });
       if (existing) {
+        const updates: Record<string, unknown> = {};
         if (rootWeight > 1n && rootWeight !== existing.upvoteWeight) {
+          updates.upvoteWeight = rootWeight;
+        }
+        if (tHash && existing.topicHash !== tHash) {
+          updates.topic = topic;
+          updates.topicHash = tHash;
+        }
+        if (Object.keys(updates).length > 0) {
           await prisma.ephemeralPost.update({
             where: { nostrEventId: existing.nostrEventId },
-            data: { upvoteWeight: rootWeight },
+            data: updates,
           });
         }
         skipped++;
@@ -223,13 +231,21 @@ export async function POST(request: Request) {
         try {
           const existing = await prisma.ephemeralPost.findUnique({
             where: { nostrEventId: replyEvent.id },
-            select: { nostrEventId: true, upvoteWeight: true },
+            select: { nostrEventId: true, upvoteWeight: true, topicHash: true },
           });
           if (existing) {
+            const updates: Record<string, unknown> = {};
             if (replyWeight > 1n && replyWeight !== existing.upvoteWeight) {
+              updates.upvoteWeight = replyWeight;
+            }
+            if (tHash && existing.topicHash !== tHash) {
+              updates.topic = topic;
+              updates.topicHash = tHash;
+            }
+            if (Object.keys(updates).length > 0) {
               await prisma.ephemeralPost.update({
                 where: { nostrEventId: existing.nostrEventId },
-                data: { upvoteWeight: replyWeight },
+                data: updates,
               });
             }
             skipped++;
