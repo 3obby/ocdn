@@ -497,8 +497,9 @@ function TopicsFeed({
 
     const smKey = `sec:${sectionKey}`;
     const rootShowAll = showMore.has(smKey);
-    const visibleItems = rootShowAll ? items : items.slice(0, ROOT_LIMIT);
-    const hiddenCount = items.length - visibleItems.length;
+    const externallyPaginated = sectionKey === "_ew";
+    const visibleItems = rootShowAll || externallyPaginated ? items : items.slice(0, ROOT_LIMIT);
+    const hiddenCount = rootShowAll || externallyPaginated ? 0 : items.length - visibleItems.length;
 
     return (
       <div key={sectionKey} className="bg-[#111111] mb-2">
