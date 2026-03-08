@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   formatSats,
   topicLabel,
@@ -10,7 +10,8 @@ import {
   type FeedFilter,
   type EphemeralPost,
 } from "@/lib/mock-data";
-import { ChevronRight, ChevronDown, Loader2, Zap, Pencil } from "lucide-react";
+import { flushSync } from "react-dom";
+import { ChevronRight, ChevronDown, Loader2, Zap } from "lucide-react";
 import { type TextSize, TextSizeCtx } from "@/lib/text-size";
 import { TopBar } from "@/components/top-bar";
 import { FeedCard } from "@/components/feed-card";
@@ -293,6 +294,7 @@ function TopicsFeed({
   extraEwPosts,
   loadMoreEw,
   loadingMoreEw,
+  focusedEphId,
   onFocusEph,
 }: {
   groups: TopicGroup[];
@@ -353,8 +355,12 @@ function TopicsFeed({
     ephByTopic.set(key, arr);
   }
 
-  const [expandedEphId, setExpandedEphId] = useState<string | null>(null);
+  const [expandedEphIds, setExpandedEphIds] = useState<Set<string>>(new Set());
   const [showMore, setShowMore] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!focusedEphId) setExpandedEphIds(new Set());
+  }, [focusedEphId]);
 
   const CHILD_LIMITS = [3, 2] as const;
   const CHILD_MAX_DEPTH = CHILD_LIMITS.length;
@@ -365,58 +371,38 @@ function TopicsFeed({
   }
 
   function handleExpandEph(id: string) {
-    if (onFocusEph) {
+    const card = document.querySelector(`[data-nostr-id="${id}"]`);
+    const scrollEl = document.querySelector('[data-feed-scroll]');
+    const prevTop = card?.getBoundingClientRect().top;
+    const isClosing = expandedEphIds.has(id);
+    const wasEmpty = expandedEphIds.size === 0;
+
+    flushSync(() => {
+      setExpandedEphIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+    });
+
+    if (card && scrollEl && prevTop !== undefined && !isClosing) {
+      const newCard = document.querySelector(`[data-nostr-id="${id}"]`);
+      if (newCard) {
+        const newTop = newCard.getBoundingClientRect().top;
+        scrollEl.scrollTop += newTop - prevTop;
+        newCard.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+
+    if (!isClosing && wasEmpty && onFocusEph) {
       onFocusEph(id);
-    } else {
-      setExpandedEphId((prev) => (prev === id ? null : id));
     }
   }
 
-  // Render ephemeral children when a post is expanded (depth starts at 0 = direct children)
-  function renderEphChildren(epPosts: EphemeralPost[], depth: number, parentKey: string): React.ReactNode {
-    if (depth >= CHILD_MAX_DEPTH) return null;
-    const limit = CHILD_LIMITS[depth];
-    const smKey = `${parentKey}:c${depth}`;
-    const showAll = showMore.has(smKey);
-    const vis = showAll ? epPosts : epPosts.slice(0, limit);
-    const rem = epPosts.length - vis.length;
-
-    return (
-      <>
-        {vis.map((ep) => {
-          const kids = ephChildrenOf.get(ep.nostrEventId) ?? [];
-          const isExp = expandedEphId === ep.nostrEventId;
-          return (
-            <div key={ep.nostrEventId}>
-              <EphemeralPostCard
-                post={ep}
-                isExpanded={isExp || myEphIds.has(ep.nostrEventId)}
-                onExpand={handleExpandEph}
-                optimistic={myEphIds.has(ep.nostrEventId)}
-                onReply={onReplyEphemeral}
-                onInscribe={onInscribeEphemeral}
-                onViewTx={expandPost}
-              />
-              {kids.length > 0 && isExp && (
-                <div className="ml-3 border-l border-dashed border-white/[0.08]">
-                  {renderEphChildren(kids, depth + 1, ep.nostrEventId)}
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {rem > 0 && (
-          <button onClick={() => toggleShowMore(smKey)} className="w-full py-1.5 text-[11px] text-white/20 hover:text-white/40 transition-colors">
-            +{rem} more
-          </button>
-        )}
-      </>
-    );
-  }
-
-  function renderEphPreview(epPosts: EphemeralPost[], depth: number, rootId: string): React.ReactNode {
-    if (depth >= CHILD_MAX_DEPTH) return null;
-    const limit = CHILD_LIMITS[depth];
+  function renderEphTree(epPosts: EphemeralPost[], depth: number, mode: "preview" | "thread"): React.ReactNode {
+    const limit = mode === "preview" && depth < CHILD_MAX_DEPTH
+      ? CHILD_LIMITS[depth] : epPosts.length;
     const vis = epPosts.slice(0, limit);
     const rem = epPosts.length - vis.length;
 
@@ -424,23 +410,32 @@ function TopicsFeed({
       <>
         {vis.map((ep) => {
           const kids = ephChildrenOf.get(ep.nostrEventId) ?? [];
+          const isExp = expandedEphIds.has(ep.nostrEventId);
           return (
             <div key={ep.nostrEventId}>
               <EphemeralPostCard
                 post={ep}
-                isExpanded={false}
-                onExpand={() => handleExpandEph(rootId)}
+                isExpanded={isExp || myEphIds.has(ep.nostrEventId)}
+                onExpand={() => handleExpandEph(ep.nostrEventId)}
+                optimistic={myEphIds.has(ep.nostrEventId)}
+                onReply={isExp ? onReplyEphemeral : undefined}
+                onInscribe={isExp ? onInscribeEphemeral : undefined}
+                onViewTx={isExp ? expandPost : undefined}
               />
               {kids.length > 0 && (
                 <div className="ml-3 border-l border-dashed border-white/[0.08]">
-                  {renderEphPreview(kids, depth + 1, rootId)}
+                  {isExp
+                    ? renderEphTree(kids, 0, "thread")
+                    : mode === "preview" && depth + 1 < CHILD_MAX_DEPTH
+                      ? renderEphTree(kids, depth + 1, "preview")
+                      : null}
                 </div>
               )}
             </div>
           );
         })}
         {rem > 0 && (
-          <button onClick={() => handleExpandEph(rootId)} className="w-full py-1.5 text-[11px] text-white/20 hover:text-white/40 transition-colors">
+          <button onClick={() => toggleShowMore(`eph:${epPosts[0]?.nostrEventId}:d${depth}`)} className="w-full py-1.5 text-[11px] text-white/20 hover:text-white/40 transition-colors">
             +{rem} more
           </button>
         )}
@@ -546,23 +541,23 @@ function TopicsFeed({
               // ephemeral item
               const ep = item.post;
               const kids = ephChildrenOf.get(ep.nostrEventId) ?? [];
-              const isExp = expandedEphId === ep.nostrEventId;
+              const isExp = expandedEphIds.has(ep.nostrEventId);
               return [
                 <EphemeralPostCard
                   key={ep.nostrEventId}
                   post={ep}
                   isExpanded={isExp || myEphIds.has(ep.nostrEventId)}
-                  onExpand={handleExpandEph}
+                  onExpand={() => handleExpandEph(ep.nostrEventId)}
                   optimistic={myEphIds.has(ep.nostrEventId)}
-                  onReply={onReplyEphemeral}
-                  onInscribe={onInscribeEphemeral}
-                  onViewTx={expandPost}
+                  onReply={isExp ? onReplyEphemeral : undefined}
+                  onInscribe={isExp ? onInscribeEphemeral : undefined}
+                  onViewTx={isExp ? expandPost : undefined}
                 />,
                 ...(kids.length > 0 ? [
                   <div key={`eph-kids-${ep.nostrEventId}`} className="ml-3 border-l border-dashed border-white/[0.08]">
                     {isExp
-                      ? renderEphChildren(kids, 0, ep.nostrEventId)
-                      : renderEphPreview(kids, 0, ep.nostrEventId)}
+                      ? renderEphTree(kids, 0, "thread")
+                      : renderEphTree(kids, 0, "preview")}
                   </div>,
                 ] : []),
               ];
@@ -652,90 +647,6 @@ function TopicsFeed({
   );
 }
 
-function EphemeralThreadView({
-  focusedId,
-  allEphemeral,
-  onReply,
-  onInscribe,
-  onViewTx,
-}: {
-  focusedId: string;
-  allEphemeral: EphemeralPost[];
-  onReply?: (post: EphemeralPost) => void;
-  onInscribe?: (post: EphemeralPost) => void;
-  onViewTx?: (hash: string) => void;
-}) {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  const byId = new Map(allEphemeral.map((ep) => [ep.nostrEventId, ep]));
-  const childrenOf = new Map<string, EphemeralPost[]>();
-  for (const ep of allEphemeral) {
-    if (ep.parentNostrId && byId.has(ep.parentNostrId)) {
-      const arr = childrenOf.get(ep.parentNostrId) ?? [];
-      arr.push(ep);
-      childrenOf.set(ep.parentNostrId, arr);
-    }
-  }
-
-  const focused = byId.get(focusedId);
-  if (!focused) return <div className="flex h-32 items-center justify-center text-[16px] text-white/10">post not found</div>;
-
-  function renderBranch(posts: EphemeralPost[]): React.ReactNode {
-    return posts.map((ep) => {
-      const kids = childrenOf.get(ep.nostrEventId) ?? [];
-      const isExp = expandedId === ep.nostrEventId;
-      return (
-        <div key={ep.nostrEventId}>
-          <EphemeralPostCard
-            post={ep}
-            isExpanded={isExp}
-            onExpand={(id) => setExpandedId((prev) => (prev === id ? null : id))}
-            onReply={onReply}
-            onInscribe={onInscribe}
-            onViewTx={onViewTx}
-          />
-          {kids.length > 0 && isExp && (
-            <div className="ml-3 border-l border-dashed border-white/[0.08]">
-              {renderBranch(kids)}
-            </div>
-          )}
-        </div>
-      );
-    });
-  }
-
-  const kids = childrenOf.get(focusedId) ?? [];
-
-  return (
-    <div className="bg-[#111111] mb-2">
-      <div className="pl-4">
-        <EphemeralPostCard
-          post={focused}
-          isExpanded={true}
-          onReply={onReply}
-          onInscribe={onInscribe}
-          onViewTx={onViewTx}
-        />
-        {kids.length > 0 && (
-          <div className="ml-3 border-l border-dashed border-white/[0.08]">
-            {renderBranch(kids)}
-          </div>
-        )}
-      </div>
-      {onReply && (
-        <div className="px-4 py-3 border-t border-dashed border-white/[0.08]">
-          <button
-            onClick={() => onReply(focused)}
-            className="text-white/30 hover:text-white/50 transition-colors"
-          >
-            <Pencil size={14} strokeWidth={1.5} />
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [feedFilter, setFeedFilter] = useState<FeedFilter>({ type: "all" });
@@ -784,12 +695,6 @@ export default function Home() {
   const [extraEwPosts, setExtraEwPosts] = useState<Post[]>([]);
   const [ewCursor, setEwCursor] = useState<string | null>(null);
   const [loadingMoreEw, setLoadingMoreEw] = useState(false);
-
-  const allEphemeral = useMemo(() => {
-    const myNoBtc = myEphemeralPosts.filter((e) => !e.parentContentHash);
-    const myIds = new Set(myNoBtc.map((m) => m.nostrEventId));
-    return [...myNoBtc, ...homeEphemeral.filter((ep) => !myIds.has(ep.nostrEventId))];
-  }, [myEphemeralPosts, homeEphemeral]);
 
   const tipHeightRef = useRef(0);
   const sortRef = useRef(sortMode);
@@ -1194,12 +1099,16 @@ export default function Home() {
   }, []);
 
   const openEphThread = useCallback((nostrEventId: string) => {
+    if (focusedEphId === nostrEventId) {
+      if (window.history.state?.eph) window.history.back();
+      return;
+    }
     setExpandedPostId(null);
     setThreadPostId(null);
     setFocusedEphId(nostrEventId);
     const url = buildPath(filterRef.current, nostrEventId);
     window.history.pushState({ thread: nostrEventId, eph: true }, "", url);
-  }, []);
+  }, [focusedEphId]);
 
   const closeThread = useCallback(() => {
     setThreadPostId(null);
@@ -1414,15 +1323,7 @@ export default function Home() {
                 className="h-full overflow-y-auto"
                 onScroll={handleFeedScroll}
               >
-                {focusedEphId ? (
-                  <EphemeralThreadView
-                    focusedId={focusedEphId}
-                    allEphemeral={allEphemeral}
-                    onReply={(ep) => setComposing({ replyToId: null, replyToNostrId: ep.nostrEventId, topicName: ep.topic })}
-                    onInscribe={(ep) => setComposing({ replyToId: null, topicName: ep.topic, initialText: ep.content })}
-                    onViewTx={expandPost}
-                  />
-                ) : sortMode === "topics" && feedFilter.type === "all"
+                {sortMode === "topics" && feedFilter.type === "all"
                   ? <TopicsFeed
                       groups={groups}
                       posts={posts}
@@ -1449,6 +1350,7 @@ export default function Home() {
                       extraEwPosts={extraEwPosts}
                       loadMoreEw={loadMoreEw}
                       loadingMoreEw={loadingMoreEw}
+                      focusedEphId={focusedEphId}
                       onFocusEph={openEphThread}
                     />
                   : (

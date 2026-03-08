@@ -65,6 +65,7 @@ export function ComposeSheet({
   const sz = useTextSize();
   const [step, setStep] = useState<Step>(initialText ? "preview" : "compose");
   const [text, setText] = useState(initialText ?? "");
+  const [localTopic, setLocalTopic] = useState(topicName ?? "");
   const [cost, setCost] = useState<CostEstimate | null>(null);
   const [payment, setPayment] = useState<PaymentData | null>(null);
   const [payStatus, setPayStatus] = useState<PaymentStatus>("creating");
@@ -81,10 +82,11 @@ export function ComposeSheet({
   const isReply = replyToId !== null || replyToNostrId != null;
   const isBtcReply = replyToId !== null;
   const isNostrReply = replyToNostrId != null && !isBtcReply;
+  const activeTopic = isReply ? topicName : (localTopic.trim() || null);
   const label = isReply
     ? "reply"
-    : topicName
-      ? `\u2192 ${topicName}`
+    : activeTopic
+      ? `\u2192 ${activeTopic}`
       : "new post";
 
   // Background PoW mining: restart (debounced) when content changes
@@ -107,7 +109,7 @@ export function ComposeSheet({
         const template = buildPostEvent({
           content: text.trim(),
           pubkey,
-          topic: topicName ?? undefined,
+          topic: activeTopic ?? undefined,
           parentContentHash: isBtcReply ? replyToId : undefined,
           parentNostrId: isNostrReply ? replyToNostrId : undefined,
         });
@@ -125,7 +127,7 @@ export function ComposeSheet({
     return () => {
       if (miningDebounceRef.current) clearTimeout(miningDebounceRef.current);
     };
-  }, [text, step, topicName, replyToId, replyToNostrId, isBtcReply, isNostrReply]);
+  }, [text, step, localTopic, replyToId, replyToNostrId, isBtcReply, isNostrReply]);
 
   // Cleanup mining on unmount
   useEffect(() => {
@@ -236,7 +238,7 @@ export function ComposeSheet({
         const template = buildPostEvent({
           content: text.trim(),
           pubkey,
-          topic: topicName ?? undefined,
+          topic: activeTopic ?? undefined,
           parentContentHash: isBtcReply ? replyToId : undefined,
           parentNostrId: isNostrReply ? replyToNostrId : undefined,
         });
@@ -256,8 +258,8 @@ export function ComposeSheet({
       broadcastToRelays(signed).catch(() => {});
 
       let ephTopicHash: string | null = null;
-      if (topicName) {
-        const normalized = topicName.toLowerCase().trim().normalize("NFC");
+      if (activeTopic) {
+        const normalized = activeTopic.toLowerCase().trim().normalize("NFC");
         const hashBytes = computeTopicHash(normalized);
         ephTopicHash = Array.from(hashBytes).map((b) => b.toString(16).padStart(2, "0")).join("");
       }
@@ -266,7 +268,7 @@ export function ComposeSheet({
         nostrEventId: signed.id,
         nostrPubkey: signed.pubkey,
         content: signed.content,
-        topic: topicName ?? null,
+        topic: activeTopic,
         topicHash: ephTopicHash,
         parentContentHash: isBtcReply ? replyToId : null,
         parentNostrId: isNostrReply ? (replyToNostrId ?? null) : null,
@@ -287,7 +289,7 @@ export function ComposeSheet({
       setIsSubmitting(false);
       setErrorMsg(err instanceof Error ? err.message : "posting failed");
     }
-  }, [text, topicName, isReply, replyToId, minedDifficulty, isSubmitting, onSubmitted, onClose]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [text, activeTopic, isReply, replyToId, minedDifficulty, isSubmitting, onSubmitted, onClose]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleNext = useCallback(() => {
     if (!text.trim()) return;
@@ -307,13 +309,13 @@ export function ComposeSheet({
         content: text.trim(),
       };
       if (isBtcReply) body.parentHash = replyToId;
-      else if (topicName) body.topic = topicName;
+      else if (activeTopic) body.topic = activeTopic;
 
       if (!ephCreatedRef.current) {
         ephCreatedRef.current = true;
         const ephBody: Record<string, unknown> = {
           content: text.trim(),
-          topic: topicName ?? undefined,
+          topic: activeTopic ?? undefined,
         };
         if (isBtcReply) ephBody.parentHash = replyToId;
 
@@ -348,7 +350,7 @@ export function ComposeSheet({
       setPayStatus("error");
       setErrorMsg(e instanceof Error ? e.message : "Failed to create payment");
     }
-  }, [text, isReply, replyToId, topicName, isBtcReply]);
+  }, [text, isReply, replyToId, activeTopic, isBtcReply]);
 
   const copyToClipboard = useCallback(
     (value: string, type: "address" | "amount") => {
@@ -394,6 +396,18 @@ export function ComposeSheet({
         {step === "compose" && (
           <>
             <div className="flex-1 overflow-y-auto p-4">
+              {!isReply && (
+                <div className="flex items-center gap-1 mb-3 pb-2 border-b border-white/[0.06]">
+                  <span className="text-white/20 text-[13px]">/</span>
+                  <input
+                    type="text"
+                    value={localTopic}
+                    onChange={(e) => setLocalTopic(e.target.value)}
+                    placeholder="topic"
+                    className={`flex-1 bg-transparent ${ts(sz)} text-white/50 outline-none placeholder:text-white/15`}
+                  />
+                </div>
+              )}
               <textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
@@ -439,9 +453,9 @@ export function ComposeSheet({
           <>
             <div className="flex-1 overflow-y-auto p-4">
               <div className="border border-border/50 rounded-lg p-4 mb-4">
-                {topicName && !isReply && (
+                {activeTopic && !isReply && (
                   <span className={`${ts(sz)} text-burn/60 block mb-1`}>
-                    {topicName}
+                    {activeTopic}
                   </span>
                 )}
                 <p className={`${ts(sz)} text-white/90 leading-relaxed whitespace-pre-wrap`}>

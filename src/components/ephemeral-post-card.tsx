@@ -107,14 +107,19 @@ export function EphemeralPostCard({
   }
 
   // ── Expanded: full content + metadata + actions ──
+  // Text is the FIRST element — same position as collapsed mode
   return (
     <div
       ref={cardRef}
       data-nostr-id={post.nostrEventId}
       onClick={() => onExpand?.(post.nostrEventId)}
-      className="relative border border-dashed border-white/[0.08] px-4 py-2.5 bg-white/[0.04] cursor-pointer"
+      className="relative border border-dashed border-white/[0.08] py-2 px-4 bg-white/[0.04] cursor-pointer"
     >
-      <div className={`flex items-center gap-1.5 text-[10px] tabular-nums mb-1`}>
+      <p className={`${ts(sz)} text-white/90 leading-snug whitespace-pre-wrap`}>
+        <PostContent content={post.content} />
+      </p>
+
+      <div className={`flex items-center gap-1.5 text-[10px] tabular-nums mt-1.5`}>
         {displayZeros > 0 && (
           <>
             <span className={`font-medium ${isMining ? "text-yellow-400/60 animate-pulse" : "text-white/40"}`}>
@@ -134,10 +139,6 @@ export function EphemeralPostCard({
           {formatTime(new Date(post.createdAt).getTime())}
         </span>
       </div>
-
-      <p className={`${ts(sz)} text-white/90 leading-snug whitespace-pre-wrap`}>
-        <PostContent content={post.content} />
-      </p>
 
       {!optimistic && (
         <div className="flex items-center gap-2.5 mt-1.5">
