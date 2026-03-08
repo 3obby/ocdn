@@ -7,11 +7,12 @@
 #
 # Boards: biz, g, pol, lit, fit, adv
 #
-# Designed to run every 8 hours via cron. With 6 boards and 8h cycle,
-# each board gets ~1h of drip time plus buffer.
+# Designed to run every 2 hours via cron. Re-scans pick up new threads
+# and update upvoteWeight on existing ones based on reply activity.
+# Most posts are duplicates on re-scan so processing is fast.
 #
 # crontab entry:
-#   0 */8 * * * /home/ocdn/ocdn/scripts/biz-scrape-and-seed.sh >> /home/ocdn/ocdn/logs/seed.log 2>&1
+#   0 */2 * * * /home/ocdn/ocdn/scripts/biz-scrape-and-seed.sh >> /home/ocdn/ocdn/logs/seed.log 2>&1
 #
 set -euo pipefail
 
@@ -22,7 +23,7 @@ LOG_PREFIX="[seed-pipeline]"
 
 BOARDS=(biz g pol lit fit adv)
 SCRAPE_DELAY=3        # seconds between board scrapes (4chan asks ≤1 req/sec)
-DRIP_HOURS_PER=1.0    # drip-feed duration per board
+DRIP_HOURS_PER=0      # no drip on re-scan (most posts are dupes, fast)
 
 log() { echo "$LOG_PREFIX $(date '+%Y-%m-%d %H:%M:%S')  $*"; }
 
