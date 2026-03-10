@@ -181,10 +181,12 @@ Signal      OP_RETURN tx carrying an ordered list of plain-text
             their assembly across keys and time creates a navigable
             knowledge graph.
 
-Cross-ref   Deferred. Optional reference hashes in the Post/Reply
-            envelope — untyped edges ("this post references those
-            posts"). No separate transaction type; references travel
-            with the post. Interpretation lives in content.
+Cross-ref   v2. Ordered list of 32-byte reference hashes in the
+            Post/Reply envelope (ref_count + refs). No separate
+            transaction type; references travel with the post.
+            Each ref is a content_hash (cross-post) or topic_hash
+            (cross-entity). Author-signed via refs_commitment in
+            content_hash preimage. ~8 sats per ref at floor fees.
 
 Edit        Tx referencing original content hash with EDIT relation.
             New content in witness. The website decides display (latest
@@ -699,14 +701,19 @@ Lightning            Payment rail for the portal rake. User pays
 
 ---
 
-PROTOCOL SPECIFICATION (v1 MINIMUM)
+PROTOCOL SPECIFICATION
 
-Scope. Four transaction types: Post, Reply, Burn, Signal. This is
-the minimum viable protocol — write text to Bitcoin, organize by
-topic, thread replies, burn sats as ranking signal, and link
-entities/concepts via cheap plain-text references. Edit and Batch
-are deferred to future versions. The type code space accommodates
-them without breaking existing indexers.
+Scope. Four transaction types: Post, Reply, Burn, Signal. Two
+protocol versions: v1 (single-parent threading) and v2 (cross-
+references). v1 is the minimum viable protocol — write text to
+Bitcoin, organize by topic, thread replies, burn sats as ranking
+signal, and link entities/concepts via cheap plain-text references.
+v2 adds an ordered list of reference hashes to the Post/Reply
+envelope, turning the thread tree into a navigable DAG. Each ref
+is author-signed (committed transitively via content_hash), costs
+~8 sats at floor fees, and is fully reconstructable by any indexer.
+Edit and Batch are deferred to future versions. The type code space
+accommodates them without breaking existing indexers.
 
 Low-responsibility defaults (resolved):
 
@@ -730,7 +737,9 @@ Low-responsibility defaults (resolved):
                     confirmation with visual indicator; treat 6+
                     as settled.
 
-  Cross-refs        Deferred. v1 ranking uses sats committed + time.
+  Cross-refs        v2 (see CROSS-REFERENCES below). v1 ranking
+                    uses sats committed + time. v2 adds ref-based
+                    DAG edges to the ranking surface.
 
   Policy risk       Acknowledged. v1 depends on current Taproot and
                     OP_RETURN relay policies. Witness envelope encoding
@@ -765,7 +774,8 @@ Low-responsibility defaults (resolved):
 PROTOCOL CONSTANTS
 
   Tag               "ocdn" (0x6F 0x63 0x64 0x6E)
-  Version           0x01
+  Version           0x01 (v1, no cross-refs)
+                    0x02 (v2, cross-refs in envelope + content_hash)
   Type codes        POST = 0x01, REPLY = 0x02, BURN = 0x03,
                     SIGNAL = 0x06
                     Reserved: EDIT = 0x04, BATCH = 0x05
@@ -774,8 +784,23 @@ PROTOCOL CONSTANTS
 
 CONTENT HASH
 
+  v1 (version = 0x01):
+
   content_hash = tagged_hash("ocdn/content",
       pubkey || nonce || parent_ref || content)
+
+  v2 (version = 0x02):
+
+  content_hash = tagged_hash("ocdn/content",
+      pubkey || nonce || parent_ref || refs_commitment || content)
+
+  refs_commitment:
+      0x00 * 32                                  if ref_count = 0
+      SHA256(ref_1 || ref_2 || ... || ref_n)     if ref_count > 0
+
+  Ref order in the concatenation matches the envelope order. The
+  commitment is order-dependent — the author chose the ordering and
+  it is part of the signed statement.
 
   tagged_hash(tag, msg) = SHA256(SHA256(tag) || SHA256(tag) || msg)
   per BIP-340's tagged hash construction.
@@ -792,7 +817,13 @@ CONTENT HASH
   The content hash is 32 bytes. It is the canonical identifier for a
   piece of content across all protocol actions (replies reference it,
   burns target it). Identical text under different topics or parents
-  produces different content hashes.
+  produces different content hashes. In v2, identical text with
+  different cross-references also produces different content hashes —
+  the references are part of what the author said.
+
+  The version byte determines the preimage format. v1 and v2 content
+  hashes for the same text are different (v2 preimage includes
+  refs_commitment). The indexer must support both.
 
   Properties satisfied:
   - Deterministic (computable before mining)
@@ -800,16 +831,18 @@ CONTENT HASH
   - Author-bound (pubkey in preimage)
   - Tx-independent (no txid dependency)
   - Position-bound (parent_ref in preimage)
+  - Ref-bound (refs_commitment in preimage, v2 only)
 
 ---
 
 AUTHOR SIGNATURE
 
   The signature commits to the content_hash, not the content fields.
-  content_hash already binds (pubkey, nonce, parent_ref, content).
-  The signature adds protocol context (version, type). No field is
-  serialized twice. sign_msg is fixed-size and uniform across all
-  action types.
+  content_hash already binds (pubkey, nonce, parent_ref, content)
+  in v1, and (pubkey, nonce, parent_ref, refs_commitment, content)
+  in v2. The signature adds protocol context (version, type). No
+  field is serialized twice. sign_msg is fixed-size and uniform
+  across all action types.
 
   sign_msg = tagged_hash("ocdn/sign",
       version || type || content_hash)
@@ -823,7 +856,8 @@ AUTHOR SIGNATURE
   Serialization invariant: variable-length data (topic, content)
   appears in exactly one preimage each (topic_hash, content_hash),
   where it is terminal. sign_msg is always 34 bytes. All hierarchical
-  context (topic, parent) is committed transitively via content_hash.
+  context (topic, parent, cross-refs) is committed transitively via
+  content_hash.
 
   Pubkey is committed transitively via content_hash and independently
   by BIP-340's internal challenge hash (R || P || m). Defense in depth.
@@ -838,21 +872,49 @@ WITNESS ENVELOPE (POST, REPLY)
   Envelope fields as sequential data pushes:
 
     "ocdn"              protocol tag, 4 bytes
-    <version>           1 byte
+    <version>           1 byte (0x01 or 0x02)
     <type>              1 byte (0x01 POST, 0x02 REPLY)
     <nonce>             8 bytes
     <pubkey>            32 bytes, x-only
     <sig>               64 bytes, BIP-340
     <topic>             variable UTF-8, POST only (empty push = standalone)
     <parent_hash>       32 bytes, REPLY only (omitted for POST)
+    <ref_count>         1 byte, v2 only (0x00 if no refs; omitted in v1)
+    <ref_1>             32 bytes, repeated ref_count times (v2 only)
+    ...
+    <ref_n>             32 bytes
     <content>           variable UTF-8, multiple pushes if >520 bytes
 
   The type byte determines the relational field: POST carries a topic
   push (variable, may be empty), REPLY carries parent_hash (fixed 32).
-  Fixed fields first, then relational field, then content.
+  Fixed fields first, then relational field, then refs (v2), then
+  content.
 
-  Overhead: POST = 110 bytes + topic + content.
-            REPLY = 142 bytes + content.
+  Each ref is a 32-byte hash — either a content_hash (cross-post
+  link) or a topic_hash (cross-entity link). No per-ref type tag;
+  the indexer resolves by lookup against known hashes. Collision
+  between tagged_hash("ocdn/content", ...) and tagged_hash(
+  "ocdn/topic", ...) is negligible (~2^-128). Unresolved refs are
+  stored and resolved retroactively when the target is indexed.
+
+  Ref semantics:
+    Multi-parent reply    REPLY parent_hash = primary parent (tree).
+                          refs = additional parents (DAG edges).
+    Multi-entity post     POST topic = primary entity. refs contain
+                          topic_hash values of additional entities.
+                          One inscription, N entity associations.
+    Evidence linking       refs = content_hashes of referenced posts.
+                          "This claim cites that evidence."
+    Entity merging        POST under topic A with ref to topic_hash(B).
+                          Creates a cross-entity edge: A and B are
+                          related. The portal decides display (merge
+                          pages, "related entities" section, etc.).
+
+  Overhead: v1 POST = 110 bytes + topic + content.
+            v1 REPLY = 142 bytes + content.
+            v2 POST = 111 bytes + topic + (32 * ref_count) + content.
+            v2 REPLY = 143 bytes + (32 * ref_count) + content.
+            No-ref v2 post adds 1 byte vs v1.
 
   The envelope lives in a Taproot script-path spend, requiring the
   commit/reveal transaction pair:
@@ -951,13 +1013,28 @@ INDEXER RULES
   1. Witness scan. For each transaction with a Taproot script-path
      spend, inspect the witness stack for a script containing:
      OP_FALSE OP_IF OP_PUSH "ocdn" ...
-     If found: parse envelope fields in order. Compute parent_ref
-     (topic_hash for POST, parent_hash for REPLY, null for standalone).
-     Compute content_hash from (pubkey, nonce, parent_ref, content).
-     Compute sign_msg from (version, type, content_hash). Verify
-     author signature. Index the content. For POST with topic, index
-     under topic_hash. For REPLY, validate that parent_hash references
-     existing indexed content.
+     If found: parse version byte.
+
+     version 0x01 (v1): parse envelope fields in order. Compute
+     parent_ref (topic_hash for POST, parent_hash for REPLY, null
+     for standalone). Compute content_hash from (pubkey, nonce,
+     parent_ref, content). Compute sign_msg from (version, type,
+     content_hash). Verify author signature. Index the content.
+     For POST with topic, index under topic_hash. For REPLY,
+     validate that parent_hash references existing indexed content.
+
+     version 0x02 (v2): parse envelope fields through the relational
+     field (topic or parent_hash). Read ref_count (1 byte). Read
+     ref_count * 32 bytes as refs. Remaining pushes = content.
+     Compute refs_commitment: if ref_count = 0, use 0x00 * 32;
+     else SHA256(ref_1 || ... || ref_n). Compute content_hash from
+     (pubkey, nonce, parent_ref, refs_commitment, content). Compute
+     sign_msg from (version, type, content_hash). Verify author
+     signature. Index the content. For each ref, resolve against
+     known content_hashes and topic_hashes. Index cross-post edges
+     (ref matches content_hash) and cross-entity edges (ref matches
+     topic_hash). Unresolved refs are stored and resolved retro-
+     actively when the target is later indexed.
 
   2. OP_RETURN scan. For each transaction output that is OP_RETURN,
      check if payload begins with "ocdn". If so: parse version and
@@ -984,15 +1061,16 @@ INDEXER RULES
 
   Invalid envelopes (bad signature, unknown version with same tag,
   malformed fields) are silently ignored. The indexer processes only
-  what it can fully validate.
+  what it can fully validate. The indexer must support both v1 and
+  v2 envelopes concurrently — version byte determines parsing path.
 
 ---
 
-COST ESTIMATES (v1, NO BATCHING)
+COST ESTIMATES (NO BATCHING)
 
   At 1 sat/vbyte (low-fee environment):
 
-  POST, 500 bytes content:
+  POST, 500 bytes content, no refs (v1 or v2 ref_count=0):
     Commit tx:  ~150 vbytes                = ~150 sats
     Reveal tx:  ~250 vbytes (110 overhead
                 + topic + 500 content,      = ~250 sats
@@ -1000,6 +1078,14 @@ COST ESTIMATES (v1, NO BATCHING)
     Miner fees total:                        ~400 sats
     Portal rake:                            ~1,000 sats
     User cost:                              ~1,400 sats
+
+  v2 ref cost delta (witness discount: 4x):
+    ref_count byte:        +1 byte  = +0.25 weight units
+    Per ref (32 bytes):    +32 bytes = +8 weight units
+    1 ref:   ~8 extra sats at 1 sat/vB
+    2 refs: ~16 extra sats
+    5 refs: ~40 extra sats
+    Multi-entity post linking 3 entities: ~24 sats above base cost.
 
   BURN:
     Single tx: ~80 vbytes (no payment       = ~80 sats relay minimum
@@ -1011,6 +1097,7 @@ COST ESTIMATES (v1, NO BATCHING)
   At 50 sat/vbyte (high-fee):
     POST becomes ~20,000 sats miner fee + rake = ~21,000 sats
     BURN relay minimum becomes ~4,000 sats + rake + burn amount
+    Per ref becomes ~400 sats (still cheap relative to base cost)
 
   SIGNAL (self-signed OP_RETURN):
     Single tx: ~80 vbytes                = ~80 sats at 1 sat/vB
@@ -1031,16 +1118,47 @@ COST ESTIMATES (v1, NO BATCHING)
 
 ---
 
+CROSS-REFERENCES (v2)
+
+  v2 envelopes carry an ordered list of 32-byte reference hashes
+  between the relational field and content. These turn the single-
+  parent thread tree into a directed acyclic graph (DAG).
+
+  Design constraints satisfied:
+  - Author-signed: refs are committed via refs_commitment in the
+    content_hash preimage. The portal cannot inject or alter refs
+    without breaking the signature.
+  - Minimal cost: 1 byte (ref_count) + 32 bytes per ref, at witness
+    discount. ~8 sats per ref at floor fees.
+  - Fully reconstructable: any indexer scanning blocks with knowledge
+    of the v2 envelope format reconstructs all DAG edges.
+  - Backward compatible: v1 envelopes are still valid. The version
+    byte determines the parsing path.
+
+  Each ref is a raw 32-byte hash. No per-ref type tag — the indexer
+  resolves by lookup against known content_hashes (cross-post edge)
+  and topic_hashes (cross-entity edge). tagged_hash domain separation
+  makes collision negligible (~2^-128). Unresolved refs (forward
+  references, not-yet-indexed targets) are stored and resolved
+  retroactively.
+
+  Ref order is canonical — it matches the envelope encoding order
+  and is preserved in refs_commitment. The author chose the order;
+  the first ref is the most relevant.
+
+  Signals (OP_RETURN, ~80 sats) remain the tool for standalone
+  entity-to-entity association assertions that are not attached to
+  a specific post. Refs are for post-bound associations: "this
+  specific post references those specific things."
+
+---
+
 DEFERRED (FUTURE VERSIONS)
 
   Edit (0x04)         Witness envelope referencing original content
                       hash. Same author (indexer verifies pubkey).
                       Portal decides display: latest edit, full
                       history, diff view.
-
-  Cross-references    Optional reference hashes in Post/Reply envelope.
-                      Untyped edges — protocol-level DAG for cross-
-                      thread linking. Interpretation lives in content.
 
   Batch (0x05)        Multiple posts in one commit/reveal. Merkle tree
                       of content hashes in the envelope. Per-post
