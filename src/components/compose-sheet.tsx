@@ -74,6 +74,7 @@ export function ComposeSheet({
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
   const [minedDifficulty, setMinedDifficulty] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [postSuccess, setPostSuccess] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const ephCreatedRef = useRef(false);
   const miningHandleRef = useRef<MiningHandle | null>(null);
@@ -283,8 +284,9 @@ export function ComposeSheet({
         createdAt: new Date().toISOString(),
       };
 
+      setPostSuccess(true);
       onSubmitted?.(ephPost);
-      onClose();
+      setTimeout(() => onClose(), 800);
     } catch (err) {
       setIsSubmitting(false);
       setErrorMsg(err instanceof Error ? err.message : "posting failed");
@@ -372,6 +374,11 @@ export function ComposeSheet({
 
   return (
     <Sheet open onOpenChange={(open) => !open && onClose()}>
+      {copied && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 rounded-lg bg-white/90 text-black text-sm font-medium animate-in fade-in duration-200">
+          Copied to clipboard
+        </div>
+      )}
       <SheetContent
         side="bottom"
         showCloseButton={false}
@@ -403,7 +410,7 @@ export function ComposeSheet({
                     type="text"
                     value={localTopic}
                     onChange={(e) => setLocalTopic(e.target.value)}
-                    placeholder="topic"
+                    placeholder="e.g. bitcoin"
                     className={`flex-1 bg-transparent ${ts(sz)} text-white/50 outline-none placeholder:text-white/15`}
                   />
                 </div>
@@ -434,7 +441,7 @@ export function ComposeSheet({
                   </button>
                 )}
                 <button
-                  className={`px-5 py-2 ${ts(sz)} tracking-wide transition-colors ${
+                  className={`px-5 py-2 ${ts(sz)} tracking-wide transition-all active:scale-95 ${
                     text.trim() && !isSubmitting
                       ? "text-black bg-white hover:bg-white/90"
                       : "text-black/40 bg-white/20 cursor-not-allowed"
@@ -442,7 +449,7 @@ export function ComposeSheet({
                   onClick={handlePostFree}
                   disabled={!text.trim() || isSubmitting}
                 >
-                  {isSubmitting ? "posting\u2026" : postLabel}
+                  {postSuccess ? "Posted \u2713" : isSubmitting ? "posting\u2026" : postLabel}
                 </button>
               </div>
             </div>
@@ -452,7 +459,7 @@ export function ComposeSheet({
         {step === "preview" && (
           <>
             <div className="flex-1 overflow-y-auto p-4">
-              <div className="border border-border/50 rounded-lg p-4 mb-4">
+              <div className="border border-border/50 rounded-lg p-4 mb-4 shadow-sm">
                 {activeTopic && !isReply && (
                   <span className={`${ts(sz)} text-burn/60 block mb-1`}>
                     {activeTopic}
@@ -495,7 +502,7 @@ export function ComposeSheet({
                 back
               </button>
               <button
-                className={`flex-1 px-4 py-2 ${ts(sz)} tracking-wide text-black bg-white hover:bg-white/90 transition-colors`}
+                className={`flex-1 px-4 py-2 ${ts(sz)} tracking-wide text-black bg-white hover:bg-white/90 transition-all active:scale-95`}
                 onClick={handlePay}
               >
                 pay with bitcoin
@@ -529,14 +536,17 @@ export function ComposeSheet({
 
               {(payStatus === "waiting" || payStatus === "expired") && payment && (
                 <div className="flex flex-col items-center gap-4 w-full">
-                  <div className="bg-white p-3 rounded-lg">
-                    <QRCodeSVG
-                      value={payment.bitcoinUri}
-                      size={200}
-                      level="M"
-                      bgColor="#ffffff"
-                      fgColor="#000000"
-                    />
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="bg-white p-3 rounded-lg">
+                      <QRCodeSVG
+                        value={payment.bitcoinUri}
+                        size={200}
+                        level="M"
+                        bgColor="#ffffff"
+                        fgColor="#000000"
+                      />
+                    </div>
+                    <span className="text-[11px] text-white/30">Scan with your wallet</span>
                   </div>
 
                   <button

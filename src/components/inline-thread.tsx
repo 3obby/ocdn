@@ -42,7 +42,7 @@ function EphemeralTree({ posts, onReply, onInscribe, onViewTx }: {
             onViewTx={onViewTx}
           />
           {kids.length > 0 && isExp && (
-            <div className="ml-3 border-l border-dashed border-white/[0.08]">
+            <div className="ml-3 border-l-2 border-dashed border-white/25">
               {renderBranch(kids)}
             </div>
           )}
@@ -91,6 +91,7 @@ export function InlineThread({
   const [ephemeralCount, setEphemeralCount] = useState(0);
   const [ephemeralExpanded, setEphemeralExpanded] = useState(true);
   const [ephemeralLoading, setEphemeralLoading] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
   const ephemeralLoadingRef = useRef(false);
 
   useEffect(() => {
@@ -145,7 +146,7 @@ export function InlineThread({
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed"))
       .finally(() => setLoading(false));
-  }, [postId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [postId, retryKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleEphemeral = useCallback(() => {
     if (!ephemeralExpanded) {
@@ -158,12 +159,17 @@ export function InlineThread({
 
   if (error) {
     return (
-      <div className={`px-4 py-3 ${ts(sz)} text-white/10`}>failed to load thread</div>
+      <div className={`flex flex-col items-center gap-2 px-4 py-4 ${ts(sz)} text-white/30`}>
+        <span>Couldn&apos;t load thread</span>
+        <button onClick={() => { setError(null); setRetryKey((k) => k + 1); }} className="text-[11px] text-white/50 hover:text-white/70">
+          Retry
+        </button>
+      </div>
     );
   }
 
   return (
-    <div className="border-l border-white/[0.06] ml-4">
+    <div className="border-l-2 border-white/20 ml-4">
       {loading ? (
         <div className="divide-y divide-white/[0.04]">
           <Skeleton lines={2} />
@@ -173,7 +179,7 @@ export function InlineThread({
       ) : (
         <>
           {children.length > 0 && (
-            <div className="divide-y divide-white/[0.04]">
+            <div className="divide-y divide-white/[0.04] space-y-0.5">
               {children.map((item) => (
                 <ThreadCard
                   key={item.id}
@@ -186,14 +192,14 @@ export function InlineThread({
           )}
 
           {children.length === 0 && ephemeralPosts.length === 0 && !ephemeralLoading && ephemeralCount === 0 && (
-            <div className={`px-4 py-3 ${ts(sz)} text-white/10`}>no replies yet</div>
+            <div className={`px-4 py-3 ${ts(sz)} text-white/25`}>Be the first to reply</div>
           )}
         </>
       )}
 
       {/* Ephemeral section — expanded by default */}
       {(ephemeralCount > 0 || ephemeralPosts.length > 0 || ephemeralLoading) && (
-        <div className="border-t border-dashed border-white/[0.08]">
+        <div className="border-t border-dashed border-white/25">
           <button
             onClick={toggleEphemeral}
             className={`w-full px-4 py-2 text-left ${ts(sz)} text-white/20 hover:text-white/40 transition-colors`}

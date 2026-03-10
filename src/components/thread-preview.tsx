@@ -3,12 +3,12 @@
 import { useState, useEffect, useRef } from "react";
 import { type ThreadItem, type Post, formatSats, formatTime, shortPubkey } from "@/lib/mock-data";
 import { useTextSize, ts } from "@/lib/text-size";
-import { Eye } from "lucide-react";
+import { Eye, ChevronDown } from "lucide-react";
 
 function ReplyCard({ post }: { post: Post }) {
   const sz = useTextSize();
   return (
-    <div className="py-1.5">
+    <div className="py-2.5">
       <div className={`flex items-center gap-1.5 ${ts(sz)} text-white/25 mb-0.5`}>
         <span className="text-burn/50 tabular-nums text-[10px]">{formatSats(post.burnTotal)}</span>
         <span className="text-[10px]">{shortPubkey(post.authorPubkey)}</span>
@@ -19,7 +19,7 @@ function ReplyCard({ post }: { post: Post }) {
           <span className="text-[9px] tabular-nums">{post.viewCount || 0}</span>
         </span>
       </div>
-      <div className={`${ts(sz)} leading-snug text-white/55 line-clamp-2`}>
+      <div className={`${ts(sz)} leading-snug text-white/55 line-clamp-2 ${post.text.startsWith(">") ? "border-l-2 border-white/10 pl-2 text-white/50" : ""}`}>
         {post.text}
       </div>
     </div>
@@ -77,7 +77,7 @@ export function ThreadPreview({
   const hiddenChildCount = directChildren.length - shownChildren.length;
 
   return (
-    <div ref={containerRef} className="border-l border-white/[0.06] ml-4">
+    <div ref={containerRef} className="border-l-2 border-white/20 ml-4">
       {shownChildren.map((child) => {
         const grandchildren = childMap.get(child.id) ?? [];
         const shownGrandchildren = grandchildren.slice(0, maxGrandchildren);
@@ -87,7 +87,7 @@ export function ThreadPreview({
           <div key={child.id} className="pl-3">
             <ReplyCard post={child} />
             {shownGrandchildren.length > 0 && (
-              <div className="border-l border-white/[0.06] ml-3">
+              <div className="border-l-2 border-white/20 ml-3">
                 {shownGrandchildren.map((gc) => (
                   <div key={gc.id} className="pl-3">
                     <ReplyCard post={gc} />
@@ -96,9 +96,10 @@ export function ThreadPreview({
                 {hiddenGrandchildCount > 0 && (
                   <button
                     onClick={() => onExpand(child.id)}
-                    className={`pl-3 py-1 ${ts(sz)} text-white/15 hover:text-white/30 transition-colors text-[11px]`}
+                    className={`flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded border border-white/10 bg-white/[0.02] px-3 py-2 my-1.5 ${ts(sz)} text-white/40 hover:text-white/60 hover:bg-white/[0.04] hover:border-white/15 transition-colors text-[11px] active:scale-[0.98]`}
                   >
-                    +{hiddenGrandchildCount} more
+                    <ChevronDown size={12} strokeWidth={2} />
+                    View {hiddenGrandchildCount} more {hiddenGrandchildCount === 1 ? "reply" : "replies"}
                   </button>
                 )}
               </div>
@@ -109,9 +110,10 @@ export function ThreadPreview({
       {hiddenChildCount > 0 && (
         <button
           onClick={() => onExpand(postId)}
-          className={`pl-3 py-1.5 ${ts(sz)} text-white/15 hover:text-white/30 transition-colors text-[11px]`}
+          className={`flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded border border-white/10 bg-white/[0.02] px-3 py-2 my-2 ${ts(sz)} text-white/40 hover:text-white/60 hover:bg-white/[0.04] hover:border-white/15 transition-colors text-[11px] active:scale-[0.98]`}
         >
-          +{hiddenChildCount} more {hiddenChildCount === 1 ? "reply" : "replies"}
+          <ChevronDown size={12} strokeWidth={2} />
+          View {hiddenChildCount} more {hiddenChildCount === 1 ? "reply" : "replies"}
         </button>
       )}
     </div>
