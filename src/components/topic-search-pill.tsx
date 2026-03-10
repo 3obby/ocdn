@@ -22,6 +22,30 @@ type ExternalEntry = {
 
 const LIMIT = 30;
 
+const AVATAR_BGS = [
+  "bg-burn/30",
+  "bg-amber-500/30",
+  "bg-orange-500/30",
+  "bg-yellow-600/30",
+  "bg-rose-500/25",
+] as const;
+
+function topicAvatarProps(name: string | null, hash: string): { bg: string; initials: string } {
+  const str = (name ?? hash).slice(0, 8);
+  const idx = str.split("").reduce((a, b) => ((a << 5) - a) + b.charCodeAt(0), 0) % AVATAR_BGS.length;
+  const initials = name
+    ? name.slice(0, 2).toUpperCase()
+    : hash.slice(0, 2).toUpperCase();
+  return { bg: AVATAR_BGS[Math.abs(idx)], initials };
+}
+
+function formatTopicStats(postCount: number, totalBurned: number): string {
+  const parts: string[] = [];
+  if (postCount > 0) parts.push(`${postCount.toLocaleString()} posts`);
+  if (totalBurned > 0) parts.push(`${formatSats(totalBurned)} sats`);
+  return parts.length > 0 ? parts.join(" · ") : "—";
+}
+
 export function TopicSearchPill({
   feedFilter,
   onSelect,
@@ -204,79 +228,85 @@ export function TopicSearchPill({
             className="max-h-[50vh] overflow-y-auto"
             onScroll={handleListScroll}
           >
-            {topics.map((t) => (
-              <button
-                key={t.hash}
-                onClick={() => select({ type: "topic", hash: t.hash, name: t.name })}
-                className="flex w-full items-center border-b border-border transition-colors hover:bg-white/[0.03]"
-              >
-                <div className="w-[14%] shrink-0 py-3 pl-3 pr-3 text-right">
-                  <span className={`${ts(sz)} leading-tight text-burn/60 tabular-nums`}>
-                    {t.totalBurned > 0 ? formatSats(t.totalBurned) : ""}
-                  </span>
-                </div>
-                <div className="min-w-0 flex-1 py-3 pl-2 pr-4">
-                  <span
-                    className={`${ts(sz)} leading-tight text-white/70 ${!t.name ? "font-mono" : ""}`}
-                  >
-                    {t.name ?? t.hash.slice(0, 8)}
-                  </span>
-                </div>
-              </button>
-            ))}
+            {topics.map((t) => {
+              const { bg, initials } = topicAvatarProps(t.name, t.hash);
+              return (
+                <button
+                  key={t.hash}
+                  onClick={() => select({ type: "topic", hash: t.hash, name: t.name })}
+                  className="flex w-full items-center gap-3 border-b border-border py-3 pl-4 pr-4 transition-colors hover:bg-white/[0.03]"
+                >
+                  <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${bg} text-white/90 text-sm font-medium`}>
+                    {initials}
+                  </div>
+                  <div className="min-w-0 flex-1 text-left">
+                    <div className={`${ts(sz)} font-medium leading-tight text-white ${!t.name ? "font-mono" : ""}`}>
+                      {t.name ? `/${t.name}` : t.hash.slice(0, 8)}
+                    </div>
+                    <div className="text-[11px] leading-tight text-white/40 tabular-nums">
+                      {formatTopicStats(t.postCount, t.totalBurned)}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
 
             {external.length > 0 && (
               <>
                 {topics.length > 0 && (
                   <div className="border-t border-white/[0.04]" />
                 )}
-                {external.map((e) => (
-                  <button
-                    key={e.protocol}
-                    onClick={() =>
-                      select({ type: "protocol", protocol: e.protocol, label: e.label })
-                    }
-                    className="flex w-full items-center border-b border-border transition-colors hover:bg-white/[0.03]"
-                  >
-                    <div className="w-[14%] shrink-0 py-3 pl-3 pr-3 text-right">
-                      <span className={`${ts(sz)} leading-tight text-white/20 tabular-nums`}>
-                        {e.postCount > 0 ? String(e.postCount) : ""}
-                      </span>
-                    </div>
-                    <div className="min-w-0 flex-1 py-3 pl-2 pr-4">
-                      <span className={`${ts(sz)} leading-tight text-white/30 font-mono`}>
-                        {e.label}
-                      </span>
-                    </div>
-                    <div className="shrink-0 pr-3">
-                      <span className="text-[10px] text-burn/30 uppercase tracking-widest font-mono">
-                        {e.protocol}
-                      </span>
-                    </div>
-                  </button>
-                ))}
+                {external.map((e) => {
+                  const { bg } = topicAvatarProps(e.label, e.protocol);
+                  return (
+                    <button
+                      key={e.protocol}
+                      onClick={() =>
+                        select({ type: "protocol", protocol: e.protocol, label: e.label })
+                      }
+                      className="flex w-full items-center gap-3 border-b border-border py-3 pl-4 pr-4 transition-colors hover:bg-white/[0.03]"
+                    >
+                      <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${bg} text-white/90 text-sm font-medium`}>
+                        {e.protocol === "ew" ? "EW" : e.label.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="min-w-0 flex-1 text-left">
+                        <div className={`${ts(sz)} font-medium leading-tight ${e.protocol === "ew" ? "" : "text-white/80"}`}>
+                          {e.protocol === "ew" ? (
+                            <span className="bg-white rounded-full px-2 py-0.5 text-blue-600 font-[ui-sans-serif,system-ui,sans-serif]">
+                              EternityWall
+                            </span>
+                          ) : (
+                            e.label
+                          )}
+                        </div>
+                        <div className="text-[11px] leading-tight text-white/40 tabular-nums">
+                          {formatTopicStats(e.postCount, e.totalBurned)}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
               </>
             )}
 
             <button
               onClick={() => select({ type: "topicless" })}
-              className="flex w-full items-center border-b border-border transition-colors hover:bg-white/[0.03]"
+              className="flex w-full items-center gap-3 border-b border-border py-3 pl-4 pr-4 transition-colors hover:bg-white/[0.03]"
             >
-              <div className="w-[14%] shrink-0 py-3 pl-3 pr-3 text-right">
-                <span className={`${ts(sz)} leading-tight text-white/10`}>—</span>
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/10 text-white/30 text-sm font-medium">
+                —
               </div>
-              <div className="min-w-0 flex-1 py-3 pl-2 pr-4">
-                <span className={`${ts(sz)} leading-tight text-white/20`}>
-                  untagged
-                </span>
+              <div className="min-w-0 flex-1 text-left">
+                <div className={`${ts(sz)} font-medium leading-tight text-white/60`}>untagged</div>
+                <div className="text-[11px] leading-tight text-white/30">posts without topic</div>
               </div>
             </button>
 
             {loading && (
               <div
-                className={`flex h-10 items-center justify-center ${ts(sz)} text-white/10 animate-pulse`}
+                className={`flex h-10 items-center justify-center ${ts(sz)} text-white/30 animate-pulse`}
               >
-                —
+                Loading…
               </div>
             )}
           </div>

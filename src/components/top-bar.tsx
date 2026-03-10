@@ -1,20 +1,11 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Search, X, Plus, Pencil, Check, Home, Clock, Sigma, ArrowUp, ArrowDown, ArrowLeft } from "lucide-react";
+import { Search, X, Plus, Pencil, Check, ArrowLeft, ArrowUpDown, LayoutList, Clock, Flame, ArrowUp, ArrowDown } from "lucide-react";
 import { formatSats } from "@/lib/mock-data";
 import type { FeedFilter, SortMode } from "@/lib/mock-data";
 import type { TextSize } from "@/lib/text-size";
 import { useTextSize, ts } from "@/lib/text-size";
-import { ProfileIcon } from "@/components/profile-icon";
-import { getStoredIdentity } from "@/lib/nostr/client";
-
-function ProfileIconSlot({ onOpenProfile }: { onOpenProfile: () => void }) {
-  const [identity, setIdentity] = useState<import("@/lib/nostr/client").SessionIdentity | null>(null);
-  useEffect(() => { setIdentity(getStoredIdentity()); }, []);
-  return <ProfileIcon onOpenProfile={onOpenProfile} identity={identity} />;
-}
-
 type TopicEntry = {
   hash: string;
   name: string | null;
@@ -31,6 +22,30 @@ type ExternalEntry = {
 
 const LIMIT = 30;
 
+const AVATAR_BGS = [
+  "bg-burn/30",
+  "bg-amber-500/30",
+  "bg-orange-500/30",
+  "bg-yellow-600/30",
+  "bg-rose-500/25",
+] as const;
+
+function topicAvatarProps(name: string | null, hash: string): { bg: string; initials: string } {
+  const str = (name ?? hash).slice(0, 8);
+  const idx = str.split("").reduce((a, b) => ((a << 5) - a) + b.charCodeAt(0), 0) % AVATAR_BGS.length;
+  const initials = name
+    ? name.slice(0, 2).toUpperCase()
+    : hash.slice(0, 2).toUpperCase();
+  return { bg: AVATAR_BGS[Math.abs(idx)], initials };
+}
+
+function formatTopicStats(postCount: number, totalBurned: number): string {
+  const parts: string[] = [];
+  if (postCount > 0) parts.push(`${postCount.toLocaleString()} posts`);
+  if (totalBurned > 0) parts.push(`${formatSats(totalBurned)} sats`);
+  return parts.length > 0 ? parts.join(" · ") : "—";
+}
+
 function isPubkey(q: string): boolean {
   return /^[0-9a-f]{66}$/i.test(q.trim());
 }
@@ -46,8 +61,6 @@ export function TopBar({
   textSize,
   onTextSizeChange,
   onCompose,
-  onOpenProfile,
-  hasProfileActivity = false,
   includeTopicless,
   onIncludeTopiclessChange,
   excludedTopicHashes,
@@ -67,8 +80,6 @@ export function TopBar({
   textSize: TextSize;
   onTextSizeChange: (s: TextSize) => void;
   onCompose: () => void;
-  onOpenProfile?: () => void;
-  hasProfileActivity?: boolean;
   includeTopicless: boolean;
   onIncludeTopiclessChange: (v: boolean) => void;
   excludedTopicHashes: string[];
@@ -90,6 +101,8 @@ export function TopBar({
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const sortDropdownRef = useRef<HTMLDivElement>(null);
+  const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
 
   const hasFilter = feedFilter.type !== "all";
   const hasQuery = searchQuery.trim().length > 0;
@@ -144,6 +157,17 @@ export function TopBar({
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
+
+  useEffect(() => {
+    if (!sortDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (!sortDropdownRef.current?.contains(e.target as Node)) {
+        setSortDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [sortDropdownOpen]);
 
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 0);
@@ -227,38 +251,42 @@ export function TopBar({
 
   const iconSize = sz === "lg" ? 16 : 13;
 
-  const sortIconSize = sz === "lg" ? 18 : 14;
-  const NewArrow = sortDirections.new === "asc" ? ArrowDown : ArrowUp;
-  const TopArrow = sortDirections.top === "asc" ? ArrowDown : ArrowUp;
-  const MODES: { key: SortMode; icon: React.ReactNode }[] = [
-    { key: "topics", icon: <Home size={sortIconSize} strokeWidth={2} /> },
-    { key: "new", icon: <span className="inline-flex items-center gap-0.5"><Clock size={sortIconSize} strokeWidth={2} /><NewArrow size={sortIconSize} strokeWidth={2} /></span> },
-    { key: "top", icon: <span className="inline-flex items-center gap-0.5"><Sigma size={sortIconSize} strokeWidth={2} /><TopArrow size={sortIconSize} strokeWidth={2} /></span> },
-  ];
+  const SORT_ICONS: Record<SortMode, React.ReactNode> = {
+    topics: <LayoutList size={20} strokeWidth={2} />,
+    new: <Clock size={20} strokeWidth={2} />,
+    top: <Flame size={20} strokeWidth={2} />,
+  };
+  const SORT_ARIA: Record<SortMode, string> = {
+    topics: sortDirections.topics === "asc" ? "Topics (lowest burn first)" : "Topics (highest burn first)",
+    new: sortDirections.new === "asc" ? "Oldest first" : "Newest first",
+    top: sortDirections.top === "asc" ? "Lowest burn first" : "Highest burn first",
+  };
 
   return (
-    <div ref={containerRef} className="relative shrink-0 border-b border-border bg-elevated">
-      <div className="flex items-center gap-2 px-3 py-2">
+    <div ref={containerRef} className="relative shrink-0 border-b border-border bg-elevated pt-[env(safe-area-inset-top)]">
+      <div className="flex items-center gap-2 px-4 py-2.5">
         {/* Home / Back button */}
-        {expandedPostId && onBack ? (
+        {expandedPostId && onBack && (
           <button
             onClick={onBack}
             aria-label="Back"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white/70 hover:bg-white/[0.15] hover:text-white transition-colors"
+            className="flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white/70 hover:bg-white/[0.15] hover:text-white transition-colors active:scale-95"
           >
             <ArrowLeft size={iconSize} strokeWidth={2} />
           </button>
-        ) : (
-          <button
-            onClick={handleClear}
-            aria-label="Home"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white/70 hover:bg-white/[0.15] hover:text-white transition-colors"
-          >
-            <Home size={iconSize} strokeWidth={2} />
-          </button>
         )}
 
-        {/* Search row / Topic label */}
+        {/* Text size toggle */}
+        <button
+          onClick={() => onTextSizeChange(textSize === "sm" ? "lg" : "sm")}
+          aria-label="Text size"
+          className="flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center text-white/40 hover:text-white/70 transition-colors active:scale-95"
+        >
+          <span className={`${textSize === "sm" ? "text-white" : ""} text-[11px] leading-none`}>a</span>
+          <span className={`${textSize === "lg" ? "text-white" : ""} text-[18px] leading-none`}>A</span>
+        </button>
+
+        {/* Search bar — between aA and Sort */}
         <div className="flex min-w-0 flex-1 items-center rounded-full bg-white/[0.06]">
           {showClear && (
             <button
@@ -289,56 +317,58 @@ export function TopBar({
           </div>
         </div>
 
-      </div>
-
-      {/* Sort row: [profile? aA  flex-1]  [pill centered]  [flex-1 compose] */}
-      <div className="flex items-center pl-5 pr-3 py-2 border-t border-border/50">
-        {/* Left: profile icon (if active) + text size toggle */}
-        <div className="flex flex-1 items-center gap-2">
-          {hasProfileActivity && (
-            <ProfileIconSlot onOpenProfile={onOpenProfile ?? (() => {})} />
-          )}
-          <button
-            onClick={() => onTextSizeChange(textSize === "sm" ? "lg" : "sm")}
-            className="flex items-baseline gap-0 text-white/40 hover:text-white/70 transition-colors"
-          >
-            <span className={`${textSize === "sm" ? "text-white" : ""} text-[11px] leading-none`}>a</span>
-            <span className={`${textSize === "lg" ? "text-white" : ""} text-[18px] leading-none`}>A</span>
-          </button>
-        </div>
-
-        {/* Center: sort mode pill — do not change */}
-        <div className="flex items-center rounded-full bg-white/[0.06] p-0.5">
-          {MODES.map((m) => (
+        {/* Sort icon (with dropdown) + Compose button */}
+          <div ref={sortDropdownRef} className="relative">
             <button
-              key={m.key}
-              onClick={() => onSortChange(m.key)}
-              aria-label={m.key}
-              className={`flex items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition-colors ${
-                sortMode === m.key
-                  ? "bg-white/[0.12] text-white"
-                  : "text-white/25 hover:text-white/50"
+              onClick={() => setSortDropdownOpen((o) => !o)}
+              aria-label="Sort"
+              aria-expanded={sortDropdownOpen}
+              title={SORT_ARIA[sortMode]}
+              className={`flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-full transition-colors active:scale-95 ${
+                sortDropdownOpen ? "bg-white/[0.15] text-white" : "bg-white/[0.09] text-white/70 hover:bg-white/[0.15] hover:text-white"
               }`}
             >
-              {m.icon}
+              <ArrowUpDown size={iconSize} strokeWidth={2} />
             </button>
-          ))}
-        </div>
-
-        {/* Right: compose button */}
-        <div className="flex flex-1 items-center justify-end">
+            {sortDropdownOpen && (
+              <div className="absolute right-0 top-full z-50 mt-1 flex gap-1 rounded-lg border border-border bg-elevated p-1.5 shadow-lg">
+                {(["topics", "new", "top"] as SortMode[]).map((m) => {
+                  const dir = sortDirections[m] ?? "desc";
+                  const isSelected = sortMode === m;
+                  return (
+                  <button
+                    key={m}
+                    onClick={() => {
+                      onSortChange(m);
+                      if (!isSelected) setSortDropdownOpen(false);
+                    }}
+                    aria-label={SORT_ARIA[m]}
+                    title={SORT_ARIA[m]}
+                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md transition-colors active:scale-95 ${
+                      isSelected ? "bg-white/[0.12] text-white" : "text-white/50 hover:bg-white/[0.06] hover:text-white/80"
+                    }`}
+                  >
+                    <span className="flex items-center justify-center gap-0.5">
+                      {SORT_ICONS[m]}
+                      {isSelected && (dir === "desc" ? <ArrowDown size={9} strokeWidth={2.5} /> : <ArrowUp size={9} strokeWidth={2.5} />)}
+                    </span>
+                  </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
           <button
             onClick={onCompose}
             aria-label="Compose"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white/70 hover:bg-white/[0.15] hover:text-white transition-colors"
+            className="flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white/70 hover:bg-white/[0.15] hover:text-white transition-colors active:scale-95"
           >
             <Plus size={iconSize} strokeWidth={2} className="mr-0.5" />
             <Pencil size={iconSize - 2} strokeWidth={2} />
           </button>
-        </div>
       </div>
 
-      {/* Inline topic list when search bar focused */}
+      {/* Topic list dropdown when search bar focused */}
       {showTopicList && (
         <div
           ref={listRef}
@@ -348,7 +378,7 @@ export function TopBar({
           {/* Untagged always at top with filter checkbox */}
           <button
             onClick={() => selectTopic({ type: "topicless" })}
-            className="flex w-full items-center border-b border-border transition-colors hover:bg-white/[0.03] pl-4"
+            className="flex w-full items-center gap-3 border-b border-border py-3 pl-4 pr-4 transition-colors hover:bg-white/[0.03]"
           >
             <div
               role="button"
@@ -365,105 +395,114 @@ export function TopBar({
                 {includeTopicless && <Check size={10} strokeWidth={2.5} className="text-white" />}
               </div>
             </div>
-            <div className="w-[12%] shrink-0 py-2.5 pr-2 text-right">
-              <span className={`${ts(sz)} leading-tight text-white/10`}>—</span>
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/10 text-white/30 text-sm font-medium">
+              —
             </div>
-            <div className="min-w-0 flex-1 py-2.5 pl-0 pr-4 text-left">
-              <span className={`${ts(sz)} leading-tight text-white/20`}>untagged</span>
+            <div className="min-w-0 flex-1 text-left">
+              <div className={`${ts(sz)} font-medium leading-tight text-white/80`}>untagged</div>
+              <div className="text-[11px] leading-tight text-white/30">posts without topic</div>
             </div>
           </button>
           {topics
             .filter((t) => !deselected.has(t.hash))
-            .map((t) => (
-              <button
-                key={t.hash}
-                onClick={() => selectTopic({ type: "topic", hash: t.hash, name: t.name })}
-                className="flex w-full items-center border-b border-border transition-colors hover:bg-white/[0.03] pl-4"
-              >
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={(e) => { e.stopPropagation(); toggleDeselect(t.hash, e); }}
-                  onKeyDown={(e) => e.key === "Enter" && toggleDeselect(t.hash, e as unknown as React.MouseEvent)}
-                  className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center text-white/40 hover:text-white/70"
+            .map((t) => {
+              const { bg, initials } = topicAvatarProps(t.name, t.hash);
+              return (
+                <button
+                  key={t.hash}
+                  onClick={() => selectTopic({ type: "topic", hash: t.hash, name: t.name })}
+                  className="flex w-full items-center gap-3 border-b border-border py-3 pl-4 pr-4 transition-colors hover:bg-white/[0.03]"
                 >
                   <div
-                    className={`flex h-4 w-4 items-center justify-center rounded border ${
-                      deselected.has(t.hash) ? "border-white/30 bg-transparent" : "border-white/50 bg-white/20"
-                    }`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => { e.stopPropagation(); toggleDeselect(t.hash, e); }}
+                    onKeyDown={(e) => e.key === "Enter" && toggleDeselect(t.hash, e as unknown as React.MouseEvent)}
+                    className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center text-white/40 hover:text-white/70"
                   >
-                    {!deselected.has(t.hash) && <Check size={10} strokeWidth={2.5} className="text-white" />}
+                    <div
+                      className={`flex h-4 w-4 items-center justify-center rounded border ${
+                        deselected.has(t.hash) ? "border-white/30 bg-transparent" : "border-white/50 bg-white/20"
+                      }`}
+                    >
+                      {!deselected.has(t.hash) && <Check size={10} strokeWidth={2.5} className="text-white" />}
+                    </div>
                   </div>
-                </div>
-                <div className="w-[12%] shrink-0 py-2.5 pr-2 text-right">
-                  <span className={`${ts(sz)} leading-tight text-burn/60 tabular-nums`}>
-                    {t.postCount > 0 ? String(t.postCount) : ""}
-                  </span>
-                </div>
-                <div className="min-w-0 flex-1 py-2.5 pl-0 pr-4 text-left">
-                  <span className={`${ts(sz)} leading-tight text-white/80 ${!t.name ? "font-mono" : ""}`}>
-                    {t.name ?? t.hash.slice(0, 8)}
-                  </span>
-                </div>
-              </button>
-            ))}
+                  <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${bg} text-white/90 text-sm font-medium`}>
+                    {initials}
+                  </div>
+                  <div className="min-w-0 flex-1 text-left">
+                    <div className={`${ts(sz)} font-medium leading-tight text-white ${!t.name ? "font-mono" : ""}`}>
+                      {t.name ? `/${t.name}` : t.hash.slice(0, 8)}
+                    </div>
+                    <div className="text-[11px] leading-tight text-white/40 tabular-nums">
+                      {formatTopicStats(t.postCount, t.totalBurned)}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
           {external
             .filter((e) => !deselected.has(`ext:${e.protocol}`))
-            .map((e) => (
-              <button
-                key={e.protocol}
-                onClick={() =>
-                  selectTopic({ type: "protocol", protocol: e.protocol, label: e.label })
-                }
-                className="flex w-full items-center border-b border-border transition-colors hover:bg-white/[0.03] pl-4"
-              >
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={(ev) => { ev.stopPropagation(); toggleDeselect(`ext:${e.protocol}`, ev); }}
-                  onKeyDown={(ev) => ev.key === "Enter" && toggleDeselect(`ext:${e.protocol}`, ev as unknown as React.MouseEvent)}
-                  className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center text-white/40 hover:text-white/70"
+            .map((e) => {
+              const { bg, initials } = topicAvatarProps(e.label, e.protocol);
+              return (
+                <button
+                  key={e.protocol}
+                  onClick={() =>
+                    selectTopic({ type: "protocol", protocol: e.protocol, label: e.label })
+                  }
+                  className="flex w-full items-center gap-3 border-b border-border py-3 pl-4 pr-4 transition-colors hover:bg-white/[0.03]"
                 >
                   <div
-                    className={`flex h-4 w-4 items-center justify-center rounded border ${
-                      deselected.has(`ext:${e.protocol}`) ? "border-white/30 bg-transparent" : "border-white/50 bg-white/20"
-                    }`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={(ev) => { ev.stopPropagation(); toggleDeselect(`ext:${e.protocol}`, ev); }}
+                    onKeyDown={(ev) => ev.key === "Enter" && toggleDeselect(`ext:${e.protocol}`, ev as unknown as React.MouseEvent)}
+                    className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center text-white/40 hover:text-white/70"
                   >
-                    {!deselected.has(`ext:${e.protocol}`) && <Check size={10} strokeWidth={2.5} className="text-white" />}
+                    <div
+                      className={`flex h-4 w-4 items-center justify-center rounded border ${
+                        deselected.has(`ext:${e.protocol}`) ? "border-white/30 bg-transparent" : "border-white/50 bg-white/20"
+                      }`}
+                    >
+                      {!deselected.has(`ext:${e.protocol}`) && <Check size={10} strokeWidth={2.5} className="text-white" />}
+                    </div>
                   </div>
-                </div>
-                <div className="w-[12%] shrink-0 py-2.5 pr-2 text-right">
-                  <span className={`${ts(sz)} leading-tight text-white/20 tabular-nums`}>
-                    {e.postCount > 0 ? String(e.postCount) : ""}
-                  </span>
-                </div>
-                <div className="min-w-0 flex-1 py-2.5 pl-0 pr-4 text-left">
-                  {e.protocol === "ew" ? (
-                    <span className={`${ts(sz)} leading-tight inline-flex items-center`}>
-                      <span className="bg-white rounded-full px-2 py-0.5 text-blue-600 font-[ui-sans-serif,system-ui,sans-serif]">
-                        EternityWall
-                      </span>
-                    </span>
-                  ) : (
-                    <span className={`${ts(sz)} leading-tight text-white/30 font-mono`}>{e.label}</span>
-                  )}
-                </div>
-              </button>
-            ))}
+                  <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${bg} text-white/90 text-sm font-medium`}>
+                    {e.protocol === "ew" ? "EW" : initials}
+                  </div>
+                  <div className="min-w-0 flex-1 text-left">
+                    <div className={`${ts(sz)} font-medium leading-tight ${e.protocol === "ew" ? "" : "text-white/80"}`}>
+                      {e.protocol === "ew" ? (
+                        <span className="bg-white rounded-full px-2 py-0.5 text-blue-600 font-[ui-sans-serif,system-ui,sans-serif]">
+                          EternityWall
+                        </span>
+                      ) : (
+                        e.label
+                      )}
+                    </div>
+                    <div className="text-[11px] leading-tight text-white/40 tabular-nums">
+                      {formatTopicStats(e.postCount, e.totalBurned)}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
           {deselected.size > 0 && (
             <button
               onClick={() => {
                 setDeselected(new Set());
                 onExcludedTopicHashesChange([]);
               }}
-              className={`w-full py-2 ${ts(sz)} text-white/30 hover:text-white/50 transition-colors`}
+              className={`w-full min-h-[44px] py-3 flex items-center justify-center ${ts(sz)} text-white/30 hover:text-white/50 transition-colors`}
             >
               show {deselected.size} deselected
             </button>
           )}
           {loading && (
-            <div className={`flex h-10 items-center justify-center ${ts(sz)} text-white/10 animate-pulse`}>
-              —
+            <div className={`flex h-10 items-center justify-center ${ts(sz)} text-white/30 animate-pulse`}>
+              Loading topics…
             </div>
           )}
         </div>
