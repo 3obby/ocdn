@@ -1,6 +1,28 @@
 "use client";
 
 import { useRef, useEffect } from "react";
+
+export function FeedCardSkeleton({ variant = "default" }: { variant?: "default" | "short" } = {}) {
+  const lineCount = variant === "short" ? 1 : 3;
+  const widths = variant === "short" ? ["88%"] : ["92%", "76%", "54%"];
+  return (
+    <div className="relative flex items-center gap-2 py-2.5 pl-4 pr-3 animate-pulse">
+      <div className="min-w-0 flex-1 space-y-2">
+        {Array.from({ length: lineCount }).map((_, i) => (
+          <div
+            key={i}
+            className="h-3.5 rounded bg-white/[0.06]"
+            style={{ width: widths[i] ?? "70%" }}
+          />
+        ))}
+      </div>
+      <div className="shrink-0 flex items-center gap-2 pr-3">
+        <div className="h-3 w-8 rounded bg-white/[0.06]" />
+        <div className="h-3 w-3 rounded bg-white/[0.05]" />
+      </div>
+    </div>
+  );
+}
 import {
   type Post,
   formatSats,
@@ -8,7 +30,7 @@ import {
   shortPubkey,
 } from "@/lib/mock-data";
 import { useTextSize, ts } from "@/lib/text-size";
-import { Eye, Pencil } from "lucide-react";
+import { Eye, Pencil, ChevronRight } from "lucide-react";
 
 function ConfirmBadge({ confirmations, ephemeral, ephemeralStatus }: { confirmations: number; ephemeral?: boolean; ephemeralStatus?: string }) {
   if (ephemeral && ephemeralStatus !== "upgraded") {
@@ -79,7 +101,7 @@ export function FeedCard({
       className={`relative transition-all duration-200 ${
         isUnpaid
           ? "opacity-40 cursor-default"
-          : "cursor-pointer hover:bg-white/[0.03]"
+          : "cursor-pointer hover:bg-white/[0.03] active:bg-white/[0.06]"
       } ${isExpanded ? "bg-white/[0.04]" : ""}`}
     >
       {/* Expanded: metadata row */}
@@ -105,10 +127,10 @@ export function FeedCard({
         </div>
       )}
 
-      <div className="flex items-center">
-        <div className={`min-w-0 flex-1 ${isExpanded ? "px-4 pb-3 pt-1" : "py-2.5 pl-4 pr-2"}`}>
+      <div className="flex items-center gap-2">
+        <div className={`min-w-0 flex-1 overflow-hidden ${isExpanded ? "px-4 pb-3 pt-1" : "py-2.5 pl-4"}`}>
           <span
-            className={`${ts(sz)} leading-snug ${isUnpaid ? "text-white/40" : "text-white"} block ${contentClamp} transition-colors duration-200`}
+            className={`${ts(sz)} leading-snug ${isUnpaid ? "text-white/40" : "text-white"} block ${contentClamp} break-all transition-colors duration-200 ${post.text.startsWith(">") ? "border-l-2 border-white/15 pl-2 text-white/90" : ""}`}
           >
             {post.text}
           </span>
@@ -116,6 +138,20 @@ export function FeedCard({
 
         {!isExpanded && (
           <div className="shrink-0 flex items-center gap-2 pr-3">
+            {!isUnpaid && (
+              <>
+                {(post.ephemeralCount ?? 0) > 0 && (
+                  <span className="text-[10px] tabular-nums text-white/20 hidden sm:inline">
+                    {post.ephemeralCount} n
+                  </span>
+                )}
+                <span className="flex items-center gap-1 text-white/40">
+                  <Eye size={12} strokeWidth={2} className="shrink-0" />
+                  <span className="text-[11px] tabular-nums min-w-[1.5em] text-right">{post.viewCount || 0}</span>
+                </span>
+                <ChevronRight size={16} strokeWidth={2} className="text-white/20 shrink-0" />
+              </>
+            )}
             <ConfirmBadge confirmations={post.confirmations} ephemeral={isEphemeral} ephemeralStatus={post.ephemeralStatus} />
           </div>
         )}
@@ -129,25 +165,10 @@ export function FeedCard({
               e.stopPropagation();
               onReply(post.id);
             }}
-            className="text-white/15 hover:text-white/30 transition-colors"
+            className="flex min-h-[44px] min-w-[44px] items-center justify-center -ml-2 text-white/15 hover:text-white/30 transition-colors active:scale-95"
           >
             <Pencil size={14} strokeWidth={1.5} />
           </button>
-        </div>
-      )}
-
-      {/* Collapsed: stats overlay */}
-      {!isExpanded && !isUnpaid && (
-        <div className="absolute right-0 inset-y-0 flex items-center justify-end pr-3 pl-8 bg-gradient-to-r from-transparent to-[#111111] pointer-events-none">
-          <div className="flex items-center gap-2">
-            {(post.ephemeralCount ?? 0) > 0 && (
-              <span className="text-[10px] tabular-nums text-white/20">
-                {post.ephemeralCount} nostr
-              </span>
-            )}
-            <Eye size={12} strokeWidth={2} className="text-purple-300 shrink-0" />
-            <span className="text-[11px] tabular-nums text-purple-200">{post.viewCount || 0}</span>
-          </div>
         </div>
       )}
     </div>
@@ -167,8 +188,8 @@ export function ThreadCard({
 
   return (
     <div
-      className={`relative border-b border-border px-4 transition-all ${
-        isFocused ? "py-4" : "py-2"
+      className={`relative border-b border-border border-l-2 px-4 transition-all ${
+        isFocused ? "py-4 border-l-burn/30 bg-white/[0.02]" : "py-2.5 border-l-transparent"
       }`}
     >
       <div
@@ -204,19 +225,19 @@ export function ThreadCard({
       <div
         className={`${ts(sz)} leading-snug ${
           isFocused ? "text-white" : "text-white/60 line-clamp-2"
-        }`}
+        } ${post.text.startsWith(">") ? "border-l-2 border-white/15 pl-2 text-white/70" : ""}`}
       >
         {post.text}
       </div>
 
       {onReply && (
-        <div className="flex items-center gap-2.5 mt-1">
+        <div className="flex items-center gap-2.5 mt-2">
           <button
             onClick={(e) => {
               e.stopPropagation();
               onReply(post.id);
             }}
-            className="text-white/15 hover:text-white/30 transition-colors"
+            className="flex min-h-[44px] min-w-[44px] items-center justify-center -ml-2 text-white/15 hover:text-white/30 transition-colors active:scale-95"
           >
             <Pencil size={13} strokeWidth={1.5} />
           </button>
