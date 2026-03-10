@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getStoredIdentity, getSessionPubkey, type SessionIdentity } from "@/lib/nostr/client";
 import { useTextSize, ts } from "@/lib/text-size";
 import type { TextSize } from "@/lib/text-size";
 import type { Post, EphemeralPost, SortMode } from "@/lib/mock-data";
 import { formatSats, formatTime, shortPubkey, shortNostrPubkey } from "@/lib/mock-data";
-import { ArrowLeft, ArrowUp, ArrowDown, User, Home, Clock, Sigma, Plus, Pencil } from "lucide-react";
+import { ArrowLeft, User, Plus, Pencil, ArrowUpDown, Clock, Flame } from "lucide-react";
 import { EphemeralPostCard } from "@/components/ephemeral-post-card";
 
 type ParentContext = {
@@ -21,7 +21,7 @@ export function ProfileIcon({ onOpenProfile, identity }: { onOpenProfile?: () =>
       <button
         onClick={onOpenProfile}
         aria-label="Profile"
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.12] text-white/70 hover:bg-white/[0.20] hover:text-white transition-colors font-mono text-[10px]"
+        className="flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-full bg-white/[0.12] text-white/70 hover:bg-white/[0.20] hover:text-white transition-all active:scale-95 font-mono text-[10px]"
         title={`Bitcoin pubkey: ${shortPubkey(identity.bitcoinPubkey)}`}
       >
         {monogram}
@@ -33,7 +33,7 @@ export function ProfileIcon({ onOpenProfile, identity }: { onOpenProfile?: () =>
     <button
       onClick={onOpenProfile}
       aria-label="Profile"
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-white/30 hover:bg-white/[0.12] hover:text-white/60 transition-colors"
+      className="flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-white/30 hover:bg-white/[0.12] hover:text-white/60 transition-all active:scale-95"
       title="my posts"
     >
       <User size={13} strokeWidth={1.5} />
@@ -67,6 +67,8 @@ export function ProfileSheet({
   const [sortMode, setSortMode] = useState<SortMode>("new");
   const [sortDirections, setSortDirections] = useState<Record<string, "asc" | "desc">>({ new: "desc", top: "desc" });
   const [loading, setLoading] = useState(false);
+  const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
+  const sortDropdownRef = useRef<HTMLDivElement>(null);
 
   const sessionPubkey = typeof window !== "undefined" ? getSessionPubkey() : null;
   const sortDirection = sortDirections[sortMode] ?? "desc";
@@ -93,6 +95,17 @@ export function ProfileSheet({
   }, []);
 
   useEffect(() => {
+    if (!sortDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (!sortDropdownRef.current?.contains(e.target as Node)) {
+        setSortDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [sortDropdownOpen]);
+
+  useEffect(() => {
     if (!sessionPubkey) return;
     setLoading(true);
     fetch(`/api/ephemeral?pubkey=${sessionPubkey}&sort=${apiSort}&order=${sortDirection}&limit=50`)
@@ -113,15 +126,16 @@ export function ProfileSheet({
   const hasAnything = allEph.length > 0 || durablePosts.length > 0;
 
   const iconSize = sz === "lg" ? 16 : 13;
-  const sortIconSize = sz === "lg" ? 18 : 14;
-  const NewArrow = sortDirections.new === "asc" ? ArrowDown : ArrowUp;
-  const TopArrow = sortDirections.top === "asc" ? ArrowDown : ArrowUp;
 
-  const MODES: { key: SortMode; icon: React.ReactNode }[] = [
-    { key: "topics", icon: <Home size={sortIconSize} strokeWidth={2} /> },
-    { key: "new", icon: <span className="inline-flex items-center gap-0.5"><Clock size={sortIconSize} strokeWidth={2} /><NewArrow size={sortIconSize} strokeWidth={2} /></span> },
-    { key: "top", icon: <span className="inline-flex items-center gap-0.5"><Sigma size={sortIconSize} strokeWidth={2} /><TopArrow size={sortIconSize} strokeWidth={2} /></span> },
-  ];
+  const SORT_ICONS: Record<string, React.ReactNode> = {
+    new: <Clock size={20} strokeWidth={2} />,
+    top: <Flame size={20} strokeWidth={2} />,
+  };
+  const SORT_ARIA: Record<string, string> = {
+    new: sortDirections.new === "asc" ? "Oldest first" : "Newest first",
+    top: sortDirections.top === "asc" ? "Lowest burn first" : "Highest burn first",
+  };
+  const profileSortMode = sortMode === "topics" ? "new" : sortMode;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black md:max-w-md md:mx-auto md:border-x md:border-border">
@@ -131,7 +145,7 @@ export function ProfileSheet({
           <button
             onClick={onClose}
             aria-label="Back"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white/70 hover:bg-white/[0.15] hover:text-white transition-colors"
+            className="flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white/70 hover:bg-white/[0.15] hover:text-white transition-all active:scale-95"
           >
             <ArrowLeft size={iconSize} strokeWidth={2} />
           </button>
@@ -163,23 +177,38 @@ export function ProfileSheet({
             )}
           </div>
 
-          <div className="flex items-center rounded-full bg-white/[0.06] p-0.5">
-            {MODES.map((m) => (
-              <button
-                key={m.key}
-                onClick={() => handleSortChange(m.key)}
-                aria-label={m.key}
-                className={`flex items-center justify-center gap-0.5 px-3 py-1.5 rounded-full transition-colors ${
-                  sortMode === m.key || (m.key === "topics" && sortMode === "new")
-                    ? m.key === "topics"
-                      ? "text-white/25 hover:text-white/50"
-                      : "bg-white/[0.12] text-white"
-                    : "text-white/25 hover:text-white/50"
-                }`}
-              >
-                {m.icon}
-              </button>
-            ))}
+          <div ref={sortDropdownRef} className="relative">
+            <button
+              onClick={() => setSortDropdownOpen((o) => !o)}
+              aria-label="Sort"
+              aria-expanded={sortDropdownOpen}
+              title={SORT_ARIA[profileSortMode]}
+              className={`flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-full transition-colors active:scale-95 ${
+                sortDropdownOpen ? "bg-white/[0.15] text-white" : "bg-white/[0.09] text-white/70 hover:bg-white/[0.15] hover:text-white"
+              }`}
+            >
+              <ArrowUpDown size={iconSize} strokeWidth={2} />
+            </button>
+            {sortDropdownOpen && (
+              <div className="absolute right-0 top-full z-50 mt-1 flex gap-1 rounded-lg border border-border bg-elevated p-1.5 shadow-lg">
+                {(["new", "top"] as SortMode[]).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => {
+                      handleSortChange(m);
+                      setSortDropdownOpen(false);
+                    }}
+                    aria-label={SORT_ARIA[m]}
+                    title={SORT_ARIA[m]}
+                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md transition-colors active:scale-95 ${
+                      sortMode === m ? "bg-white/[0.12] text-white" : "text-white/50 hover:bg-white/[0.06] hover:text-white/80"
+                    }`}
+                  >
+                    {SORT_ICONS[m]}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="flex flex-1 items-center justify-end">
@@ -187,7 +216,7 @@ export function ProfileSheet({
               <button
                 onClick={onCompose}
                 aria-label="Compose"
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white/70 hover:bg-white/[0.15] hover:text-white transition-colors"
+                className="flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white/70 hover:bg-white/[0.15] hover:text-white transition-all active:scale-95"
               >
                 <Plus size={iconSize} strokeWidth={2} className="mr-0.5" />
                 <Pencil size={iconSize - 2} strokeWidth={2} />
@@ -199,11 +228,11 @@ export function ProfileSheet({
 
       <div className="flex-1 overflow-y-auto">
         {loading && allEph.length === 0 && durablePosts.length === 0 ? (
-          <div className={`flex h-32 items-center justify-center ${ts(sz)} text-white/10 animate-pulse`}>—</div>
+          <div className={`flex h-32 items-center justify-center ${ts(sz)} text-white/30 animate-pulse`}>Loading…</div>
         ) : !hasAnything ? (
-          <div className={`flex flex-col h-40 items-center justify-center gap-2 ${ts(sz)} text-white/10`}>
-            <span>—</span>
-            <span className="text-[11px] text-white/10">post something to see it here</span>
+          <div className={`flex flex-col h-40 items-center justify-center gap-2 ${ts(sz)} text-white/30`}>
+            <span>Your posts will appear here</span>
+            <span className="text-[11px] text-white/20">Post something to get started</span>
           </div>
         ) : (
           <div>
