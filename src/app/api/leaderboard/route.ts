@@ -15,6 +15,8 @@ type LeaderboardEntry = {
   topic?: string | null;
   topicHash?: string | null;
   createdAt: string;
+  expiresAt: string;
+  boostCount: number;
   upvoteWeight?: string;
 };
 
@@ -87,6 +89,8 @@ export async function GET(request: Request) {
         topic,
         topicHash,
         createdAt: ep.createdAt.toISOString(),
+        expiresAt: ep.expiresAt.toISOString(),
+        boostCount: ep.boostCount ?? 0,
         upvoteWeight: ep.upvoteWeight.toString(),
       });
     }
