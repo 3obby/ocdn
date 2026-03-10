@@ -48,6 +48,7 @@ export async function GET(request: Request) {
     const ephPosts = await prisma.ephemeralPost.findMany({
       where: {
         upvoteWeight: { gt: 0 },
+        boostCount: { gt: 0 },
         expiresAt: { gt: now },
         createdAt: { gte: windowStart },
       },

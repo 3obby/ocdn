@@ -15,7 +15,7 @@ import {
 } from "@/lib/mock-data";
 import { topicAvatarProps, formatTopicStats } from "@/lib/topic-utils";
 import { flushSync } from "react-dom";
-import { ChevronRight, ChevronDown, Loader2, Zap } from "lucide-react";
+import { Plus, Minus, ChevronRight, ChevronDown, Loader2, Zap } from "lucide-react";
 import { type TextSize, TextSizeCtx } from "@/lib/text-size";
 import { TopBar } from "@/components/top-bar";
 import { PostContent } from "@/components/post-content";
@@ -57,9 +57,11 @@ function formatCountdown(ms: number): string {
 function LeaderboardSection({
   sz,
   onNavigate,
+  limit = 4,
 }: {
   sz: string;
   onNavigate: (entry: LeaderboardEntry) => void;
+  limit?: number;
 }) {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [nextCycleMs, setNextCycleMs] = useState(0);
@@ -71,7 +73,7 @@ function LeaderboardSection({
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    fetch("/api/leaderboard?limit=4")
+    fetch(`/api/leaderboard?limit=${limit}`)
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
         if (!data) return;
@@ -89,7 +91,7 @@ function LeaderboardSection({
         setFundBalance(data.balanceSats ?? 0);
       })
       .catch(() => {});
-  }, []);
+  }, [limit]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -338,6 +340,7 @@ function TopicsFeed({
   onNavigateLeaderboard,
   showLeaderboard = true,
   showEternityWall = true,
+  ephemeralLoading = false,
 }: {
   groups: TopicGroup[];
   posts: Post[];
@@ -369,6 +372,7 @@ function TopicsFeed({
   onNavigateLeaderboard?: (entry: LeaderboardEntry) => void;
   showLeaderboard?: boolean;
   showEternityWall?: boolean;
+  ephemeralLoading?: boolean;
 }) {
   const untaggedPosts = posts.filter((p) => p._section === "untagged");
   const ewPosts = posts.filter((p) => p._section === "ew");
@@ -615,18 +619,24 @@ function TopicsFeed({
             </button>
             <button
               onClick={() => toggleTopic(sectionKey)}
-              className="shrink-0 p-2 text-white/20 hover:text-white/40 transition-colors"
+              className="shrink-0 p-2 text-white hover:text-white/80 transition-colors"
               aria-label={isCollapsed ? "Expand" : "Collapse"}
             >
               {isCollapsed
-                ? <ChevronRight size={16} strokeWidth={1.5} />
-                : <ChevronDown size={16} strokeWidth={1.5} />
+                ? <Plus size={20} strokeWidth={2} />
+                : <Minus size={20} strokeWidth={2} />
               }
             </button>
           </div>
         )}
         {!isCollapsed && (
           <div className="pl-4 divide-y divide-white/[0.04]">
+            {sectionKey === "_root" && ephemeralLoading && items.length === 0 ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-white/30" />
+              </div>
+            ) : (
+            <>
             {visibleItems.flatMap((item) => {
               if (item.kind === "btc") {
                 const p = item.post;
@@ -680,6 +690,8 @@ function TopicsFeed({
                 View {hiddenCount} more
               </button>
             )}
+            </>
+            )}
           </div>
         )}
       </div>
@@ -722,7 +734,7 @@ function TopicsFeed({
         { hash: t.hash, name: t.name, totalBurned: 0 },
         t.posts,
       ))}
-      {(untaggedPosts.length > 0 || rootEph.length > 0) && renderSection("_root", "/", untaggedPosts, true, null, rootEph)}
+      {(untaggedPosts.length > 0 || rootEph.length > 0 || ephemeralLoading) && renderSection("_root", "/", untaggedPosts, true, null, rootEph)}
       {untaggedHasMore && !collapsedTopics.has("_root") && (
         <button
           onClick={() => goToSection("_root")}
@@ -788,6 +800,14 @@ export default function Home() {
     setHasStoredIdentity(!!getStoredIdentity() || !!getSessionPubkey());
   }, []);
 
+  const [hasPosted, setHasPosted] = useState(false);
+  useEffect(() => {
+    setHasPosted(typeof window !== "undefined" && localStorage.getItem("ocdn_hasPosted") === "1");
+  }, []);
+  useEffect(() => {
+    if (!hasPosted && feedTab === "profile") setFeedTab("topics");
+  }, [hasPosted, feedTab]);
+
   const [groups, setGroups] = useState<TopicGroup[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -799,6 +819,7 @@ export default function Home() {
   const [ewHasMore, setEwHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [homeEphemeral, setHomeEphemeral] = useState<EphemeralPost[]>([]);
+  const [ephemeralLoading, setEphemeralLoading] = useState(false);
   const [injectedEphPosts, setInjectedEphPosts] = useState<EphemeralPost[]>([]);
   const [extraEwPosts, setExtraEwPosts] = useState<Post[]>([]);
   const [ewCursor, setEwCursor] = useState<string | null>(null);
@@ -864,23 +885,28 @@ export default function Home() {
     });
 
     if (effectiveSort === "topics" && f.type === "all") {
+      setEphemeralLoading(true);
       fetch("/api/ephemeral?root=true&sort=new&limit=100")
         .then((r) => r.ok ? r.json() : { posts: [] })
         .then((data) => {
           if (version !== fetchVersionRef.current) return;
           setHomeEphemeral(data.posts ?? []);
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => setEphemeralLoading(false));
     } else if (f.type === "topic") {
+      setEphemeralLoading(true);
       fetch(`/api/ephemeral?topicHash=${f.hash}&sort=new&limit=500`)
         .then((r) => r.ok ? r.json() : { posts: [] })
         .then((data) => {
           if (version !== fetchVersionRef.current) return;
           setHomeEphemeral(data.posts ?? []);
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => setEphemeralLoading(false));
     } else {
       setHomeEphemeral([]);
+      setEphemeralLoading(false);
     }
 
     feedPromise
@@ -919,6 +945,27 @@ export default function Home() {
         setLoading(false);
       });
   }, [sortMode, sortDirection, feedFilterKey, includeTopicless, excludedTopicHashes, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Collapse all topics by default when data first loads
+  const hasInitializedCollapse = useRef(false);
+  useEffect(() => {
+    if (feedFilter.type !== "all" || sortMode !== "topics") return;
+    const hasData = groups.length > 0 || posts.length > 0 || homeEphemeral.length > 0;
+    if (!hasData || ephemeralLoading || hasInitializedCollapse.current) return;
+    hasInitializedCollapse.current = true;
+    const keys = new Set<string>();
+    groups.forEach((g) => keys.add(g.topic?.hash ?? "_standalone"));
+    const hasUntagged = posts.some((p) => p._section === "untagged");
+    const hasRootEph = homeEphemeral.some((e) => !e.topicHash);
+    const hasEw = posts.some((p) => p._section === "ew");
+    if (hasUntagged || hasRootEph || ephemeralLoading) keys.add("_root");
+    if (hasEw) keys.add("_ew");
+    const renderedHashes = new Set(groups.map((g) => g.topic?.hash).filter(Boolean));
+    homeEphemeral.forEach((e) => {
+      if (e.topicHash && !renderedHashes.has(e.topicHash)) keys.add(e.topicHash);
+    });
+    setCollapsedTopics(keys);
+  }, [feedFilter.type, sortMode, groups, posts, homeEphemeral, ephemeralLoading]);
 
   // ── load more (cursor pagination) ──
   const loadMore = useCallback(() => {
@@ -1144,6 +1191,10 @@ export default function Home() {
       }
 
       setMyEphemeralPosts((prev) => [post, ...prev]);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("ocdn_hasPosted", "1");
+        setHasPosted(true);
+      }
 
       const sectionKey = post.topicHash ?? "_root";
       setCollapsedTopics((prev) => {
@@ -1543,6 +1594,7 @@ export default function Home() {
                           <LeaderboardSection
                             sz={sz}
                             onNavigate={handleLeaderboardNavigate}
+                            limit={20}
                           />
                         );
                       }
@@ -1622,8 +1674,9 @@ export default function Home() {
                           focusedEphId={focusedEphId}
                           onFocusEph={openEphThread}
                           onNavigateLeaderboard={handleLeaderboardNavigate}
-                          showLeaderboard={false}
-                          showEternityWall={false}
+                          showLeaderboard={true}
+                          showEternityWall={true}
+                          ephemeralLoading={ephemeralLoading}
                         />
                         );
                       }
@@ -1804,6 +1857,7 @@ export default function Home() {
               setFeedTab(t);
               closeThread();
             }}
+            hideProfile={!hasPosted}
           />
         )}
 

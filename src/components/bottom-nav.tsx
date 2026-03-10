@@ -7,9 +7,11 @@ export type FeedTab = "topics" | "leaderboard" | "wall" | "profile";
 export function BottomNav({
   tab,
   onTabChange,
+  hideProfile = false,
 }: {
   tab: FeedTab;
   onTabChange: (tab: FeedTab) => void;
+  hideProfile?: boolean;
 }) {
   const tabs: { key: FeedTab; icon: React.ReactNode; label: string }[] = [
     { key: "topics", icon: <LayoutList size={22} strokeWidth={1.5} />, label: "Topics" },
@@ -17,9 +19,10 @@ export function BottomNav({
     { key: "wall", icon: <Globe size={22} strokeWidth={1.5} />, label: "Wall" },
     { key: "profile", icon: <User size={22} strokeWidth={1.5} />, label: "Me" },
   ];
+  const visibleTabs = hideProfile ? tabs.filter((t) => t.key !== "profile") : tabs;
   return (
     <nav className="flex shrink-0 items-center border-t border-border bg-elevated pb-[env(safe-area-inset-bottom)]">
-      {tabs.map((t) => (
+      {visibleTabs.map((t) => (
         <button
           key={t.key}
           onClick={() => onTabChange(t.key)}

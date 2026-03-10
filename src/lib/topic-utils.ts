@@ -1,20 +1,12 @@
 import { formatSats } from "./mock-data";
 
-const AVATAR_BGS = [
-  "bg-burn/30",
-  "bg-amber-500/30",
-  "bg-orange-500/30",
-  "bg-yellow-600/30",
-  "bg-rose-500/25",
-] as const;
+const AVATAR_BG = "bg-gradient-to-br from-[#555] to-[#333]";
 
 export function topicAvatarProps(name: string | null, hash: string): { bg: string; initials: string } {
-  const str = (name ?? hash).slice(0, 8);
-  const idx = str.split("").reduce((a, b) => ((a << 5) - a) + b.charCodeAt(0), 0) % AVATAR_BGS.length;
   const initials = name
     ? name.slice(0, 2).toUpperCase()
     : hash.slice(0, 2).toUpperCase();
-  return { bg: AVATAR_BGS[Math.abs(idx)], initials };
+  return { bg: AVATAR_BG, initials };
 }
 
 export function formatTopicStats(postCount: number, totalBurned: number): string {
