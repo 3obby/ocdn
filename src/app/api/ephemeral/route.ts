@@ -73,7 +73,9 @@ export async function GET(request: Request) {
       const now = new Date();
       const expiry = { gt: now };
 
-      const roots = await prisma.ephemeralPost.findMany({
+      // Fetch a large pool to enable per-topic diversification (so /pol, /g, /lit, /fit, /adv appear alongside /biz)
+      const fetchSize = Math.min(limit * 12, 1500);
+      const rootsRaw = await prisma.ephemeralPost.findMany({
         where: {
           parentContentHash: null,
           parentNostrId: null,
@@ -83,9 +85,31 @@ export async function GET(request: Request) {
         orderBy: sort === "top"
           ? [{ upvoteWeight: order }, { createdAt: order }]
           : [{ createdAt: order }],
-        take: limit,
+        take: fetchSize,
         select: EPHEMERAL_SELECT,
       });
+
+      // Diversify: take top N per topic so each board (biz, pol, g, etc.) is represented
+      const PER_TOPIC = Math.max(15, Math.ceil(limit / 6));
+      const byTopic = new Map<string | null, typeof rootsRaw>();
+      for (const p of rootsRaw) {
+        const key = p.topicHash ?? null;
+        const arr = byTopic.get(key) ?? [];
+        if (arr.length < PER_TOPIC) arr.push(p);
+        byTopic.set(key, arr);
+      }
+      const roots = Array.from(byTopic.values())
+        .flat()
+        .sort((a, b) => {
+          if (sort === "top") {
+            const diff = Number(b.upvoteWeight - a.upvoteWeight);
+            return order === "desc" ? diff : -diff;
+          }
+          const at = a.createdAt.getTime();
+          const bt = b.createdAt.getTime();
+          return order === "desc" ? bt - at : at - bt;
+        })
+        .slice(0, limit);
 
       const seen = new Set(roots.map((p) => p.nostrEventId));
       const allPosts = [...roots];

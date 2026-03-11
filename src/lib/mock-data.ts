@@ -20,6 +20,7 @@ export type EphemeralPost = {
 export type Post = {
   id: string;
   contentHash: string;
+  txid?: string;
   protocol: string;
   authorPubkey: string;
   text: string;

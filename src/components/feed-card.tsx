@@ -30,7 +30,42 @@ import {
   shortPubkey,
 } from "@/lib/mock-data";
 import { useTextSize, ts } from "@/lib/text-size";
-import { Eye, Pencil, ChevronRight } from "lucide-react";
+import { Eye, Pencil, ChevronRight, ExternalLink } from "lucide-react";
+
+function BtcInscriptionContent({
+  post,
+  sz,
+  contentClamp,
+  isUnpaid,
+}: {
+  post: Post;
+  sz: string;
+  contentClamp: string;
+  isUnpaid: boolean;
+}) {
+  const txUrl = post.txid ? `https://mempool.space/tx/${post.txid}` : null;
+  return (
+    <div className="relative rounded-md bg-gradient-to-br from-amber-900/25 via-yellow-900/15 to-amber-950/20 border border-amber-500/50 shadow-[0_0_0_1px_rgba(245,158,11,0.3)] p-3 pb-4">
+      <span
+        className={`${sz} leading-snug ${isUnpaid ? "text-white/40" : "text-amber-50/95"} block ${contentClamp} break-all ${post.text.startsWith(">") ? "border-l-2 border-amber-400/30 pl-2 text-amber-100/95" : ""}`}
+      >
+        {post.text}
+      </span>
+      {txUrl && (
+        <a
+          href={txUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="absolute -bottom-[1px] left-1/2 -translate-x-1/2 flex items-center justify-center p-1 bg-black border border-amber-500/70 text-amber-400 hover:text-amber-300 hover:border-amber-400 transition-colors z-10"
+          aria-label="View on chain"
+        >
+          <ExternalLink size={12} strokeWidth={2} />
+        </a>
+      )}
+    </div>
+  );
+}
 
 function ConfirmBadge({ confirmations, ephemeral, ephemeralStatus }: { confirmations: number; ephemeral?: boolean; ephemeralStatus?: string }) {
   if (ephemeral && ephemeralStatus !== "upgraded") {
@@ -91,6 +126,7 @@ export function FeedCard({
   const isEphemeral = post.ephemeral === true;
   const isPaid = isEphemeral && post.ephemeralStatus === "upgraded";
   const isUnpaid = isEphemeral && !isPaid;
+  const isBtcInscription = (post.protocol === "ocdn" || post.protocol === "ew") && !isEphemeral;
 
   const contentClamp = isExpanded ? "" : expandPreview ? "line-clamp-3" : "truncate";
 
@@ -128,12 +164,16 @@ export function FeedCard({
       )}
 
       <div className="flex items-center gap-2">
-        <div className={`min-w-0 flex-1 overflow-hidden ${isExpanded ? "px-4 pb-3 pt-1" : "py-2.5 pl-4"}`}>
-          <span
-            className={`${ts(sz)} leading-snug ${isUnpaid ? "text-white/40" : "text-white"} block ${contentClamp} break-all transition-colors duration-200 ${post.text.startsWith(">") ? "border-l-2 border-white/15 pl-2 text-white/90" : ""}`}
-          >
-            {post.text}
-          </span>
+        <div className={`min-w-0 flex-1 overflow-hidden ${isExpanded ? "px-4 pt-1" : "py-2.5 pl-4"} ${isExpanded && isBtcInscription ? "pb-0" : isExpanded ? "pb-3" : ""}`}>
+          {isBtcInscription ? (
+            <BtcInscriptionContent post={post} sz={ts(sz)} contentClamp={contentClamp} isUnpaid={isUnpaid} />
+          ) : (
+            <span
+              className={`${ts(sz)} leading-snug ${isUnpaid ? "text-white/40" : "text-white"} block ${contentClamp} break-all transition-colors duration-200 ${post.text.startsWith(">") ? "border-l-2 border-white/15 pl-2 text-white/90" : ""}`}
+            >
+              {post.text}
+            </span>
+          )}
         </div>
 
         {!isExpanded && (
@@ -222,13 +262,31 @@ export function ThreadCard({
         </span>
       </div>
 
-      <div
-        className={`${ts(sz)} leading-snug ${
-          isFocused ? "text-white" : "text-white/60 line-clamp-2"
-        } ${post.text.startsWith(">") ? "border-l-2 border-white/15 pl-2 text-white/70" : ""}`}
-      >
-        {post.text}
-      </div>
+      {(post.protocol === "ocdn" || post.protocol === "ew") && post.txid ? (
+        <div className="relative rounded-md bg-gradient-to-br from-amber-900/25 via-yellow-900/15 to-amber-950/20 border border-amber-500/50 shadow-[0_0_0_1px_rgba(245,158,11,0.3)] p-3 pb-4 mt-1">
+          <div className={`${ts(sz)} leading-snug ${isFocused ? "text-amber-50/95" : "text-amber-100/70"} ${!isFocused ? "line-clamp-2" : ""} ${post.text.startsWith(">") ? "border-l-2 border-amber-400/30 pl-2" : ""}`}>
+            {post.text}
+          </div>
+          <a
+            href={`https://mempool.space/tx/${post.txid}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="absolute -bottom-[1px] left-1/2 -translate-x-1/2 flex items-center justify-center p-1 bg-black border border-amber-500/70 text-amber-400 hover:text-amber-300 hover:border-amber-400 transition-colors z-10"
+            aria-label="View on chain"
+          >
+            <ExternalLink size={12} strokeWidth={2} />
+          </a>
+        </div>
+      ) : (
+        <div
+          className={`${ts(sz)} leading-snug ${
+            isFocused ? "text-white" : "text-white/60 line-clamp-2"
+          } ${post.text.startsWith(">") ? "border-l-2 border-white/15 pl-2 text-white/70" : ""}`}
+        >
+          {post.text}
+        </div>
+      )}
 
       {onReply && (
         <div className="flex items-center gap-2.5 mt-2">

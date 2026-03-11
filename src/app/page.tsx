@@ -576,14 +576,22 @@ function TopicsFeed({
     const hiddenCount = rootShowAll || externallyPaginated ? 0 : items.length - visibleItems.length;
 
     const postCount = sectionPosts.length + (sectionEph?.length ?? 0);
+    const isOcdn = topic?.name === "ocdn" || label === "/ocdn";
+    const isTopiclessInscribed = sectionKey === "_root" && sectionPosts.length > 0;
+    const isInscribedSection = isOcdn || isTopiclessInscribed;
     const { bg, initials } = sectionKey === "_ew"
       ? { bg: "bg-blue-500/30" as const, initials: "EW" }
-      : topic
-        ? topicAvatarProps(topic.name, topic.hash)
-        : { bg: "bg-white/10" as const, initials: "—" };
+      : isInscribedSection
+        ? { bg: "bg-gradient-to-br from-amber-600/40 via-yellow-600/30 to-amber-700/35" as const, initials: isTopiclessInscribed ? "—" : (topic?.name?.slice(0, 2).toUpperCase() ?? "OC") }
+        : topic
+          ? topicAvatarProps(topic.name, topic.hash)
+          : { bg: "bg-white/10" as const, initials: "—" };
 
     return (
-      <div key={sectionKey} className="bg-[#111111] mb-2 rounded-lg border border-white/[0.04]">
+      <div
+        key={sectionKey}
+        className={`bg-[#111111] mb-2 rounded-lg border ${isInscribedSection ? "border-amber-500/50 shadow-[0_0_0_1px_rgba(245,158,11,0.25)]" : "border-white/[0.04]"}`}
+      >
         {feedFilter.type === "all" && (
           <div className="flex items-center gap-3 py-3 pl-4 pr-3">
             <button
@@ -714,6 +722,7 @@ function TopicsFeed({
 
   return (
     <>
+      {(untaggedPosts.length > 0 || ephemeralLoading) && renderSection("_root", "/", untaggedPosts, true, null)}
       {groups.map((group) => {
         const topicKey = group.topic?.hash ?? null;
         const eph = topicKey ? (ephByTopic.get(topicKey) ?? []) : [];
@@ -726,6 +735,7 @@ function TopicsFeed({
           eph,
         );
       })}
+      {rootEph.length > 0 && renderSection("_root_eph", "/", [], true, null, rootEph)}
       {ephOnlyTopics.map((t) => renderSection(
         t.hash,
         "/" + t.name,
@@ -734,7 +744,6 @@ function TopicsFeed({
         { hash: t.hash, name: t.name, totalBurned: 0 },
         t.posts,
       ))}
-      {(untaggedPosts.length > 0 || rootEph.length > 0 || ephemeralLoading) && renderSection("_root", "/", untaggedPosts, true, null, rootEph)}
       {untaggedHasMore && !collapsedTopics.has("_root") && (
         <button
           onClick={() => goToSection("_root")}
@@ -958,7 +967,8 @@ export default function Home() {
     const hasUntagged = posts.some((p) => p._section === "untagged");
     const hasRootEph = homeEphemeral.some((e) => !e.topicHash);
     const hasEw = posts.some((p) => p._section === "ew");
-    if (hasUntagged || hasRootEph || ephemeralLoading) keys.add("_root");
+    if (hasUntagged || ephemeralLoading) keys.add("_root");
+    if (hasRootEph) keys.add("_root_eph");
     if (hasEw) keys.add("_ew");
     const renderedHashes = new Set(groups.map((g) => g.topic?.hash).filter(Boolean));
     homeEphemeral.forEach((e) => {
@@ -1230,7 +1240,7 @@ export default function Home() {
 
   const goToSection = useCallback((sectionKey: string, topic?: { hash: string; name: string | null; totalBurned: number } | null) => {
     let newFilter: FeedFilter;
-    if (sectionKey === "_root") {
+    if (sectionKey === "_root" || sectionKey === "_root_eph") {
       newFilter = { type: "topicless" };
       setFeedFilter(newFilter);
       setSearchQuery("/");
