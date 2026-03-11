@@ -122,7 +122,7 @@ export function EphemeralPostCard({
       <div className={`flex items-center gap-1.5 text-[10px] tabular-nums mt-1.5`}>
         {displayZeros > 0 && (
           <>
-            <span className={`font-medium ${isMining ? "text-yellow-400/60 animate-pulse" : "text-white/40"}`}>
+            <span className={`font-medium ${isMining ? "text-[#f4b63f]/60 animate-pulse" : "text-white/40"}`}>
               {displayZeros}z
             </span>
             <span className="text-white/10">&middot;</span>

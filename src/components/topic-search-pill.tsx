@@ -23,11 +23,11 @@ type ExternalEntry = {
 const LIMIT = 30;
 
 const AVATAR_BGS = [
-  "bg-burn/30",
-  "bg-amber-500/30",
-  "bg-orange-500/30",
-  "bg-yellow-600/30",
-  "bg-rose-500/25",
+  "bg-[#f4b63f]/30",
+  "bg-[#e93223]/25",
+  "bg-[#f4b63f]/25",
+  "bg-[#e93223]/20",
+  "bg-[#f4b63f]/20",
 ] as const;
 
 function topicAvatarProps(name: string | null, hash: string): { bg: string; initials: string } {

@@ -13,7 +13,7 @@ import {
   type FeedFilter,
   type EphemeralPost,
 } from "@/lib/mock-data";
-import { topicAvatarProps, formatTopicStats } from "@/lib/topic-utils";
+import { formatTopicStats } from "@/lib/topic-utils";
 import { flushSync } from "react-dom";
 import { Plus, Minus, ChevronRight, ChevronDown, Loader2, Zap } from "lucide-react";
 import { type TextSize, TextSizeCtx } from "@/lib/text-size";
@@ -112,8 +112,8 @@ function LeaderboardSection({
           onClick={() => setCollapsed(!collapsed)}
           className="py-2.5 pl-4 text-left shrink-0 flex items-center gap-1.5"
         >
-          <Zap size={14} className="text-yellow-400/80" />
-          <span className={`${sz} leading-tight text-yellow-400/80`}>#1 -&gt; BTC</span>
+          <Zap size={14} className="text-[#f4b63f]/80" />
+          <span className={`${sz} leading-tight text-[#f4b63f]/80`}>#1 -&gt; BTC</span>
         </button>
         <button
           onClick={() => setCollapsed(!collapsed)}
@@ -130,7 +130,7 @@ function LeaderboardSection({
               {fundBalance > 0 ? `${(fundBalance / 100_000_000).toFixed(8)} BTC` : "unfunded"}
             </span>
           )}
-          <span className="text-[10px] text-yellow-400/50 tabular-nums font-mono">
+          <span className="text-[10px] text-[#f4b63f]/50 tabular-nums font-mono">
             {formatCountdown(nextCycleMs)}
           </span>
         </div>
@@ -156,29 +156,29 @@ function LeaderboardSection({
                     onClick={() => onNavigate(entry)}
                     className={`w-full text-left rounded-lg border transition-colors active:scale-[0.99] min-h-[72px] flex flex-col gap-1.5 p-3 overflow-hidden ${
                       isFirst
-                        ? "border-yellow-400/40 bg-yellow-400/5 hover:bg-yellow-400/10"
+                        ? "border-[#f4b63f]/40 bg-[#f4b63f]/5 hover:bg-[#f4b63f]/10"
                         : "border-white/10 bg-white/[0.02] hover:bg-white/[0.04]"
                     }`}
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-[11px] font-semibold tabular-nums ${
-                        isFirst ? "bg-yellow-400/30 text-yellow-400" : "bg-white/10 text-white/50"
+                        isFirst ? "bg-[#f4b63f]/30 text-[#f4b63f]" : "bg-white/10 text-white/50"
                       }`}>
                         {i + 1}
                       </span>
                       <span className={`text-[11px] shrink-0 ${
-                        isFirst ? "text-yellow-400/80" : "text-white/40"
+                        isFirst ? "text-[#f4b63f]/80" : "text-white/40"
                       }`}>
                         {topicName}
                       </span>
                       <span className={`text-[11px] tabular-nums shrink-0 font-mono ml-auto ${
-                        isFirst ? "text-yellow-400" : "text-white/40"
+                        isFirst ? "text-[#f4b63f]" : "text-white/40"
                       }`}>
                         {powLabel}
                       </span>
                     </div>
                     <div className={`${sz} line-clamp-2 leading-snug min-w-0 break-words overflow-hidden [&_a]:break-all ${
-                      isFirst ? "text-yellow-100/90" : "text-white/80"
+                      isFirst ? "text-[#f4e4b0]/90" : "text-white/80"
                     }`}>
                       <PostContent content={entry.text} />
                     </div>
@@ -217,7 +217,7 @@ function LeaderboardSection({
               </button>
               {showAddress && (
                 <div className="mt-1.5 flex items-center gap-2">
-                  <code className="text-[10px] text-yellow-400/60 font-mono break-all select-all leading-tight">
+                  <code className="text-[10px] text-[#f4b63f]/60 font-mono break-all select-all leading-tight">
                     {fundAddress}
                   </code>
                   <button
@@ -579,63 +579,70 @@ function TopicsFeed({
     const isOcdn = topic?.name === "ocdn" || label === "/ocdn";
     const isTopiclessInscribed = sectionKey === "_root" && sectionPosts.length > 0;
     const isInscribedSection = isOcdn || isTopiclessInscribed;
-    const { bg, initials } = sectionKey === "_ew"
-      ? { bg: "bg-blue-500/30" as const, initials: "EW" }
-      : isInscribedSection
-        ? { bg: "bg-gradient-to-br from-amber-600/40 via-yellow-600/30 to-amber-700/35" as const, initials: isTopiclessInscribed ? "—" : (topic?.name?.slice(0, 2).toUpperCase() ?? "OC") }
-        : topic
-          ? topicAvatarProps(topic.name, topic.hash)
-          : { bg: "bg-white/10" as const, initials: "—" };
+    const hasBtc = sectionPosts.length > 0;
+    const isEphOnly = !hasBtc && (sectionEph?.length ?? 0) > 0;
+    const useBtcBadge = hasBtc || isInscribedSection || (isTopic && !isEphOnly);
+    const useEphBadge = isEphOnly;
 
     return (
       <div
         key={sectionKey}
-        className={`bg-[#111111] mb-2 rounded-lg border ${isInscribedSection ? "border-amber-500/50 shadow-[0_0_0_1px_rgba(245,158,11,0.25)]" : "border-white/[0.04]"}`}
+        className={`bg-[#111111] mb-2 rounded-lg border relative overflow-hidden ${isInscribedSection ? "border-[#f4b63f]/50 shadow-[0_0_4px_rgba(244,182,63,.25),0_0_10px_rgba(244,182,63,.12),0_0_18px_rgba(244,182,63,.08)]" : "border-white/[0.04]"}`}
       >
         {feedFilter.type === "all" && (
-          <div className="flex items-center gap-3 py-3 pl-4 pr-3">
-            <button
-              onClick={() => goToSection(sectionKey, topic)}
-              className="flex min-w-0 flex-1 items-center gap-3 text-left"
-            >
-              <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${bg} text-white/90 text-sm font-medium`}>
-                {sectionKey === "_ew" ? "EW" : initials}
-              </div>
-              <div className="min-w-0 flex-1">
+          <button
+            type="button"
+            onClick={() => toggleTopic(sectionKey)}
+            className="flex w-full min-h-[52px] items-center gap-3 py-3 pl-4 pr-3 text-left hover:bg-white/[0.02] active:bg-white/[0.04] transition-colors"
+            aria-label={isCollapsed ? "Expand" : "Collapse"}
+          >
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-[#f4b63f]/60 text-[#f4b63f]">
+              {isCollapsed ? <Plus size={20} strokeWidth={2} /> : <Minus size={20} strokeWidth={2} />}
+            </span>
+            <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
                 {sectionKey === "_ew" ? (
                   <>
-                    <div className={`${sz} font-medium leading-tight`}>
-                      <span className="bg-white rounded-full px-2 py-0.5 text-blue-600 font-[ui-sans-serif,system-ui,sans-serif]">
-                        EternityWall
+                    <span className="inline-block -skew-x-12 bg-white px-2 py-0.5 font-bold text-blue-600 shadow-[0_0_4px_rgba(59,130,246,.3),0_0_8px_rgba(59,130,246,.15)]">
+                      <span className="inline-block skew-x-12 font-[ui-sans-serif,system-ui,sans-serif]">EternityWall</span>
+                    </span>
+                    <span className="text-[11px] tabular-nums text-white/40 shrink-0">
+                      {postCount > 0 ? `${postCount.toLocaleString()} n` : "—"}
+                    </span>
+                  </>
+                ) : useBtcBadge ? (
+                  <>
+                    <span className={`${sz} font-medium`}>
+                      <span className="inline-block -skew-x-12 bg-[#f4b63f] px-2 py-0.5 font-bold text-black shadow-[0_0_4px_rgba(244,182,63,.35),0_0_8px_rgba(244,182,63,.15)]">
+                        <span className="inline-block skew-x-12">{label}</span>
                       </span>
-                    </div>
-                    <div className="text-[11px] leading-tight text-white/40 tabular-nums">
+                    </span>
+                    <span className="text-[11px] tabular-nums text-white/40 shrink-0">
                       {formatTopicStats(postCount, totalBurned)}
-                    </div>
+                    </span>
+                  </>
+                ) : useEphBadge ? (
+                  <>
+                    <span className={`${sz} font-medium`}>
+                      <span className="inline-block -skew-x-12 bg-[#e93223] px-2 py-0.5 font-bold text-white shadow-[0_0_4px_rgba(233,50,35,.45),0_0_10px_rgba(233,50,35,.22),0_0_18px_rgba(233,50,35,.12)]">
+                        <span className="inline-block skew-x-12">{label}</span>
+                      </span>
+                    </span>
+                    <span className="text-[11px] tabular-nums text-white/40 shrink-0">
+                      {formatTopicStats(postCount, totalBurned)}
+                    </span>
                   </>
                 ) : (
                   <>
-                    <div className={`${sz} font-medium leading-tight ${isTopic ? "text-white" : "text-white/25"} ${topic?.name ? "" : isTopic ? "font-mono" : ""}`}>
+                    <span className={`${sz} font-medium ${isTopic ? "text-white" : "text-white/25"} ${topic?.name ? "" : isTopic ? "font-mono" : ""}`}>
                       {label}
-                    </div>
-                    <div className="text-[11px] leading-tight text-white/40 tabular-nums">
+                    </span>
+                    <span className="text-[11px] tabular-nums text-white/40 shrink-0">
                       {formatTopicStats(postCount, totalBurned)}
-                    </div>
+                    </span>
                   </>
                 )}
-              </div>
-            </button>
-            <button
-              onClick={() => toggleTopic(sectionKey)}
-              className="shrink-0 p-2 text-white hover:text-white/80 transition-colors"
-              aria-label={isCollapsed ? "Expand" : "Collapse"}
-            >
-              {isCollapsed
-                ? <Plus size={20} strokeWidth={2} />
-                : <Minus size={20} strokeWidth={2} />
-              }
-            </button>
-          </div>
+            </div>
+          </button>
         )}
         {!isCollapsed && (
           <div className="pl-4 divide-y divide-white/[0.04]">

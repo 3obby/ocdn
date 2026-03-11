@@ -45,9 +45,9 @@ function BtcInscriptionContent({
 }) {
   const txUrl = post.txid ? `https://mempool.space/tx/${post.txid}` : null;
   return (
-    <div className="relative rounded-md bg-gradient-to-br from-amber-900/25 via-yellow-900/15 to-amber-950/20 border border-amber-500/50 shadow-[0_0_0_1px_rgba(245,158,11,0.3)] p-3 pb-4">
+    <div className="relative rounded-md bg-gradient-to-br from-[#f4b63f]/15 via-[#f4b63f]/10 to-[#e93223]/12 border border-[#f4b63f]/50 shadow-[0_0_4px_rgba(244,182,63,.25),0_0_10px_rgba(244,182,63,.12)] p-3 pb-4">
       <span
-        className={`${sz} leading-snug ${isUnpaid ? "text-white/40" : "text-amber-50/95"} block ${contentClamp} break-all ${post.text.startsWith(">") ? "border-l-2 border-amber-400/30 pl-2 text-amber-100/95" : ""}`}
+        className={`${sz} leading-snug ${isUnpaid ? "text-white/40" : "text-[#f4e4b0]/95"} block ${contentClamp} break-all ${post.text.startsWith(">") ? "border-l-2 border-[#f4b63f]/30 pl-2 text-[#f4e4b0]/95" : ""}`}
       >
         {post.text}
       </span>
@@ -57,7 +57,7 @@ function BtcInscriptionContent({
           target="_blank"
           rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
-          className="absolute -bottom-[1px] left-1/2 -translate-x-1/2 flex items-center justify-center p-1 bg-black border border-amber-500/70 text-amber-400 hover:text-amber-300 hover:border-amber-400 transition-colors z-10"
+          className="absolute -bottom-[1px] left-1/2 -translate-x-1/2 flex items-center justify-center p-1 bg-black border border-[#f4b63f]/70 text-[#f4b63f] hover:text-[#f4c870] hover:border-[#f4b63f] transition-colors z-10"
           aria-label="View on chain"
         >
           <ExternalLink size={12} strokeWidth={2} />
@@ -263,8 +263,8 @@ export function ThreadCard({
       </div>
 
       {(post.protocol === "ocdn" || post.protocol === "ew") && post.txid ? (
-        <div className="relative rounded-md bg-gradient-to-br from-amber-900/25 via-yellow-900/15 to-amber-950/20 border border-amber-500/50 shadow-[0_0_0_1px_rgba(245,158,11,0.3)] p-3 pb-4 mt-1">
-          <div className={`${ts(sz)} leading-snug ${isFocused ? "text-amber-50/95" : "text-amber-100/70"} ${!isFocused ? "line-clamp-2" : ""} ${post.text.startsWith(">") ? "border-l-2 border-amber-400/30 pl-2" : ""}`}>
+        <div className="relative rounded-md bg-gradient-to-br from-[#f4b63f]/15 via-[#f4b63f]/10 to-[#e93223]/12 border border-[#f4b63f]/50 shadow-[0_0_4px_rgba(244,182,63,.25),0_0_10px_rgba(244,182,63,.12)] p-3 pb-4 mt-1">
+          <div className={`${ts(sz)} leading-snug ${isFocused ? "text-[#f4e4b0]/95" : "text-[#f4e4b0]/70"} ${!isFocused ? "line-clamp-2" : ""} ${post.text.startsWith(">") ? "border-l-2 border-[#f4b63f]/30 pl-2" : ""}`}>
             {post.text}
           </div>
           <a
@@ -272,7 +272,7 @@ export function ThreadCard({
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
-            className="absolute -bottom-[1px] left-1/2 -translate-x-1/2 flex items-center justify-center p-1 bg-black border border-amber-500/70 text-amber-400 hover:text-amber-300 hover:border-amber-400 transition-colors z-10"
+            className="absolute -bottom-[1px] left-1/2 -translate-x-1/2 flex items-center justify-center p-1 bg-black border border-[#f4b63f]/70 text-[#f4b63f] hover:text-[#f4c870] hover:border-[#f4b63f] transition-colors z-10"
             aria-label="View on chain"
           >
             <ExternalLink size={12} strokeWidth={2} />

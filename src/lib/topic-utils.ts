@@ -1,6 +1,6 @@
 import { formatSats } from "./mock-data";
 
-const AVATAR_BG = "bg-gradient-to-br from-[#555] to-[#333]";
+const AVATAR_BG = "bg-gradient-to-br from-[#f4b63f]/35 to-[#e93223]/25";
 
 export function topicAvatarProps(name: string | null, hash: string): { bg: string; initials: string } {
   const initials = name

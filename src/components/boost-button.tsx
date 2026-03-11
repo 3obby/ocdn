@@ -190,9 +190,9 @@ export function BoostButton({
       onClick={toggle}
       className={`transition-colors ${
         state === "mining"
-          ? "text-yellow-400/70 animate-pulse"
+          ? "text-[#f4b63f]/70 animate-pulse"
           : state === "submitting"
-            ? "text-yellow-400/40 animate-pulse"
+            ? "text-[#f4b63f]/40 animate-pulse"
             : state === "done"
               ? "text-green-400/50"
               : state === "error"

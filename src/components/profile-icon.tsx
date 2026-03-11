@@ -218,7 +218,7 @@ export function ProfileSheet({
                 aria-label="Compose"
                 className="flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white/70 hover:bg-white/[0.15] hover:text-white transition-all active:scale-95"
               >
-                <Plus size={iconSize} strokeWidth={2} className="mr-0.5" />
+                <Plus size={iconSize} strokeWidth={2} className="mr-0.5 text-[#e93223]" />
                 <Pencil size={iconSize - 2} strokeWidth={2} />
               </button>
             )}

@@ -34,6 +34,10 @@
 
 :root {
   --radius: 0.5rem;
+  --glow-yellow: 244, 182, 63;
+  --glow-red: 233, 50, 35;
+  --color-accent-yellow: #f4b63f;
+  --color-accent-red: #e93223;
   --background: #000000;
   --foreground: #ffffff;
   --card: #000000;

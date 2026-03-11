@@ -23,11 +23,11 @@ type ExternalEntry = {
 const LIMIT = 30;
 
 const AVATAR_BGS = [
-  "bg-burn/30",
-  "bg-amber-500/30",
-  "bg-orange-500/30",
-  "bg-yellow-600/30",
-  "bg-rose-500/25",
+  "bg-[#f4b63f]/30",
+  "bg-[#e93223]/25",
+  "bg-[#f4b63f]/25",
+  "bg-[#e93223]/20",
+  "bg-[#f4b63f]/20",
 ] as const;
 
 function topicAvatarProps(name: string | null, hash: string): { bg: string; initials: string } {
@@ -363,7 +363,7 @@ export function TopBar({
             aria-label="Compose"
             className="flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white/70 hover:bg-white/[0.15] hover:text-white transition-colors active:scale-95"
           >
-            <Plus size={iconSize} strokeWidth={2} className="mr-0.5" />
+            <Plus size={iconSize} strokeWidth={2} className="mr-0.5 text-[#e93223]" />
             <Pencil size={iconSize - 2} strokeWidth={2} />
           </button>
       </div>
