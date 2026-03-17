@@ -258,7 +258,7 @@ export function ProfileSheet({
                         {btcParent?.topicName && <span className="text-burn/40">{btcParent.topicName}</span>}
                         {parentAuthor && <span>{parentAuthor}</span>}
                       </div>
-                      <p className="text-[13px] text-white/25 line-clamp-2 leading-snug">
+                      <p className="text-[13px] text-white/25 line-clamp-2 leading-relaxed">
                         {parentText}
                       </p>
                     </div>
@@ -287,7 +287,7 @@ export function ProfileSheet({
                         <span className="text-[11px] text-white/30">{p.topicName}</span>
                       )}
                     </div>
-                    <p className={`${ts(sz)} text-white/70 line-clamp-2 leading-snug`}>{p.text}</p>
+                    <p className={`${ts(sz)} text-white/70 line-clamp-2 leading-relaxed`}>{p.text}</p>
                   </button>
                 ))}
               </div>

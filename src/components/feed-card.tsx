@@ -130,7 +130,7 @@ export function FeedCard({
       <div className="flex items-center gap-2">
         <div className={`min-w-0 flex-1 overflow-hidden ${isExpanded ? "px-4 pb-3 pt-1" : "py-2.5 pl-4"}`}>
           <span
-            className={`${ts(sz)} leading-snug ${isUnpaid ? "text-white/40" : "text-white"} block ${contentClamp} break-all transition-colors duration-200 ${post.text.startsWith(">") ? "border-l-2 border-white/15 pl-2 text-white/90" : ""}`}
+            className={`${ts(sz)} leading-relaxed ${isUnpaid ? "text-white/40" : "text-white"} block ${contentClamp} break-words transition-colors duration-200 ${contentClamp !== "truncate" ? "whitespace-pre-wrap" : ""} ${post.text.startsWith(">") ? "border-l-2 border-white/15 pl-2 text-white/90" : ""}`}
           >
             {post.text}
           </span>
@@ -223,7 +223,7 @@ export function ThreadCard({
       </div>
 
       <div
-        className={`${ts(sz)} leading-snug ${
+        className={`${ts(sz)} leading-relaxed whitespace-pre-wrap ${
           isFocused ? "text-white" : "text-white/60 line-clamp-2"
         } ${post.text.startsWith(">") ? "border-l-2 border-white/15 pl-2 text-white/70" : ""}`}
       >

@@ -55,7 +55,7 @@ export function SearchView({
     <div className="flex h-full flex-col">
       <div className="flex-1 overflow-y-auto">
         {loading ? (
-          <div className="divide-y divide-white/[0.04] rounded-lg border border-white/[0.04] bg-[#111111] overflow-hidden">
+          <div className="divide-y divide-white/[0.04] border border-white/[0.04] bg-[#111111] overflow-hidden">
             {[1, 2, 3, 4, 5, 6].map((i) => (
               <FeedCardSkeleton key={i} variant={i % 3 === 0 ? "short" : "default"} />
             ))}

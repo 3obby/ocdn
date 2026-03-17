@@ -22,12 +22,14 @@ export function BoostButton({
   target,
   size = 14,
   onBoosted,
+  onClick,
   onMiningProgress,
   containerRef,
 }: {
   target: BoostTarget;
   size?: number;
   onBoosted?: (equivalentZeros: number) => void;
+  onClick?: () => void;
   onMiningProgress?: (difficulty: number) => void;
   containerRef?: React.RefObject<HTMLElement | null>;
 }) {
@@ -162,6 +164,7 @@ export function BoostButton({
 
     if (stateRef.current !== "idle" && stateRef.current !== "done" && stateRef.current !== "error") return;
 
+    onClick?.();
     stateRef.current = "mining";
     setState("mining");
     setCurrentDifficulty(0);
@@ -173,7 +176,7 @@ export function BoostButton({
       () => cycleSubmit(),
       POW.AUTO_SUBMIT_INTERVAL_MS,
     );
-  }, [finishMining, spawnWorker, cycleSubmit]);
+  }, [finishMining, spawnWorker, cycleSubmit, onClick]);
 
   // Cleanup on unmount
   useEffect(() => {

@@ -115,7 +115,7 @@ export function EphemeralPostCard({
       onClick={() => onExpand?.(post.nostrEventId)}
       className="relative border border-dashed border-white/[0.08] py-2 px-4 bg-white/[0.04] cursor-pointer"
     >
-      <p className={`${ts(sz)} text-white/90 leading-snug whitespace-pre-wrap`}>
+      <p className={`${ts(sz)} text-white/90 leading-relaxed whitespace-pre-wrap`}>
         <PostContent content={post.content} />
       </p>
 

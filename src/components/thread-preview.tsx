@@ -19,7 +19,7 @@ function ReplyCard({ post }: { post: Post }) {
           <span className="text-[9px] tabular-nums">{post.viewCount || 0}</span>
         </span>
       </div>
-      <div className={`${ts(sz)} leading-snug text-white/55 line-clamp-2 ${post.text.startsWith(">") ? "border-l-2 border-white/10 pl-2 text-white/50" : ""}`}>
+      <div className={`${ts(sz)} leading-relaxed whitespace-pre-wrap text-white/55 line-clamp-2 ${post.text.startsWith(">") ? "border-l-2 border-white/10 pl-2 text-white/50" : ""}`}>
         {post.text}
       </div>
     </div>
