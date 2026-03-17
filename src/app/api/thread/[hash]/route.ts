@@ -79,7 +79,7 @@ export async function GET(
 
     return NextResponse.json({ thread: threadWithEph });
   } catch (err) {
-    log("error", "api/thread", "thread query failed", { hash, error: String(err) });
+    log("error", "api/thread", "thread query failed", { hash, error: err instanceof Error ? err.message : JSON.stringify(err) });
     return errorResponse("Internal server error", 500);
   }
 }

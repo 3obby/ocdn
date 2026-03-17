@@ -1,0 +1,151 @@
+OCDN — TECHNICAL TASKS (GO-TO-MARKET)
+======================================
+
+Current state: functional webapp, 2 test inscriptions on signet,
+protocol lib done, bitcoin infra done, wallet/tx pipeline in progress.
+
+
+═══ 1. COMPLETE TX PIPELINE (sprint 3) ═══
+
+  Finish wallet.ts / tx.ts:
+    - Portal keypair gen + secure storage
+    - UTXO pool tracking, fan-out, consolidation
+    - Taproot commit/reveal construction
+    - Package broadcast (1P1C)
+    - Key-path recovery on commit outputs
+    - RBF signaling + fee bumping
+    - BURN tx (OP_RETURN)
+    - SIGNAL tx (OP_RETURN, self-signed)
+    - Retry pipeline (eviction → rebroadcast → RBF → recovery)
+    - Cost estimator (vbyte calc per tx type at current feerate)
+    - Tests against signet
+
+
+═══ 2. x402 AGENT API ═══
+
+  Goal: AI agents pay sats to read/write durable data via HTTP.
+  OCDN becomes persistent memory for autonomous agents.
+
+  Steps:
+    - Define x402 payment flow:
+        Agent hits endpoint → gets 402 + Lightning invoice in header →
+        Agent pays invoice → retries with payment preimage → access granted
+    - Implement endpoints:
+        POST /api/v1/inscribe   (write text to bitcoin, premium price)
+        POST /api/v1/signal     (write signal, cheaper)
+        GET  /api/v1/read/:hash (read content by hash, free or gated)
+        GET  /api/v1/search     (query topics/content, free or gated)
+        GET  /api/v1/feed       (ranked feed, free or gated)
+    - Pricing tier: agent writes cost 2-5x human portal rake (premium
+      for programmatic access to durable storage)
+    - Auth: x402 payment preimage = access token (stateless, per-request)
+    - Rate limiting by payment, not by IP
+    - Response format: JSON, content + txid + block height + content_hash
+    - Lightning integration: LND/CLN invoice generation + payment verification
+    - Document the API as a simple spec agents can parse
+      (or publish as an MCP tool descriptor)
+
+
+═══ 3. EMBEDDABLE INSCRIPTIONS ═══
+
+  Goal: every inscription has a shareable URL that renders a rich card
+  on Twitter/social and works as an embed on blogs.
+
+  Steps:
+    - Route: /i/:contentHash (canonical URL per inscription)
+    - OpenGraph + Twitter Card meta tags:
+        og:title = first 80 chars of content
+        og:description = "Permanently inscribed on Bitcoin · Block N · N sats committed"
+        og:image = dynamically generated OG image (content text + block + sats)
+    - OG image generation: Next.js og image route (satori/resvg or @vercel/og)
+        Dark bg, gold accent, content text, block height, sats burned
+    - oEmbed endpoint for rich embeds on platforms that support it
+    - Copy-to-clipboard "share" button in the UI that copies /i/:contentHash URL
+    - The inscription page itself: full PostCell expanded, with verify link
+      to mempool.space txid
+
+
+═══ 4. DESIGN SYSTEM (sprints from prompt.txt) ═══
+
+  Already specified in detail. Execute sprints 1-8:
+    1. Design tokens + Geist Mono + SegmentDisplay
+    2. PostCell universal content atom
+    3. Consistent thread nesting
+    4. SegmentDisplay integration + mono numbers
+    5. Topic badge + section header cleanup
+    6. Composer redesign
+    7. BoostButton on BTC content
+    8. Polish — token consistency + transitions + cleanup
+
+
+═══ 5. SEO + STATIC RENDERING ═══
+
+  Goal: every inscription is indexable by search engines.
+
+  Steps:
+    - SSR/SSG for /i/:contentHash pages (Next.js generateStaticParams
+      or on-demand ISR)
+    - Sitemap.xml auto-generated from indexed inscriptions
+    - robots.txt allowing crawl of /i/ routes
+    - Structured data (JSON-LD): Article schema with datePublished (block time),
+      author (truncated pubkey), articleBody (content)
+    - Fast TTFB: edge cache inscription pages (immutable content = infinite cache)
+
+
+═══ 6. LIGHTNING PAYMENT INTEGRATION ═══
+
+  Goal: users pay Lightning to inscribe (the "pay" step in ComposeSheet).
+
+  Steps:
+    - LND or CLN instance on VPS (or hosted: Voltage, Alby)
+    - Invoice generation endpoint: amount = miner fee estimate + portal rake
+    - Payment verification: subscribe to invoice settlement
+    - On settlement: queue content for tx construction pipeline
+    - Refund path: if tx construction fails after payment, credit or refund
+    - Display: QR code in ComposeSheet pay step (already stubbed)
+    - Fiat on-ramp: Stripe → sats conversion (or partner with existing on-ramp)
+
+
+═══ 7. MAINNET MIGRATION ═══
+
+  Steps:
+    - Verify full pipeline on signet with 50+ test inscriptions
+    - Provision mainnet Bitcoin Core (same VPS or separate)
+    - Mainnet wallet: separate keypair, real UTXO management
+    - Fund portal hot wallet with initial sats
+    - Environment toggle: BITCOIN_NETWORK=mainnet
+    - Monitoring: wallet balance alerts, stuck tx alerts, mempool fee alerts
+    - First real inscription: the founding document
+
+
+═══ 8. INDEXER (LIVE CHAIN SCANNING) ═══
+
+  Steps:
+    - Block scanner: poll getbestblockhash or ZMQ subscription
+    - For each new block: witness scan (OP_FALSE OP_IF "ocdn" ...) +
+      OP_RETURN scan ("ocdn" prefix)
+    - Parse envelopes, verify signatures, index to Postgres
+    - Reorg handling: maintain chain tip cursor, rewind on fork
+    - Backfill: scan from genesis (or first OCDN tx) on first run
+    - Mempool monitoring: show unconfirmed txs with 0c indicator
+
+
+═══ 9. LIVE BURN FEED ═══
+
+  Steps:
+    - WebSocket or SSE endpoint: stream new burns/inscriptions as they confirm
+    - Homepage widget: real-time ticker of economic activity
+    - "Someone burned N sats on [topic]" format
+    - Fallback: poll /api/recent-activity every 30s if WS unavailable
+
+
+═══ 10. MONITORING + RELIABILITY ═══
+
+  Steps:
+    - Uptime monitoring (portal, Bitcoin Core, Lightning, Postgres)
+    - Hot wallet balance alerts (low balance = can't publish)
+    - Failed tx alerts (stuck in mempool > N blocks)
+    - Error tracking (Sentry or equivalent)
+    - Backup: Postgres daily snapshots (reconstructable from chain,
+      but rebuilding is slow)
+    - Rate limiting on public endpoints

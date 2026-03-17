@@ -1,162 +1,555 @@
-OCDN Frontend UX Overhaul — Discovery → Read → Contribute
+OCDN Design System Overhaul — Sprint Prompts for Composer
+==========================================================
 
-You are working on ocdn, a Next.js 16 / React 19 forum where posts exist on two layers:
-  1. Bitcoin layer (permanent): Post, Reply types — ranked by sats burned, stored on-chain
-  2. Nostr/ephemeral layer (temporary): EphemeralPost type — ranked by PoW upvotes, expire over time
+Context for all sprints:
+- Next.js 16 / React 19 app at /Users/dev/code/ocdn
+- Dark-themed forum with two content layers: Bitcoin (permanent, gold) and Nostr/ephemeral (temporary, red)
+- Tailwind v4 (no tailwind.config.js), shadcn/ui
+- Test with: npx next build (user verifies manually)
+- Do NOT create new documentation files. Minimize new files.
+- Mobile-first. The shell is max-w-md centered.
+- Preserve all existing functionality — these are visual/structural refactors only.
 
-The codebase is at /Users/dev/code/ocdn. The live site is https://ocdn.vercel.app/.
-The app is a dark-themed single-page feed. Bitcoin posts are the highest-authority content;
-ephemeral posts (including seeded 4chan /biz/ content) fill the space below.
+─── DESIGN LANGUAGE (applies to every sprint) ─────────────────────────────────
 
-─── CURRENT STATE (what exists) ──────────────────────────────────────────────
+Typography:
+  Geist Sans — all prose, labels, UI. Optimized for readability at small sizes.
+  Geist Mono — ALL numbers: sats, view counts, pubkeys, confirmations, PoW scores,
+    timestamps, countdowns. Numbers are data; data gets the mono treatment.
+    Geist Mono is already bundled via the 'geist' package — import GeistMono
+    from 'geist/font/mono' in layout.tsx alongside the existing GeistSans.
+    Apply it as a CSS variable (--font-geist-mono) and use font-mono where needed.
 
-Architecture:
-- src/app/page.tsx: ~1400-line Home component. Contains TopicsFeed which renders
-  topic sections. Each section has a header (/topicName v) and a merged list of
-  BTC posts (FeedCard) + ephemeral posts (EphemeralPostCard).
-- src/components/feed-card.tsx: FeedCard (BTC) — collapsed single-line by default,
-  click to expand. Expanded shows metadata + full text. FeedCard triggers InlineThread.
-- src/components/ephemeral-post-card.tsx: EphemeralPostCard — has collapsed mode
-  (single-line truncated text + countdown) and expanded mode (full content + metadata
-  + boost/reply/inscribe actions). Controlled by isExpanded/onExpand props.
-- src/components/inline-thread.tsx: InlineThread — fetches /api/thread/{id} to show
-  BTC reply chain when a BTC post is expanded. Also shows ephemeral replies beneath.
-- src/components/post-content.tsx: PostContent — parses [text](url) markdown-style
-  links in content. ocdn: scheme = internal ref, https: = external link.
-- src/lib/mock-data.ts: Type definitions (Post, EphemeralPost, Topic, etc.)
+Icons over text:
+  Minimize labels. Icons communicate faster. Use lucide-react icons consistently:
+    Eye (view count), Zap (boost/PoW), Pencil (reply), ExternalLink (on-chain),
+    Plus (inscribe/upgrade to BTC), Clock (time/age), ChevronRight (expand).
+  Never pair an icon with a text label if the icon alone is unambiguous.
+  Numbers adjacent to icons are fine and expected (e.g., Eye + "829").
 
-Data flow:
-- /api/feed returns BTC posts grouped by topic (TopicGroup[])
-- /api/ephemeral?root=true&sort=new&limit=200 returns ephemeral root posts
-- All data is fetched on mount, stored in state. Ephemeral tree (parent→children)
-  is built client-side from the flat list using parentNostrId.
-- renderSection() merges BTC + ephemeral into one FeedItem[] per topic section.
-  BTC posts appear first, ephemeral below. 7-item preview limit at root level.
+Color semantics:
+  --accent-gold: #f4b63f   — Bitcoin / inscribed / permanent / durable
+  --accent-red: #e93223    — ephemeral / temporary / expiring / danger
+  --accent-burn: #f7931a   — sats amounts specifically
+  --surface: #111111       — card/section background
+  --bg: #000000            — root background
+  --text-primary: #ffffff
+  --text-muted: rgba(255,255,255,0.40)
+  --text-ghost: rgba(255,255,255,0.15)
+  --glow-gold: 0 0 4px rgba(244,182,63,.25), 0 0 10px rgba(244,182,63,.12)
+  --glow-red: 0 0 4px rgba(233,50,35,.45), 0 0 10px rgba(233,50,35,.22)
 
-What's broken / incomplete:
-1. PREVIEW DEPTH: The initial view shows 7 root-level collapsed posts per section,
-   but does NOT show any children/grandchildren beneath them by default. Children
-   only appear AFTER clicking a post to expand it. The desired behavior: show 3
-   children (collapsed) and 2 grandchildren (collapsed) per root in the initial view,
-   WITHOUT requiring a click. This gives the user a sense of thread depth on arrival.
-   Currently renderEphChildren() is only called when isExp===true (line ~393, ~520).
+Data layout — the spatial rule:
+  DATA flows from the TOP-LEFT of every content cell.
+  ACTIONS anchor to the BOTTOM-RIGHT of every content cell.
+  Content text fills the middle.
+  This creates a consistent diagonal reading path: metadata → content → actions.
 
-2. THREAD FOCUS MODE: Clicking any post (BTC or ephemeral) should transition smoothly
-   into a "thread view" — the clicked post becomes the focal point, its full reply
-   chain expands below, and sibling/unrelated posts fade or scroll away. Currently
-   BTC posts do this (via InlineThread which fetches the thread API), but ephemeral
-   posts just toggle expanded in-place without any thread-focus behavior.
+Interaction buttons — the square rule:
+  All interaction buttons are SQUARE (equal width and height), not rounded-full,
+  not rectangular. Size: 32×32px default, 28×28px compact. Rounded corners: 6px
+  (rounded-md). Background: transparent by default, bg-white/[0.06] on hover.
+  Icon color: text-text-ghost idle, text-text-muted hover, accent color active.
+  The REPLY button is always the bottom-right-most button, visually overlaid on
+  the boundary/corner of the content area (positioned with negative margin or
+  absolute positioning so it sits at the content edge). Boost and other actions
+  sit adjacent to it (to its left), forming a horizontal row anchored bottom-right.
 
-3. NAVIGATION FLOW: There's no coherent entry→discover→read→contribute journey:
-   - Entry: user lands on the feed, sees topic sections with collapsed posts. OK.
-   - Discover: user can scan topics, see previewed threads with nested replies. BROKEN
-     (no children shown by default).
-   - Read: user clicks a post, enters thread view, reads the full conversation.
-     PARTIALLY WORKING (BTC yes, ephemeral no thread view).
-   - Contribute: user replies or composes from thread view. The ComposeSheet exists
-     but is only reachable via tiny icons. Should be more prominent in thread view.
+Compact = data-transparent:
+  Show all relevant data, but use density — small font (10-11px), mono numbers,
+  icon+number pairs, no wasted whitespace. Every pixel communicates something.
+  If a piece of data exists, show it. Don't hide information behind clicks.
 
-─── DESIRED UX ───────────────────────────────────────────────────────────────
+================================================================================
+SPRINT 1: Design Tokens + Geist Mono + SegmentDisplay
+================================================================================
 
-DISCOVERY VIEW (default, landing page):
+You are working on ocdn, a Next.js forum app at /Users/dev/code/ocdn.
 
-  /ocdn                                              (topic header)
-    BTC post: "Why Bitcoin matters..."               (1-line collapsed)
-      > BTC reply: "Because censorship..."           (1-line, indented)
-        > Eph reply: "Agreed, also..."               (1-line, deeper)
-        > Eph reply: "Not sure about..."             (1-line, deeper)
-      > BTC reply: "The fee market is..."            (1-line, indented)
-      > Eph reply: "What about lightning?"           (1-line, indented)
-      +4 more
-    Eph post: "Hawk Tuah coin rational?"             (1-line collapsed)
-      > Eph reply: "No, she got played"              (1-line, indented)
-      > Eph reply: "Just bought 5000 Jasmy"          (1-line, indented)
-      +1 more
-    +174 more
+TASK: Establish the design foundation — color tokens, Geist Mono, and a
+seven-segment countdown component for ephemeral content TTL.
 
-  /biz                                               (ephemeral-only topic)
-    Eph post: "golden bear run edition..."           (1-line)
-      > Eph reply: "Petrobras also good"             (1-line)
-        > Eph reply: ">PETROBRAS"                    (1-line)
-      > Eph reply: "EQNR on monday"                 (1-line)
-      > Eph reply: "Shilling for Guitar"             (1-line)
-    Eph post: "stock market general..."              (1-line)
-      ...
-    +174 more
+1. GEIST MONO SETUP:
 
-Key points:
-- Each root shows up to 3 children, each child shows up to 2 grandchildren, ALL
-  in collapsed single-line format. No click required to see this preview tree.
-- The "+N more" appears at each level where there are hidden items.
-- The entire tree is preloaded in memory; this is purely a rendering budget.
+   In src/app/layout.tsx, import GeistMono alongside the existing GeistSans:
 
-THREAD VIEW (click any post):
+     import { GeistSans } from "geist/font/sans";
+     import { GeistMono } from "geist/font/mono";
 
-Clicking any post transitions to a focused thread view:
-- The clicked post expands fully (content, metadata, actions)
-- Its reply chain expands below — all children visible, collapsed by default,
-  click any child to expand it and see its subtree
-- A "back to feed" affordance at the top (or swipe/back button)
-- The reply/compose button is prominent at the bottom of the thread
-- BTC thread view: fetches /api/thread/{id} for the BTC chain, plus ephemeral
-  replies below (existing InlineThread behavior)
-- Ephemeral thread view: shows ephemeral reply tree from client-side data,
-  same expand-on-click for deeper levels
+   Apply both to the <body> or <html>:
+     className={`${GeistSans.variable} ${GeistMono.variable}`}
 
-CONTRIBUTE:
-- In thread view, a persistent "reply" affordance at the bottom
-- Clicking opens ComposeSheet pre-targeted to the focused post
-- After submitting, the new post appears optimistically in the thread
+   Geist Sans is already the default. GeistMono will be available as font-mono
+   via Tailwind (the geist package sets CSS variables that Tailwind picks up).
+   Verify that `font-mono` in Tailwind resolves to Geist Mono — if not, add
+   --font-mono: var(--font-geist-mono) to the @theme inline block in globals.css.
 
-─── SPECIFIC CODE CHANGES NEEDED ─────────────────────────────────────────────
+2. COLOR TOKENS in src/app/globals.css:
 
-1. SHOW CHILDREN IN DISCOVERY VIEW (the main bug):
-   In page.tsx renderSection(), when rendering ephemeral items at the root level,
-   also render their first 3 children (collapsed) and first 2 grandchildren
-   (collapsed) by default — even when the root is NOT expanded.
+   Add to :root and .dark (deduplicate existing values):
 
-   Currently (line ~505-525 in page.tsx), children only render when isExp is true:
-     ...(isExp && kids.length > 0 ? [<div>renderEphChildren(...)</div>] : [])
-   Change this to always render a preview tree (limited depth), and when isExp
-   is true, render the FULL children list (uncapped).
+     --accent-gold: #f4b63f;
+     --accent-red: #e93223;
+     --accent-burn: #f7931a;
+     --surface: #111111;
+     --text-primary: #ffffff;
+     --text-muted: rgba(255, 255, 255, 0.40);
+     --text-ghost: rgba(255, 255, 255, 0.15);
+     --glow-gold: 0 0 4px rgba(244,182,63,.25), 0 0 10px rgba(244,182,63,.12);
+     --glow-red: 0 0 4px rgba(233,50,35,.45), 0 0 10px rgba(233,50,35,.22);
 
-   Similarly for BTC posts: when a BTC post is NOT expanded, show its ephemeral
-   children count or first few as collapsed 1-liners beneath it.
+   Add to @theme inline block for Tailwind utility access:
 
-2. EPHEMERAL THREAD VIEW:
-   When an ephemeral post is clicked (handleExpandEph), instead of just toggling
-   isExpanded in place, transition to a thread-focused view:
-   - Scroll the post to the top
-   - Show its full reply tree below (all children, not just 3/2 limited)
-   - Collapse/hide other root posts (or navigate to a thread sub-view)
-   This should feel like BTC's expandPost→InlineThread flow but for ephemeral.
+     --color-accent-gold: var(--accent-gold);
+     --color-accent-red: var(--accent-red);
+     --color-accent-burn: var(--accent-burn);
+     --color-surface: var(--surface);
+     --color-text-primary: var(--text-primary);
+     --color-text-muted: var(--text-muted);
+     --color-text-ghost: var(--text-ghost);
 
-3. UNIFIED NAVIGATION STATE:
-   Consider a single "focusedItem" state: { kind: "btc"|"eph", id: string } | null
-   When null: discovery view (all sections, preview trees).
-   When set: thread view (focused post + full reply tree).
-   Both BTC expandPost and ephemeral handleExpandEph should set this.
+3. SEGMENT DISPLAY — src/components/segment-display.tsx:
 
-4. BACK NAVIGATION:
-   Thread view needs a way back to the discovery feed. BTC already uses
-   window.history pushState/popState (openThread/closeThread in page.tsx).
-   Ephemeral thread view should do the same.
+   A seven-segment-style countdown for ephemeral TTL. Uses Geist Mono (font-mono)
+   for the digits — Geist Mono at small sizes with tight letter-spacing already
+   has a clean digital feel. No need for an external font.
 
-─── FILES TO MODIFY ──────────────────────────────────────────────────────────
+   Props:
+     expiresAt: string        — ISO 8601 date
+     size?: "sm" | "default"  — sm=10px for inline/collapsed, default=12px expanded
 
-- src/app/page.tsx — renderSection, renderEphChildren, state management
-- src/components/ephemeral-post-card.tsx — no changes needed (already has collapsed/expanded)
-- src/components/inline-thread.tsx — already handles BTC thread + ephemeral tree
-- src/components/feed-card.tsx — possibly show child count or preview beneath BTC posts
+   Format: always two units: "26d 20h" | "4h 32m" | "12m 05s"
+   Color: var(--accent-red) normally
+   Urgency states:
+     > 1 hour:   static, normal red, opacity 0.6
+     < 1 hour:   animate-pulse, full red
+     < 10 min:   animate-pulse, red with glow shadow (var(--glow-red))
+     expired:    "00:00" in text-text-ghost, no pulse
 
-─── CONSTRAINTS ──────────────────────────────────────────────────────────────
+   Implementation:
+     - useEffect with setInterval — 1s tick when < 1h, 60s tick otherwise
+     - Font: font-mono tracking-tight tabular-nums
+     - No background, no border — just the digits and color
 
-- Do NOT create new files unless absolutely necessary
-- Do NOT create documentation
-- Test with: npx next build (the user verifies manually)
-- The app is deployed on Vercel; push to git triggers deploy
-- All ephemeral data is already loaded client-side; no new API calls needed
-  for the preview trees
-- BTC thread data requires a fetch to /api/thread/{id} (existing behavior, keep it)
-- The dark theme (#111111 bg, white text) is intentional; keep it
-- Mobile-first: indentation (ml-3 per level) must not overflow on small screens
+4. Do NOT change any existing components yet. This sprint only adds foundation.
+
+Test: npx next build — compiles with no errors. SegmentDisplay is unused but
+importable. The Geist Mono variable is available via font-mono.
+
+================================================================================
+SPRINT 2: PostCell — The Universal Content Atom
+================================================================================
+
+You are working on ocdn, a Next.js forum app at /Users/dev/code/ocdn.
+
+TASK: Create a single PostCell component that renders ALL content types (BTC
+inscriptions, ephemeral Nostr posts, EternityWall posts, replies) with a
+consistent spatial layout. This is the core of the design system.
+
+Read these files first:
+- src/components/feed-card.tsx (FeedCard, ThreadCard, BtcInscriptionContent)
+- src/components/ephemeral-post-card.tsx (EphemeralPostCard)
+- src/components/segment-display.tsx (from Sprint 1)
+- src/components/boost-button.tsx (BoostButton)
+- src/lib/mock-data.ts (Post, EphemeralPost types)
+
+Create src/components/post-cell.tsx:
+
+SPATIAL LAYOUT — every PostCell follows this grid:
+
+  COLLAPSED (single-line, for feed/discovery view):
+  ┌──────────────────────────────────────────────────────┐
+  │▎ text preview truncated to one line...   ⊙ 829   ›  │
+  └──────────────────────────────────────────────────────┘
+   ▎= 2px left accent border
+   ⊙ 829 = Eye icon + view count (font-mono)
+   › = ChevronRight
+
+  For ephemeral collapsed, the right side is different:
+  ┌──────────────────────────────────────────────────────┐
+  │▎ text preview truncated to one line...  5z  12:45:30 │
+  └──────────────────────────────────────────────────────┘
+   5z = PoW zeros (font-mono)
+   12:45:30 = SegmentDisplay (sm)
+
+  EXPANDED:
+  ┌──────────────────────────────────────────────────────┐
+  │▎ ₿1,250  f2a5…  2h  ⊙ 829  3c                      │  ← DATA (top-left origin)
+  │▎                                                     │
+  │▎ Full content text here, wrapping as needed.         │  ← CONTENT (middle)
+  │▎ Can be multiple lines. Uses PostContent for links.  │
+  │▎                                                     │
+  │▎                              [⚡] [+₿] [↗] [✏]  ──│  ← ACTIONS (bottom-right)
+  └──────────────────────────────────────────────────────┘
+
+  DATA ROW (top-left, always this order, all font-mono except icons):
+    [burnTotal ₿] · [pubkey] · [age] · [Eye viewCount] · [confirmations c]
+    For ephemeral:
+    [eqZeros z] · [pubkey] · [age] · [SegmentDisplay]
+
+    Typography: text-[10px] font-mono tabular-nums
+    Colors: burnTotal=accent-burn, pubkey/age=text-muted, views=text-muted,
+            confirmations: 0c=pulse text-muted, <6=text-ghost, 6+=hidden
+            eqZeros: text-muted normally, accent-gold+pulse if mining
+
+  CONTENT AREA:
+    BTC inscribed: gradient glow card (keep existing BtcInscriptionContent style —
+      bg-gradient-to-br from-accent-gold/15 via-accent-gold/10 to-accent-red/12,
+      border border-accent-gold/50, golden glow shadow).
+      Text color: #f4e4b0/95. If txid exists, ExternalLink pill at bottom center.
+    Ephemeral: plain text, text-white/90, whitespace-pre-wrap. Use PostContent
+      component for [text](url) link parsing.
+    EternityWall: same as BTC but without the glow — simpler card.
+
+  ACTION BUTTONS (bottom-right, anchored to content boundary):
+    A horizontal row of SQUARE buttons (32×32, rounded-md), positioned at the
+    bottom-right of the content area. The rightmost button (reply/Pencil) sits
+    at the very corner. Others stack to its left:
+
+    [⚡ Zap/Boost] [+₿ Plus/Inscribe] [↗ ExternalLink] [✏ Pencil/Reply]
+
+    - Zap: always present when expanded (boost via PoW). For ephemeral, wraps
+      existing BoostButton. For BTC, pass contentHash as target.
+    - +₿: only for ephemeral (upgrade to Bitcoin). Uses Plus icon.
+    - ↗: only for BTC with txid (view on mempool.space). Uses ExternalLink icon.
+    - ✏: reply. Always rightmost. Uses Pencil icon.
+
+    Visual treatment: the button row should feel like it sits ON the edge of
+    the content card — use relative positioning on the content area, and
+    position the button row at bottom-0 right-0 with a small negative margin
+    (-mb-4 -mr-1) or similar so the buttons overlap the card boundary slightly.
+    Give each button bg-black border border-white/[0.08] so they read as
+    distinct squares against the content.
+
+  LEFT ACCENT BORDER:
+    2px solid, full height of the cell.
+    BTC content: var(--accent-gold)
+    Ephemeral content: var(--accent-red) + border-dashed in collapsed state,
+      border-solid when expanded
+    The border brightness increases when expanded (opacity 0.3 → 0.6).
+
+DISCRIMINATED PROPS:
+
+  type PostCellProps = {
+    variant: "btc";
+    post: Post;
+    isExpanded: boolean;
+    onExpand: (id: string) => void;
+    onVisible?: (id: string) => void;
+    onReply?: (id: string) => void;
+  } | {
+    variant: "ephemeral";
+    post: EphemeralPost;
+    isExpanded: boolean;
+    onExpand: (id: string) => void;
+    onReply?: (post: EphemeralPost) => void;
+    onInscribe?: (post: EphemeralPost) => void;
+    onViewTx?: (contentHash: string) => void;
+    optimistic?: boolean;
+  };
+
+EPHEMERAL POW STATE:
+  PostCell internally manages liveDifficulty, serverEqZ (port from
+  EphemeralPostCard). BoostButton's onMiningProgress and onBoosted callbacks
+  update these. The data row reflects live PoW score.
+
+INTERSECTION OBSERVER:
+  Port the existing onVisible IntersectionObserver from FeedCard (threshold 0.5,
+  fires once, disconnects).
+
+2. UPDATE WRAPPERS — make existing components delegate to PostCell:
+
+   src/components/feed-card.tsx:
+   - FeedCard: thin wrapper → <PostCell variant="btc" ... />
+   - ThreadCard: thin wrapper → <PostCell variant="btc" ... />
+   - Keep FeedCardSkeleton unchanged
+   - Keep BtcInscriptionContent as a private helper (PostCell uses it internally)
+   - REMOVE all inline metadata/action JSX from FeedCard and ThreadCard
+
+   src/components/ephemeral-post-card.tsx:
+   - EphemeralPostCard: thin wrapper → <PostCell variant="ephemeral" ... />
+   - Port PoW state (liveDifficulty, useCountdown, etc.) INTO PostCell
+   - Remove the duplicate logic from EphemeralPostCard
+
+   CRITICAL: All existing imports of FeedCard, ThreadCard, EphemeralPostCard,
+   FeedCardSkeleton must continue to work unchanged. page.tsx and inline-thread.tsx
+   should NOT need changes in this sprint.
+
+Test: npx next build. The app renders identically, but all content uses PostCell
+under the hood with the new spatial layout.
+
+================================================================================
+SPRINT 3: Consistent Thread Nesting
+================================================================================
+
+You are working on ocdn, a Next.js forum app at /Users/dev/code/ocdn.
+
+TASK: Standardize thread indentation/nesting so BTC and ephemeral replies use
+the same spacing and border conventions everywhere.
+
+Currently nesting is inconsistent across 4 different places:
+- InlineThread: border-l-2 border-white/20 ml-4
+- EphemeralTree in InlineThread: pl-2 per level
+- TopicsFeed renderEphTree: ml-3 border-l-2 border-dashed border-white/25
+- ThreadCard: border-l-2 with conditional border-l-burn/30
+
+Define ONE nesting convention and apply it universally:
+
+NESTING RULES:
+  Indent: pl-3 (12px) per level. Not pl-4 — 16px is too much on mobile at
+    3 levels deep (48px). 12px × 3 = 36px leaves plenty of room on 375px screens.
+  Left border: 2px, on the nesting wrapper (not on the PostCell itself).
+  Border style by child type:
+    BTC child: border-l-2 border-solid border-accent-gold/30
+    Ephemeral child: border-l-2 border-dashed border-accent-red/30
+  Max preview depth: 3 levels in discovery view, unlimited in thread view.
+  "View N more" at each truncated level — compact square button, ChevronDown icon +
+    count in font-mono.
+
+1. Update src/components/inline-thread.tsx:
+   - Outer wrapper: replace border-l-2 border-white/20 ml-4
+     with pl-3 (no border on outer — border goes on each child wrapper)
+   - BTC replies: wrap each ThreadCard in
+     <div className="pl-3 border-l-2 border-accent-gold/30">
+   - Ephemeral section: wrap each EphemeralPostCard in
+     <div className="pl-3 border-l-2 border-dashed border-accent-red/30">
+   - The "N nostr" toggle: restyle as compact — just the count + chevron icon
+
+2. Update src/app/page.tsx (TopicsFeed):
+   - renderEphTree(): replace ml-3 border-l-2 border-dashed border-white/25
+     with pl-3 border-l-2 border-dashed border-accent-red/30
+   - renderSection(): BTC post children (InlineThread wrapper) uses the same
+     nesting convention
+   - renderTopicBranch() (topic-view ephemeral): same convention
+
+3. If ThreadCard still has isFocused, remove it — the expanded state on PostCell
+   IS the focus. If callers need focus highlighting, they brighten the nesting
+   wrapper's border (accent-gold/30 → accent-gold/60) rather than styling the card.
+
+Test: npx next build. Thread nesting is now gold-solid for BTC, red-dashed for
+ephemeral, 12px indent per level, everywhere.
+
+================================================================================
+SPRINT 4: SegmentDisplay Integration + View Count + Mono Numbers
+================================================================================
+
+You are working on ocdn, a Next.js forum app at /Users/dev/code/ocdn.
+
+TASK: Replace all plain-text countdowns with SegmentDisplay, make view counts
+prominent, and ensure ALL numeric values use font-mono (Geist Mono).
+
+1. SEGMENT DISPLAY REPLACEMENT:
+   - In PostCell collapsed (ephemeral): the right-side countdown is now
+     <SegmentDisplay expiresAt={post.expiresAt} size="sm" />
+   - In PostCell expanded data row: SegmentDisplay at size="default"
+   - In page.tsx LeaderboardSection: replace formatEphemeralExpiry() text with
+     <SegmentDisplay expiresAt={entry.expiresAt} size="sm" />
+   - Remove useCountdown from ephemeral-post-card.tsx if it's now dead code
+     (should be, since PostCell handles everything internally)
+
+2. FONT-MONO AUDIT — find every place numbers are rendered and ensure font-mono:
+   - View counts (Eye + number)
+   - Sats/burn amounts
+   - Pubkey hashes (already font-mono in some places, verify all)
+   - Confirmation counts ("3c")
+   - PoW scores ("5z")
+   - Timestamps/ages ("2h", "3d")
+   - LeaderboardSection countdown, PoW labels, boost counts
+   - TopBar sort dropdown (not numeric, skip)
+   - ComposeSheet cost displays
+   - Thread counts ("View 4 more")
+
+   The class to apply: font-mono tabular-nums
+   This ensures Geist Mono is used for all data, creating a clear visual
+   distinction between prose (Geist Sans) and data (Geist Mono).
+
+3. VIEW COUNT PROMINENCE:
+   - Collapsed PostCell: Eye icon + count is always visible for BTC posts.
+     For ephemeral posts, if no view count data exists, show nothing (don't fake it).
+   - Expanded PostCell data row: Eye icon + count for all types that have it.
+   - The Eye icon should be 10px, text-text-ghost. The count should be font-mono
+     text-text-muted. Together they're a subtle but always-present data point.
+
+Test: npx next build. All numeric data uses Geist Mono. Countdowns use
+SegmentDisplay. View counts are visible on all content that tracks them.
+
+================================================================================
+SPRINT 5: Topic Badge + Section Header Cleanup
+================================================================================
+
+You are working on ocdn, a Next.js forum app at /Users/dev/code/ocdn.
+
+TASK: Extract the topic badge into a reusable component and simplify the section
+header rendering in page.tsx.
+
+Currently in page.tsx renderSection(), the topic badge is ~30 lines of conditional
+JSX for gold/red/ghost/EternityWall variants. Extract it.
+
+1. Create src/components/topic-badge.tsx:
+
+   Props:
+     label: string         — "/bitcoin", "/biz", "EternityWall"
+     variant: "gold" | "red" | "ghost" | "ew"
+     size?: "sm" | "default"
+
+   All variants use the existing skewed rectangle pattern:
+     outer: -skew-x-12
+     inner text: skew-x-12 (cancels skew for readable text)
+   Variants:
+     "gold": bg-accent-gold text-black, box-shadow var(--glow-gold)
+     "red": bg-accent-red text-white, box-shadow var(--glow-red)
+     "ghost": bg-transparent text-white/40, border border-white/20
+     "ew": bg-white text-blue-600, subtle blue shadow
+
+   Text: Geist Sans, font-bold. The badge label should NOT be font-mono.
+
+2. Update page.tsx renderSection():
+   - Replace inline badge JSX with <TopicBadge label={label} variant={variant} />
+   - Variant logic: hasBtc → "gold", isEphOnly → "red", isEw → "ew", else → "ghost"
+   - The +/- expand button: keep as square (already good), but ensure it uses
+     border-accent-gold instead of hardcoded #f4b63f
+
+3. The section header right side (post count, sats): ensure font-mono tabular-nums.
+
+Test: npx next build. Section headers look identical, code is much cleaner.
+
+================================================================================
+SPRINT 6: Composer Redesign
+================================================================================
+
+You are working on ocdn, a Next.js forum app at /Users/dev/code/ocdn.
+
+TASK: Redesign ComposeSheet to be more compact, more Twitter-like, with clear
+dual-path (free Nostr vs paid BTC) and icon-driven actions.
+
+Read src/components/compose-sheet.tsx first.
+
+CHANGES TO COMPOSE STEP:
+
+1. Topic selection — replace the text input with a pill:
+   - Topic set: yellow pill chip "/bitcoin" with × to clear. Pill is a small
+     rounded-md inline element, bg-accent-gold/20 text-accent-gold border
+     border-accent-gold/40. Tap × to clear. Tap pill to edit.
+   - No topic (not reply): ghost pill "/ topic" — bg-white/[0.04] text-text-ghost
+     border border-white/[0.08]. Tap to activate inline input.
+   - Replying: show "↩ [shortPubkey]" in font-mono text-text-muted. Not editable.
+
+2. Textarea:
+   - Remove fixed min-h-[120px]. Start at 1 line (min-h-[24px]), auto-grow.
+   - The composer should be minimal until the user starts typing.
+   - Placeholder: "…" (existing, keep it subtle)
+
+3. Action bar (below textarea):
+   Layout: left-aligned pubkey, right-aligned buttons. All compact.
+
+   Left: [session pubkey truncated, font-mono, text-text-ghost, text-[9px]]
+   Center: [⚡ Nz] — live PoW difficulty, font-mono, text-text-muted, pulses
+     while mining. Only shows when minedDifficulty > 0.
+   Right: two SQUARE buttons, side by side:
+     [post]  — bg-white text-black, 32px tall, px-3. Text label since this is
+               the primary CTA and needs to be unambiguous.
+     [₿ N]  — bg-accent-gold text-black, 32px tall, px-3. Shows live cost
+               estimate from cost state (e.g., "₿ 2,250"). Font-mono for the
+               number. Tap → preview step.
+   Both buttons: rounded-md, active:scale-95.
+   If no cost data loaded yet, ₿ button shows just "₿" without a number.
+   If text is empty, both buttons are disabled (opacity-40 cursor-not-allowed).
+
+4. Reply context — when replying to a post, show above the textarea:
+   A 1-line truncated quote: text-text-ghost text-[11px], border-l-2
+   border-accent-gold/30 (BTC parent) or border-accent-red/30 (ephemeral parent),
+   pl-2. Single line, truncated.
+
+5. Sheet chrome:
+   - Add drag handle: centered bar, w-8 h-1, bg-white/20, rounded-full, mt-2 mb-1
+   - Reduce max-h from 80vh to 60vh for compose step
+   - Keep pay step at max-h-[80vh] (QR needs space)
+
+6. Preview step — more compact:
+   - Content in a mini-card (bg-surface border border-white/[0.06] rounded-md p-3)
+   - Cost breakdown: font-mono tabular-nums for all numbers
+   - Two buttons: "back" (text-text-muted, no bg) and "pay N sats" (bg-accent-gold
+     text-black, font-mono for the number)
+
+7. Pay + status steps: keep as-is, they work.
+
+Test: npx next build. Composer is compact, shows both paths clearly, numbers are
+all Geist Mono.
+
+================================================================================
+SPRINT 7: BoostButton on BTC Content
+================================================================================
+
+You are working on ocdn, a Next.js forum app at /Users/dev/code/ocdn.
+
+TASK: Extend PoW boosting to BTC-inscribed content (currently ephemeral only).
+
+1. In src/components/boost-button.tsx:
+   - Extend BoostTarget: { nostrEventId?: string | null; contentHash?: string | null }
+   - When building the boost event, if contentHash is provided instead of
+     nostrEventId, include it as a tag (e.g., ["x", contentHash]).
+
+2. In src/lib/nostr/client.ts:
+   - Check buildBoostEvent. If it only accepts nostrEventId, extend to accept
+     contentHash. The Nostr event should tag the content hash so the server can
+     index it against BTC content.
+
+3. In PostCell (post-cell.tsx):
+   - For expanded BTC posts: the action buttons now include Zap (boost).
+     Pass { contentHash: post.contentHash } to BoostButton.
+   - For expanded ephemeral posts: pass { nostrEventId: post.nostrEventId }
+     to BoostButton (existing behavior, unchanged).
+
+4. If the server endpoint /api/ephemeral/boost can't handle contentHash-targeted
+   boosts yet, add a // TODO comment noting the needed API change. The UI should
+   be ready even if the backend isn't.
+
+Test: npx next build. BTC posts show a Zap button in their action row when
+expanded.
+
+================================================================================
+SPRINT 8: Polish — Token Consistency + Transitions + Cleanup
+================================================================================
+
+You are working on ocdn, a Next.js forum app at /Users/dev/code/ocdn.
+
+TASK: Final polish. Replace hardcoded colors, add transitions, clean dead code.
+
+1. COLOR TOKEN MIGRATION — in all src/components/*.tsx and src/app/page.tsx:
+   - Replace #f4b63f with accent-gold (Tailwind class or var())
+   - Replace #e93223 with accent-red
+   - Replace #f7931a with accent-burn
+   - Replace #111111 with surface / bg-surface
+   - Replace rgba(244,182,63,...) glow patterns with var(--glow-gold)
+   - Replace rgba(233,50,35,...) glow patterns with var(--glow-red)
+   Keep hex in gradient stops where Tailwind arbitrary values need it — that's OK.
+
+2. TRANSITIONS:
+   - PostCell expand/collapse: transition-all duration-200 (verify it's applied)
+   - Left accent border: transition-colors on expand (opacity 0.3 → 0.6)
+   - Action buttons: transition-colors on hover/active
+   - Thread children: stagger fade-in (animate-in fade-in duration-150, each child
+     gets style={{ animationDelay: `${index * 30}ms` }})
+   - SegmentDisplay pulse: verify it's subtle, not jarring
+
+3. MOBILE VERIFICATION (375px width):
+   - 3 levels of nesting at pl-3 (36px total) — content still readable?
+   - SegmentDisplay at size="sm" fits inline without wrapping?
+   - Action buttons (32×32) don't overlap at narrow widths?
+   - PostCell collapsed row doesn't overflow?
+
+4. DEAD CODE CLEANUP:
+   - Remove useCountdown from ephemeral-post-card.tsx if dead
+   - Remove ConfirmBadge from feed-card.tsx if dead (PostCell handles confirmations)
+   - Remove inline metadata JSX from FeedCard/ThreadCard if they're now wrappers
+   - Remove sort-menu.tsx, topic-strip.tsx, topic-search-pill.tsx if truly unused
+   - Clean unused imports across all modified files
+
+5. VERIFY FONT-MONO COVERAGE:
+   One final pass: grep for tabular-nums and ensure font-mono accompanies it.
+   Grep for numeric patterns rendered in JSX (formatSats, viewCount, confirmations,
+   powDifficulty) and confirm they all have font-mono.
+
+Test: npx next build. Everything compiles. The design system is consistent:
+Geist Sans for prose, Geist Mono for data, gold for Bitcoin, red for ephemeral,
+data top-left, actions bottom-right, square buttons, compact and transparent.

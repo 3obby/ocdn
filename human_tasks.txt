@@ -1,0 +1,188 @@
+OCDN — HUMAN TASKS (GO-TO-MARKET)
+===================================
+
+You are the human. You attract humans. Money amplifies reach.
+The tech is the substrate; the content is the product.
+
+
+═══ 1. THE FOUNDING INSCRIPTION ═══
+
+  Write a short, permanent statement: why OCDN exists.
+  Not a technical spec. A declaration.
+  Think: 95 Theses, Cypherpunk Manifesto, Declaration of Independence.
+  Tone: conviction, not hype. This lives on Bitcoin forever.
+  It becomes the first real inscription. Everything after references it.
+  Inscribe it the moment mainnet is live.
+
+
+═══ 2. NYC MAN-ON-THE-STREET VIDEOS ═══
+
+  Concept: "What would you inscribe to Bitcoin — permanently, forever?"
+
+  Format:
+    - 60-90 second clips, vertical (TikTok/Reels/Shorts)
+    - Approach strangers. Ask the question. Film the reaction.
+    - Offer to inscribe their answer on the spot (show them the app)
+    - End card: their inscription's block height + txid + the URL
+    - Post-video: the inscription is verifiable. Viewer can check.
+
+  Variations:
+    - "What does the world need to know?"
+    - "What's one thing you'd make impossible to delete?"
+    - "If you could write one sentence on the most secure computer
+      network in human history, what would it be?"
+    - "What would you pay to say — forever?"
+
+  Distribution: TikTok, Instagram Reels, YouTube Shorts, X/Twitter.
+  Hashtags: #InscribeIt #BitcoinForever #OCDN #PermanentSpeech
+  Goal: each video IS content marketing AND produces real inscriptions.
+
+
+═══ 3. TWITTER/X PRESENCE ═══
+
+  Account: @ocdn or similar. Bio: "Permanent speech on Bitcoin."
+
+  Content cadence:
+    - Every new inscription gets a tweet with the embed card
+      (once embeddable URLs exist — see technical_tasks.txt #3)
+    - Quote-tweet news about censorship, platform bans, deplatforming
+      with "This couldn't happen on Bitcoin."
+    - Thread: explain OCDN in 5 tweets. Pin it.
+    - Engage crypto twitter, free speech communities, journalist circles
+    - Reply to every high-profile deplatforming event with
+      "Inscribe it. [link]"
+
+  Paid amplification:
+    - Boost the man-on-the-street videos ($500-2k each on best performers)
+    - Promote the founding inscription tweet
+    - Target: Bitcoin community, free speech advocates, journalists,
+      crypto-native audiences
+
+
+═══ 4. SEED NOTABLE INSCRIPTIONS ═══
+
+  Don't wait for organic users. Inscribe notable content yourself.
+
+  Candidates:
+    - Suppressed news articles (with attribution)
+    - Historical whistleblower documents (public domain)
+    - Censored social media posts from public figures
+    - The text of the First Amendment
+    - Excerpts from banned books
+    - Leaked corporate memos (already public via journalism)
+    - Quotes from dissidents: Solzhenitsyn, Mandela, Assange, Snowden
+
+  Each inscription gets a tweet: "Now permanent on Bitcoin. Block N."
+  The archive itself becomes the pitch. Browse it → understand the product.
+
+
+═══ 5. JOURNALIST / ACTIVIST OUTREACH ═══
+
+  Target: people who have personally experienced censorship or
+  platform suppression. They understand the value proposition viscerally.
+
+  Approach:
+    - DM journalists who've had articles pulled or accounts suspended
+    - Offer to inscribe their suppressed work for free (you pay the sats)
+    - "Your article was deleted from [platform]. We inscribed it to
+      Bitcoin. It can never be removed. Here's the proof: [link]"
+    - They will tweet about it. That tweet is the best marketing you
+      can buy.
+
+  Specific communities:
+    - Press freedom orgs (EFF, Freedom of the Press Foundation, RSF)
+    - Crypto journalists (already sympathetic to the tech)
+    - Independent journalists on Substack who've left mainstream media
+    - Activists in countries with active censorship (Iran, China, Russia,
+      Myanmar, Turkey — they have diaspora communities in NYC)
+
+
+═══ 6. CRYPTO COMMUNITY LAUNCH ═══
+
+  Channels:
+    - Bitcoin Twitter: thread explaining the protocol, tag prominent voices
+    - r/Bitcoin, r/cryptocurrency: post explaining OCDN (not spammy,
+      technical, reference the vision doc)
+    - Stacker News: native audience, they'll understand immediately
+    - Nostr: post about it on Nostr (OCDN uses Nostr for ephemeral layer,
+      natural overlap)
+    - Bitcoin podcasts: pitch yourself as a guest. Story: "I built a
+      permanent forum on Bitcoin. Here's why."
+    - Bitcoin conferences: demo the app live, inscribe audience messages
+
+  Paid:
+    - Sponsor a Bitcoin podcast episode ($1-5k)
+    - Stacker News promoted post
+    - Bitcoin Magazine banner or sponsored article
+
+
+═══ 7. THE "INSCRIBE IT" MEME ═══
+
+  Create a simple, repeatable meme format:
+
+    [screenshot of censored/deleted content]
+    "Inscribe it."
+    [link to OCDN]
+
+  This works for:
+    - Every time a tweet gets deleted
+    - Every time a YouTube video gets pulled
+    - Every time a subreddit gets banned
+    - Every time a government blocks a website
+
+  The meme IS the call to action. Two words. "Inscribe it."
+  Make stickers. Put them up in NYC. Hand them out at conferences.
+
+
+═══ 8. AGENT ECOSYSTEM OUTREACH ═══
+
+  Target: AI/agent developers who need durable memory/data stores.
+
+  Approach:
+    - Publish the x402 API spec as an MCP tool (Model Context Protocol)
+    - Post on AI/agent forums: "Your agent can write to Bitcoin.
+      Permanent, uncensorable, verifiable memory. x402 micropayments."
+    - Demo: build a simple agent that reads news, decides what's
+      important, and inscribes a summary to Bitcoin via OCDN's API.
+      Open-source the agent. The agent itself is marketing.
+    - Pitch to agent framework communities (LangChain, CrewAI, AutoGPT,
+      cognee) as an integration/plugin
+    - The value prop for agents: durable state that survives any
+      single provider going down. Agent writes to Bitcoin via OCDN →
+      any future agent can read it from any indexer.
+
+
+═══ 9. PHYSICAL PRESENCE ═══
+
+  NYC-specific (since you're there):
+    - "Inscribe it." stickers on lampposts, coffee shops, coworking spaces
+    - QR code → OCDN homepage or a specific powerful inscription
+    - Pop-up booth at Union Square / Washington Square Park:
+      "Write one sentence. We'll put it on Bitcoin. Forever."
+      Film the interactions → more content → more videos
+    - Partner with a bar/coffee shop: "Inscribe your message on Bitcoin"
+      night. Novelty + content + real inscriptions.
+
+
+═══ 10. SPEND MONEY WHERE IT COMPOUNDS ═══
+
+  High-ROI spend:
+    - Video production boost on social ($2-5k on best-performing clips)
+    - Free inscriptions for journalists/activists (cost: sats + rake,
+      return: their tweets about it)
+    - Podcast sponsorships in Bitcoin/crypto space ($1-5k each)
+    - Conference attendance/demo booths ($1-3k)
+
+  Medium-ROI:
+    - Stickers/physical materials ($500)
+    - Graphic design for OG images, brand assets ($1-2k)
+    - Short freelance video editor for man-on-the-street cuts ($1-3k)
+
+  Low-ROI (avoid for now):
+    - Paid ads on Google/Meta (wrong audience, high CPA)
+    - Influencer deals with non-crypto influencers (don't understand it)
+    - PR firms (you ARE the PR — authentic > polished)
+
+  The single highest-ROI dollar: paying sats to inscribe a journalist's
+  censored article, then letting them tweet about it. Cost: ~$5 in sats.
+  Return: their audience discovers OCDN organically.

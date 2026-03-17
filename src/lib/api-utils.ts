@@ -266,7 +266,9 @@ export function notFound(message: string = "Not found") {
 
 // ═══ EPHEMERAL POST MAPPER ═══
 
-export function mapEphemeralPost(p: PrismaEphemeralPost): FrontendEphemeralPost {
+type EphemeralPostFields = Omit<PrismaEphemeralPost, "rawEvent">;
+
+export function mapEphemeralPost(p: EphemeralPostFields): FrontendEphemeralPost {
   return {
     nostrEventId: p.nostrEventId,
     nostrPubkey: p.nostrPubkey,

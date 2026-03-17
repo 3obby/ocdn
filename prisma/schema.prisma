@@ -248,6 +248,7 @@ model EphemeralPost {
   @@index([expiresAt])
   @@index([nostrPubkey])
   @@index([anchoredToBtc])
+  @@index([parentNostrId, parentContentHash, expiresAt])
   @@map("ephemeral_posts")
 }
 

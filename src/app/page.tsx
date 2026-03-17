@@ -328,6 +328,8 @@ function TopicsFeed({
   expandPreview,
   sz,
   ephemeralPosts,
+  ephemeralLoading = false,
+  ephemeralChildrenLoading = false,
   expandedPostId,
   onReply,
   onReplyEphemeral,
@@ -360,6 +362,8 @@ function TopicsFeed({
   expandPreview?: boolean;
   sz: string;
   ephemeralPosts?: EphemeralPost[];
+  ephemeralLoading?: boolean;
+  ephemeralChildrenLoading?: boolean;
   expandedPostId?: string | null;
   onReply?: (id: string) => void;
   onReplyEphemeral?: (post: EphemeralPost) => void;
@@ -658,37 +662,21 @@ function TopicsFeed({
             {visibleItems.flatMap((item) => {
               if (item.kind === "btc") {
                 const p = item.post;
-                const isExpanded = expandedPostId === p.id;
                 return [
                   <div key={p.id} className="pt-2 first:pt-0">
-                    {isExpanded ? (
-                      <>
-                        <FeedCard post={p} onExpand={expandPost} onVisible={onPostVisible} onReply={onReply} expandPreview={expandPreview} isExpanded />
-                        <InlineThread
-                          postId={p.id}
-                          onReply={onReply ?? (() => {})}
-                          onReplyEphemeral={onReplyEphemeral}
-                          onInscribeEphemeral={onInscribeEphemeral}
-                          onViewTx={expandPost}
-                          initialEphemeralPosts={myEph?.filter((e) => e.parentContentHash === p.id)}
-                        />
-                      </>
-                    ) : (
-                      <ExpandableContentBlock
-                        content={p.text}
-                        level={0}
-                        isBitcoinInscribed={true}
-                        author={shortPubkey(p.authorPubkey)}
-                        datePosted={formatTime(p.timestamp)}
-                        viewCount={p.viewCount ?? 0}
-                        contentHash={p.id}
-                        onViewInscription={(id) => expandPost(id)}
-                        onReply={() => onReply?.(p.id)}
-                        onUpvote={() => {}}
-                        onMoreActions={() => {}}
-                        onClick={() => expandPost(p.id)}
-                      />
-                    )}
+                    <ExpandableContentBlock
+                      content={p.text}
+                      level={0}
+                      isBitcoinInscribed={true}
+                      author={shortPubkey(p.authorPubkey)}
+                      datePosted={formatTime(p.timestamp)}
+                      viewCount={p.viewCount ?? 0}
+                      contentHash={p.id}
+                      onReply={() => onReply?.(p.id)}
+                      onUpvote={() => {}}
+                      onMoreActions={() => {}}
+                      onClick={() => onPostVisible?.(p.id)}
+                    />
                   </div>,
                 ];
               }
@@ -741,6 +729,13 @@ function TopicsFeed({
                 <ChevronDown size={12} strokeWidth={2} />
                 View {hiddenCount} more
               </button>
+            )}
+            {ephemeralChildrenLoading && sectionPosts.length === 0 && (sectionEph ?? []).length > 0 && (
+              <div className="py-2 px-1 space-y-1.5 animate-pulse">
+                {[70, 50, 85].map((w, i) => (
+                  <div key={i} className="h-2 rounded bg-white/[0.04]" style={{ width: `${w}%` }} />
+                ))}
+              </div>
             )}
           </div>
         )}
@@ -803,6 +798,20 @@ function TopicsFeed({
         { hash: t.hash, name: t.name, totalBurned: 0 },
         t.posts,
       ))}
+      {ephemeralLoading && ephOnlyTopics.length === 0 && (
+        // Phase 1 loading: no roots yet — show placeholder section rows
+        <>
+          {["/biz", "/g", "/pol", "/fit", "/adv"].map((label) => (
+            <div key={label} className="bg-[#111111]/90 mb-2 border border-white/[0.06] animate-pulse">
+              <div className="flex items-center gap-3 px-4 py-3">
+                <div className="h-7 w-7 rounded bg-white/[0.06]" />
+                <div className="h-3 rounded bg-white/[0.06]" style={{ width: `${40 + label.length * 4}px` }} />
+                <div className="ml-auto h-3 w-8 rounded bg-white/[0.06]" />
+              </div>
+            </div>
+          ))}
+        </>
+      )}
       {(untaggedPosts.length > 0 || rootEph.length > 0) && renderSection("_root", "/", untaggedPosts, true, null, rootEph)}
       {untaggedHasMore && !effectiveCollapsed.has("_root") && (
         <button
@@ -886,6 +895,8 @@ export default function Home() {
   const [ewHasMore, setEwHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [homeEphemeral, setHomeEphemeral] = useState<EphemeralPost[]>([]);
+  const [ephemeralLoading, setEphemeralLoading] = useState(false);
+  const [ephemeralChildrenLoading, setEphemeralChildrenLoading] = useState(false);
   const [injectedEphPosts, setInjectedEphPosts] = useState<EphemeralPost[]>([]);
   const [extraEwPosts, setExtraEwPosts] = useState<Post[]>([]);
   const [ewCursor, setEwCursor] = useState<string | null>(null);
@@ -951,22 +962,63 @@ export default function Home() {
     });
 
     if (effectiveSort === "topics" && f.type === "all") {
-      fetch("/api/ephemeral?root=true&sort=new&limit=100")
+      setEphemeralLoading(true);
+      // Phase 1: fetch roots only — fast, gives us topic names for section headers immediately
+      fetch("/api/ephemeral?rootsOnly=true&sort=new&limit=200")
         .then((r) => r.ok ? r.json() : { posts: [] })
         .then((data) => {
           if (version !== fetchVersionRef.current) return;
-          setHomeEphemeral(data.posts ?? []);
+          const roots: EphemeralPost[] = data.posts ?? [];
+          setHomeEphemeral(roots);
+          setEphemeralLoading(false);
+          if (roots.length === 0) return;
+
+          // Phase 2: one parallel fetch per topic — each board loads independently at full speed
+          const byTopic = new Map<string, string[]>();
+          for (const r of roots) {
+            const key = r.topicHash ?? "__root__";
+            const arr = byTopic.get(key) ?? [];
+            arr.push(r.nostrEventId);
+            byTopic.set(key, arr);
+          }
+
+          setEphemeralChildrenLoading(true);
+          const mergeChildren = (children: EphemeralPost[]) => {
+            if (version !== fetchVersionRef.current) return;
+            if (children.length === 0) return;
+            setHomeEphemeral((prev) => {
+              const existing = new Set(prev.map((p) => p.nostrEventId));
+              const incoming = children.filter((c) => !existing.has(c.nostrEventId));
+              return incoming.length > 0 ? [...prev, ...incoming] : prev;
+            });
+          };
+
+          let remaining = byTopic.size;
+          const done = () => { if (--remaining <= 0 && version === fetchVersionRef.current) setEphemeralChildrenLoading(false); };
+
+          for (const [, ids] of byTopic) {
+            // cap per-topic to 30 roots to keep each request small
+            const idsParam = ids.slice(0, 30).join(",");
+            fetch(`/api/ephemeral?childrenOf=${encodeURIComponent(idsParam)}`)
+              .then((r) => r.ok ? r.json() : { posts: [] })
+              .then((d) => mergeChildren(d.posts ?? []))
+              .catch(() => {})
+              .finally(done);
+          }
         })
-        .catch(() => {});
+        .catch(() => { if (version === fetchVersionRef.current) setEphemeralLoading(false); });
     } else if (f.type === "topic") {
+      setEphemeralLoading(true);
       fetch(`/api/ephemeral?topicHash=${f.hash}&sort=new&limit=500`)
         .then((r) => r.ok ? r.json() : { posts: [] })
         .then((data) => {
           if (version !== fetchVersionRef.current) return;
           setHomeEphemeral(data.posts ?? []);
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => { if (version === fetchVersionRef.current) setEphemeralLoading(false); });
     } else {
+      setEphemeralLoading(false);
       setHomeEphemeral([]);
     }
 
@@ -1646,6 +1698,8 @@ export default function Home() {
                           expandPreview={false}
                           sz={sz}
                           ephemeralPosts={ephemeralPostsForFeed}
+                          ephemeralLoading={ephemeralLoading}
+                          ephemeralChildrenLoading={ephemeralChildrenLoading}
                           expandedPostId={expandedPostId}
                           onReply={(id) => setComposing({ replyToId: id, topicName: resolveTopicForReply(id) })}
                           onReplyEphemeral={(ep) => setComposing({ replyToId: null, replyToNostrId: ep.nostrEventId, topicName: ep.topic })}
