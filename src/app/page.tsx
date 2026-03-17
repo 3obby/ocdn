@@ -5,6 +5,7 @@ import {
   formatSats,
   topicLabel,
   formatTime,
+  shortPubkey,
   shortNostrPubkey,
   formatEphemeralExpiry,
   type SortMode,
@@ -13,9 +14,9 @@ import {
   type FeedFilter,
   type EphemeralPost,
 } from "@/lib/mock-data";
-import { formatTopicStats } from "@/lib/topic-utils";
+import { topicAvatarProps, formatTopicStats } from "@/lib/topic-utils";
 import { flushSync } from "react-dom";
-import { Plus, Minus, ChevronRight, ChevronDown, Loader2, Zap } from "lucide-react";
+import { ChevronRight, ChevronDown, Loader2, Zap, Plus, Pencil } from "lucide-react";
 import { type TextSize, TextSizeCtx } from "@/lib/text-size";
 import { TopBar } from "@/components/top-bar";
 import { PostContent } from "@/components/post-content";
@@ -26,6 +27,8 @@ import { SearchView } from "@/components/search-view";
 import { EphemeralPostCard } from "@/components/ephemeral-post-card";
 import { ThreadPreview } from "@/components/thread-preview";
 import { ProfileIcon, ProfileSheet } from "@/components/profile-icon";
+import { TopicListRow } from "@/components/topic-list-row";
+import { ExpandableContentBlock } from "@/components/expandable-content-block";
 import { BottomNav, type FeedTab } from "@/components/bottom-nav";
 import { getStoredIdentity, getSessionPubkey } from "@/lib/nostr/client";
 import { topicHash as computeTopicHash } from "@/lib/protocol/crypto";
@@ -57,11 +60,9 @@ function formatCountdown(ms: number): string {
 function LeaderboardSection({
   sz,
   onNavigate,
-  limit = 4,
 }: {
   sz: string;
   onNavigate: (entry: LeaderboardEntry) => void;
-  limit?: number;
 }) {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [nextCycleMs, setNextCycleMs] = useState(0);
@@ -73,7 +74,7 @@ function LeaderboardSection({
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    fetch(`/api/leaderboard?limit=${limit}`)
+    fetch("/api/leaderboard?limit=4")
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
         if (!data) return;
@@ -91,7 +92,7 @@ function LeaderboardSection({
         setFundBalance(data.balanceSats ?? 0);
       })
       .catch(() => {});
-  }, [limit]);
+  }, []);
 
   useEffect(() => {
     if (!loaded) return;
@@ -106,14 +107,14 @@ function LeaderboardSection({
   const hasEntries = entries.length > 0;
 
   return (
-    <div className="bg-[#111111] mb-2 rounded-lg border border-white/[0.04]">
+    <div className="bg-[#111111] mb-2 border border-white/[0.04]">
       <div className="flex items-center">
         <button
           onClick={() => setCollapsed(!collapsed)}
           className="py-2.5 pl-4 text-left shrink-0 flex items-center gap-1.5"
         >
-          <Zap size={14} className="text-[#f4b63f]/80" />
-          <span className={`${sz} leading-tight text-[#f4b63f]/80`}>#1 -&gt; BTC</span>
+          <Zap size={14} className="text-yellow-400/80" />
+          <span className={`${sz} leading-tight text-yellow-400/80`}>#1 -&gt; BTC</span>
         </button>
         <button
           onClick={() => setCollapsed(!collapsed)}
@@ -130,7 +131,7 @@ function LeaderboardSection({
               {fundBalance > 0 ? `${(fundBalance / 100_000_000).toFixed(8)} BTC` : "unfunded"}
             </span>
           )}
-          <span className="text-[10px] text-[#f4b63f]/50 tabular-nums font-mono">
+          <span className="text-[10px] text-yellow-400/50 tabular-nums font-mono">
             {formatCountdown(nextCycleMs)}
           </span>
         </div>
@@ -154,31 +155,31 @@ function LeaderboardSection({
                     key={id}
                     type="button"
                     onClick={() => onNavigate(entry)}
-                    className={`w-full text-left rounded-lg border transition-colors active:scale-[0.99] min-h-[72px] flex flex-col gap-1.5 p-3 overflow-hidden ${
+                    className={`w-full text-left border transition-colors active:scale-[0.99] min-h-[72px] flex flex-col gap-1.5 p-3 overflow-hidden ${
                       isFirst
-                        ? "border-[#f4b63f]/40 bg-[#f4b63f]/5 hover:bg-[#f4b63f]/10"
+                        ? "border-yellow-400/40 bg-yellow-400/5 hover:bg-yellow-400/10"
                         : "border-white/10 bg-white/[0.02] hover:bg-white/[0.04]"
                     }`}
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-[11px] font-semibold tabular-nums ${
-                        isFirst ? "bg-[#f4b63f]/30 text-[#f4b63f]" : "bg-white/10 text-white/50"
+                        isFirst ? "bg-yellow-400/30 text-yellow-400" : "bg-white/10 text-white/50"
                       }`}>
                         {i + 1}
                       </span>
                       <span className={`text-[11px] shrink-0 ${
-                        isFirst ? "text-[#f4b63f]/80" : "text-white/40"
+                        isFirst ? "text-yellow-400/80" : "text-white/40"
                       }`}>
                         {topicName}
                       </span>
                       <span className={`text-[11px] tabular-nums shrink-0 font-mono ml-auto ${
-                        isFirst ? "text-[#f4b63f]" : "text-white/40"
+                        isFirst ? "text-yellow-400" : "text-white/40"
                       }`}>
                         {powLabel}
                       </span>
                     </div>
-                    <div className={`${sz} line-clamp-2 leading-snug min-w-0 break-words overflow-hidden [&_a]:break-all ${
-                      isFirst ? "text-[#f4e4b0]/90" : "text-white/80"
+                    <div className={`${sz} line-clamp-2 leading-relaxed min-w-0 break-words overflow-hidden [&_a]:break-all ${
+                      isFirst ? "text-yellow-100/90" : "text-white/80"
                     }`}>
                       <PostContent content={entry.text} />
                     </div>
@@ -217,7 +218,7 @@ function LeaderboardSection({
               </button>
               {showAddress && (
                 <div className="mt-1.5 flex items-center gap-2">
-                  <code className="text-[10px] text-[#f4b63f]/60 font-mono break-all select-all leading-tight">
+                  <code className="text-[10px] text-yellow-400/60 font-mono break-all select-all leading-tight">
                     {fundAddress}
                   </code>
                   <button
@@ -340,7 +341,7 @@ function TopicsFeed({
   onNavigateLeaderboard,
   showLeaderboard = true,
   showEternityWall = true,
-  ephemeralLoading = false,
+  refreshFeed,
 }: {
   groups: TopicGroup[];
   posts: Post[];
@@ -372,8 +373,20 @@ function TopicsFeed({
   onNavigateLeaderboard?: (entry: LeaderboardEntry) => void;
   showLeaderboard?: boolean;
   showEternityWall?: boolean;
-  ephemeralLoading?: boolean;
+  listViewActive?: boolean;
+  onClearListView?: () => void;
+  refreshFeed?: () => void;
+  onComposeForTopic?: (sectionKey: string, topic?: { hash: string; name: string | null; totalBurned: number } | null) => void;
+  onViewTopic?: (sectionKey: string, label: string, topic?: { hash: string; name: string | null; totalBurned: number } | null) => void;
+  viewSection?: { sectionKey: string; label: string; topic?: { hash: string; name: string | null; totalBurned: number } | null } | null;
 }) {
+  const {
+    listViewActive = false,
+    onClearListView,
+    onComposeForTopic,
+    onViewTopic,
+    viewSection,
+  } = arguments[0] as typeof arguments[0] & { listViewActive?: boolean; onClearListView?: () => void; onComposeForTopic?: (sectionKey: string, topic?: { hash: string; name: string | null; totalBurned: number } | null) => void; onViewTopic?: (sectionKey: string, label: string, topic?: { hash: string; name: string | null; totalBurned: number } | null) => void; viewSection?: { sectionKey: string; label: string; topic?: { hash: string; name: string | null; totalBurned: number } | null } | null };
   const untaggedPosts = posts.filter((p) => p._section === "untagged");
   const ewPosts = posts.filter((p) => p._section === "ew");
 
@@ -404,8 +417,44 @@ function TopicsFeed({
     ephByTopic.set(key, arr);
   }
 
+  const rootEph = ephByTopic.get(null) ?? [];
+  const renderedTopicHashes = new Set(groups.map((g) => g.topic?.hash).filter(Boolean));
+  const ephOnlyTopics: { hash: string; name: string; posts: EphemeralPost[] }[] = [];
+  for (const [hash, posts] of ephByTopic) {
+    if (hash && !renderedTopicHashes.has(hash) && posts.length > 0) {
+      const name = posts[0].topic ?? hash.slice(0, 8);
+      ephOnlyTopics.push({ hash, name, posts });
+    }
+  }
+  const allSectionKeys = new Set<string>([
+    ...groups.map((g) => g.topic?.hash ?? "_standalone"),
+    ...ephOnlyTopics.map((t) => t.hash),
+    "_root",
+    ...(showEternityWall && ewPosts.length > 0 ? ["_ew"] : []),
+  ]);
+  const effectiveCollapsed = listViewActive ? allSectionKeys : collapsedTopics;
+  const effectiveToggleTopic = (key: string) => {
+    onClearListView?.();
+    toggleTopic(key);
+  };
+
   const [expandedEphIds, setExpandedEphIds] = useState<Set<string>>(new Set());
   const [showMore, setShowMore] = useState<Set<string>>(new Set());
+  const [showMoreChildren, setShowMoreChildren] = useState<Set<string>>(new Set());
+  const [upvotedSectionIds, setUpvotedSectionIds] = useState<Set<string>>(new Set());
+  const CHILDREN_INITIAL_LIMIT = 7;
+
+  function sumBoostCountForSection(roots: EphemeralPost[]): number {
+    let total = 0;
+    const queue = [...roots];
+    for (let i = 0; i < queue.length; i++) {
+      const ep = queue[i];
+      total += ep.boostCount ?? 0;
+      const kids = ephChildrenOf.get(ep.nostrEventId) ?? [];
+      queue.push(...kids);
+    }
+    return total;
+  }
 
   useEffect(() => {
     if (!focusedEphId) {
@@ -418,13 +467,6 @@ function TopicsFeed({
       toExpand.add(cur.parentNostrId);
       cur = ephById.get(cur.parentNostrId);
     }
-    const queue = ephChildrenOf.get(focusedEphId) ?? [];
-    for (let i = 0; i < queue.length; i++) {
-      const child = queue[i];
-      toExpand.add(child.nostrEventId);
-      const grandkids = ephChildrenOf.get(child.nostrEventId);
-      if (grandkids) for (const gk of grandkids) queue.push(gk);
-    }
     setExpandedEphIds(toExpand);
   }, [focusedEphId, ephemeralPosts]);
 
@@ -436,13 +478,16 @@ function TopicsFeed({
     setShowMore((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   }
 
+  function toggleShowMoreChildren(parentId: string) {
+    setShowMoreChildren((prev) => { const n = new Set(prev); if (n.has(parentId)) n.delete(parentId); else n.add(parentId); return n; });
+  }
+
   function handleExpandEph(id: string) {
     const card = document.querySelector(`[data-nostr-id="${id}"]`);
     const scrollEl = document.querySelector('[data-feed-scroll]');
     const prevTop = card?.getBoundingClientRect().top;
     const isClosing = expandedEphIds.has(id);
 
-    // Walk ancestors (for context above) and descendants (for full thread below)
     const toExpand = new Set<string>();
     if (!isClosing) {
       toExpand.add(id);
@@ -451,13 +496,6 @@ function TopicsFeed({
         toExpand.add(cur.parentNostrId);
         cur = ephById.get(cur.parentNostrId);
       }
-      const queue = ephChildrenOf.get(id) ?? [];
-      for (let i = 0; i < queue.length; i++) {
-        const child = queue[i];
-        toExpand.add(child.nostrEventId);
-        const grandkids = ephChildrenOf.get(child.nostrEventId);
-        if (grandkids) for (const gk of grandkids) queue.push(gk);
-      }
     }
 
     flushSync(() => {
@@ -465,6 +503,15 @@ function TopicsFeed({
         const next = new Set(prev);
         if (isClosing) {
           next.delete(id);
+          const toRemove = new Set<string>([id]);
+          const queue = ephChildrenOf.get(id) ?? [];
+          for (let i = 0; i < queue.length; i++) {
+            const c = queue[i];
+            toRemove.add(c.nostrEventId);
+            const grandkids = ephChildrenOf.get(c.nostrEventId);
+            if (grandkids) for (const g of grandkids) queue.push(g);
+          }
+          toRemove.forEach((eid) => next.delete(eid));
         } else {
           for (const eid of toExpand) next.add(eid);
         }
@@ -486,56 +533,46 @@ function TopicsFeed({
     }
   }
 
-  function renderEphTree(epPosts: EphemeralPost[], depth: number, mode: "preview" | "thread"): React.ReactNode {
-    const smKey = `eph:${epPosts[0]?.nostrEventId}:d${depth}`;
-    const isShowAll = showMore.has(smKey);
-    const limit = isShowAll
-      ? epPosts.length
-      : mode === "preview" && depth < CHILD_MAX_DEPTH
-        ? CHILD_LIMITS[depth]
-        : epPosts.length;
-    const vis = epPosts.slice(0, limit);
-    const rem = epPosts.length - vis.length;
-
-    return (
-      <>
-        {vis.map((ep) => {
-          const kids = ephChildrenOf.get(ep.nostrEventId) ?? [];
-          const isExp = expandedEphIds.has(ep.nostrEventId);
-          return (
-            <div key={ep.nostrEventId}>
-              <EphemeralPostCard
-                post={ep}
-                isExpanded={isExp || myEphIds.has(ep.nostrEventId)}
-                onExpand={() => handleExpandEph(ep.nostrEventId)}
-                optimistic={myEphIds.has(ep.nostrEventId)}
-                onReply={isExp ? onReplyEphemeral : undefined}
-                onInscribe={isExp ? onInscribeEphemeral : undefined}
-                onViewTx={isExp ? expandPost : undefined}
-              />
-              {kids.length > 0 && (
-                <div className="ml-3 border-l-2 border-dashed border-white/25">
-                  {isExp
-                    ? renderEphTree(kids, 0, "thread")
-                    : mode === "preview" && depth + 1 < CHILD_MAX_DEPTH
-                      ? renderEphTree(kids, depth + 1, "preview")
-                      : null}
-                </div>
+  function renderEphTreeExpandable(epPosts: EphemeralPost[], depth: number): React.ReactNode {
+    return epPosts.map((ep) => {
+      const kids = ephChildrenOf.get(ep.nostrEventId) ?? [];
+      const isExp = expandedEphIds.has(ep.nostrEventId) || myEphIds.has(ep.nostrEventId);
+      const showAll = showMoreChildren.has(ep.nostrEventId);
+      const visibleKids = showAll || kids.length <= CHILDREN_INITIAL_LIMIT ? kids : kids.slice(0, CHILDREN_INITIAL_LIMIT);
+      const hiddenCount = kids.length - visibleKids.length;
+      return (
+        <ExpandableContentBlock
+          key={ep.nostrEventId}
+          content={ep.content}
+          level={depth}
+          isBitcoinInscribed={ep.anchoredToBtc}
+          author={shortNostrPubkey(ep.nostrPubkey)}
+          datePosted={formatTime(new Date(ep.createdAt).getTime())}
+          viewCount={ep.boostCount > 0 ? ep.boostCount : undefined}
+          onReply={onReplyEphemeral ? () => onReplyEphemeral(ep) : undefined}
+          onUpvote={() => {}}
+          onMoreActions={() => {}}
+          onClick={() => handleExpandEph(ep.nostrEventId)}
+          hasChildren={kids.length > 0}
+          isChildrenExpanded={isExp}
+          onToggleChildren={() => handleExpandEph(ep.nostrEventId)}
+          childrenSlot={kids.length > 0 && isExp ? (
+            <div className="pl-2 mt-1 min-w-0">
+              {renderEphTreeExpandable(visibleKids, depth + 1)}
+              {hiddenCount > 0 && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); toggleShowMoreChildren(ep.nostrEventId); }}
+                  className="flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded border border-white/10 bg-white/[0.02] px-3 py-2 my-2 text-[11px] text-white/40 hover:text-white/60 hover:bg-white/[0.04] hover:border-white/15 transition-colors active:scale-[0.98]"
+                >
+                  <ChevronDown size={12} strokeWidth={2} />
+                  View {hiddenCount} more
+                </button>
               )}
             </div>
-          );
-        })}
-        {rem > 0 && (
-          <button
-            onClick={() => toggleShowMore(`eph:${epPosts[0]?.nostrEventId}:d${depth}`)}
-            className="flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded border border-white/10 bg-white/[0.02] px-3 py-2 my-2 text-[11px] text-white/40 hover:text-white/60 hover:bg-white/[0.04] hover:border-white/15 transition-colors active:scale-[0.98]"
-          >
-            <ChevronDown size={12} strokeWidth={2} />
-            View {rem} more
-          </button>
-        )}
-      </>
-    );
+          ) : undefined}
+        />
+      );
+    });
   }
 
   type FeedItem =
@@ -559,8 +596,9 @@ function TopicsFeed({
     isTopic: boolean,
     topic?: { hash: string; name: string | null; totalBurned: number } | null,
     sectionEph?: EphemeralPost[],
+    detailMode?: boolean,
   ) => {
-    const isCollapsed = collapsedTopics.has(sectionKey);
+    const isCollapsed = detailMode ? false : effectiveCollapsed.has(sectionKey);
     const totalBurned = topic?.totalBurned ?? 0;
 
     // Merge BTC + ephemeral into one sorted list (BTC first by burnTotal, then ephemeral by upvoteWeight)
@@ -576,123 +614,122 @@ function TopicsFeed({
     const hiddenCount = rootShowAll || externallyPaginated ? 0 : items.length - visibleItems.length;
 
     const postCount = sectionPosts.length + (sectionEph?.length ?? 0);
-    const isOcdn = topic?.name === "ocdn" || label === "/ocdn";
-    const isTopiclessInscribed = sectionKey === "_root" && sectionPosts.length > 0;
-    const isInscribedSection = isOcdn || isTopiclessInscribed;
-    const hasBtc = sectionPosts.length > 0;
-    const isEphOnly = !hasBtc && (sectionEph?.length ?? 0) > 0;
-    const useBtcBadge = hasBtc || isInscribedSection || (isTopic && !isEphOnly);
-    const useEphBadge = isEphOnly;
+    const { bg, initials } = sectionKey === "_ew"
+      ? { bg: "bg-blue-500/30" as const, initials: "EW" }
+      : topic
+        ? topicAvatarProps(topic.name, topic.hash)
+        : { bg: "bg-white/10" as const, initials: "—" };
+
+    const hasBtcContent = sectionPosts.length > 0;
+    const viewCount = sectionPosts.reduce((sum, p) => sum + (p.viewCount ?? 0), 0);
 
     return (
-      <div
-        key={sectionKey}
-        className={`bg-[#111111] mb-2 rounded-lg border relative overflow-hidden ${isInscribedSection ? "border-[#f4b63f]/50 shadow-[0_0_4px_rgba(244,182,63,.25),0_0_10px_rgba(244,182,63,.12),0_0_18px_rgba(244,182,63,.08)]" : "border-white/[0.04]"}`}
-      >
-        {feedFilter.type === "all" && (
-          <button
-            type="button"
-            onClick={() => toggleTopic(sectionKey)}
-            className="flex w-full min-h-[52px] items-center gap-3 py-3 pl-4 pr-3 text-left hover:bg-white/[0.02] active:bg-white/[0.04] transition-colors"
-            aria-label={isCollapsed ? "Expand" : "Collapse"}
-          >
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-[#f4b63f]/60 text-[#f4b63f]">
-              {isCollapsed ? <Plus size={20} strokeWidth={2} /> : <Minus size={20} strokeWidth={2} />}
-            </span>
-            <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
-                {sectionKey === "_ew" ? (
-                  <>
-                    <span className="inline-block -skew-x-12 bg-white px-2 py-0.5 font-bold text-blue-600 shadow-[0_0_4px_rgba(59,130,246,.3),0_0_8px_rgba(59,130,246,.15)]">
-                      <span className="inline-block skew-x-12 font-[ui-sans-serif,system-ui,sans-serif]">EternityWall</span>
-                    </span>
-                    <span className="text-[11px] tabular-nums text-white/40 shrink-0">
-                      {postCount > 0 ? `${postCount.toLocaleString()} n` : "—"}
-                    </span>
-                  </>
-                ) : useBtcBadge ? (
-                  <>
-                    <span className={`${sz} font-medium`}>
-                      <span className="inline-block -skew-x-12 bg-[#f4b63f] px-2 py-0.5 font-bold text-black shadow-[0_0_4px_rgba(244,182,63,.35),0_0_8px_rgba(244,182,63,.15)]">
-                        <span className="inline-block skew-x-12">{label}</span>
-                      </span>
-                    </span>
-                    <span className="text-[11px] tabular-nums text-white/40 shrink-0">
-                      {formatTopicStats(postCount, totalBurned)}
-                    </span>
-                  </>
-                ) : useEphBadge ? (
-                  <>
-                    <span className={`${sz} font-medium`}>
-                      <span className="inline-block -skew-x-12 bg-[#e93223] px-2 py-0.5 font-bold text-white shadow-[0_0_4px_rgba(233,50,35,.45),0_0_10px_rgba(233,50,35,.22),0_0_18px_rgba(233,50,35,.12)]">
-                        <span className="inline-block skew-x-12">{label}</span>
-                      </span>
-                    </span>
-                    <span className="text-[11px] tabular-nums text-white/40 shrink-0">
-                      {formatTopicStats(postCount, totalBurned)}
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span className={`${sz} font-medium ${isTopic ? "text-white" : "text-white/25"} ${topic?.name ? "" : isTopic ? "font-mono" : ""}`}>
-                      {label}
-                    </span>
-                    <span className="text-[11px] tabular-nums text-white/40 shrink-0">
-                      {formatTopicStats(postCount, totalBurned)}
-                    </span>
-                  </>
-                )}
-            </div>
-          </button>
+      <div key={sectionKey} className="bg-[#111111]/90 backdrop-blur-sm mb-2 border border-white/[0.06] overflow-x-auto overflow-y-visible">
+        {feedFilter.type === "all" && !detailMode && (
+          <TopicListRow
+            label={sectionKey === "_ew" ? "EternityWall" : label}
+            isListOfTopics={sectionKey === "_root" && label === "/"}
+            isBitcoinInscribed={hasBtcContent}
+            viewCount={viewCount > 0 ? viewCount : undefined}
+            upvoteCount={(() => {
+              const base = sumBoostCountForSection(sectionEph ?? []);
+              return base + (upvotedSectionIds.has(sectionKey) ? 1 : 0);
+            })()}
+            hasUpvoted={upvotedSectionIds.has(sectionKey)}
+            onExpand={() => effectiveToggleTopic(sectionKey)}
+            onReply={onComposeForTopic
+              ? () => onComposeForTopic(sectionKey, topic ?? undefined)
+              : () => goToSection(sectionKey, topic ?? undefined)}
+            onUpvote={() => setUpvotedSectionIds((prev) => new Set(prev).add(sectionKey))}
+            onMoreActions={() => {}}
+            onOptimisticUpvote={() => setUpvotedSectionIds((prev) => new Set(prev).add(sectionKey))}
+            onBoosted={() => refreshFeed?.()}
+            boostTarget={sectionEph?.[0] ? { nostrEventId: sectionEph[0].nostrEventId } : undefined}
+            isExpanded={!isCollapsed}
+            onViewTopic={onViewTopic ? () => onViewTopic(sectionKey, sectionKey === "_ew" ? "EternityWall" : label, topic ?? undefined) : undefined}
+          />
         )}
         {!isCollapsed && (
-          <div className="pl-4 divide-y divide-white/[0.04]">
-            {sectionKey === "_root" && ephemeralLoading && items.length === 0 ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-6 w-6 animate-spin text-white/30" />
-              </div>
-            ) : (
-            <>
+          <div
+            className="relative pl-4 pt-2 pb-1 min-w-0 divide-y divide-white/[0.04] border-l-2 border-dotted border-white/[0.12]"
+            style={{ marginLeft: 16, paddingLeft: 12 }}
+          >
+            <div className="absolute left-0 top-0 bottom-0 w-[3px] -ml-px bg-zinc-900" aria-hidden />
             {visibleItems.flatMap((item) => {
               if (item.kind === "btc") {
                 const p = item.post;
+                const isExpanded = expandedPostId === p.id;
                 return [
                   <div key={p.id} className="pt-2 first:pt-0">
-                    <FeedCard post={p} onExpand={expandPost} onVisible={onPostVisible} onReply={onReply} expandPreview={expandPreview} isExpanded={expandedPostId === p.id} />
-                    {expandedPostId === p.id && (
-                      <InlineThread
-                        postId={p.id}
-                        onReply={onReply ?? (() => {})}
-                        onReplyEphemeral={onReplyEphemeral}
-                        onInscribeEphemeral={onInscribeEphemeral}
-                        onViewTx={expandPost}
-                        initialEphemeralPosts={myEph?.filter((e) => e.parentContentHash === p.id)}
+                    {isExpanded ? (
+                      <>
+                        <FeedCard post={p} onExpand={expandPost} onVisible={onPostVisible} onReply={onReply} expandPreview={expandPreview} isExpanded />
+                        <InlineThread
+                          postId={p.id}
+                          onReply={onReply ?? (() => {})}
+                          onReplyEphemeral={onReplyEphemeral}
+                          onInscribeEphemeral={onInscribeEphemeral}
+                          onViewTx={expandPost}
+                          initialEphemeralPosts={myEph?.filter((e) => e.parentContentHash === p.id)}
+                        />
+                      </>
+                    ) : (
+                      <ExpandableContentBlock
+                        content={p.text}
+                        level={0}
+                        isBitcoinInscribed={true}
+                        author={shortPubkey(p.authorPubkey)}
+                        datePosted={formatTime(p.timestamp)}
+                        viewCount={p.viewCount ?? 0}
+                        contentHash={p.id}
+                        onViewInscription={(id) => expandPost(id)}
+                        onReply={() => onReply?.(p.id)}
+                        onUpvote={() => {}}
+                        onMoreActions={() => {}}
+                        onClick={() => expandPost(p.id)}
                       />
                     )}
                   </div>,
                 ];
               }
-              // ephemeral item
+              // ephemeral item — use ExpandableContentBlock for all levels (recursive tree)
               const ep = item.post;
               const kids = ephChildrenOf.get(ep.nostrEventId) ?? [];
-              const isExp = expandedEphIds.has(ep.nostrEventId);
+              const isExp = expandedEphIds.has(ep.nostrEventId) || myEphIds.has(ep.nostrEventId);
+              const showAllKids = showMoreChildren.has(ep.nostrEventId);
+              const visibleKids = showAllKids ? kids : kids.slice(0, CHILDREN_INITIAL_LIMIT);
+              const hiddenCount = kids.length > CHILDREN_INITIAL_LIMIT && !showAllKids ? kids.length - CHILDREN_INITIAL_LIMIT : 0;
               return [
                 <div key={ep.nostrEventId} className="pt-2 first:pt-0">
-                  <EphemeralPostCard
-                    post={ep}
-                    isExpanded={isExp || myEphIds.has(ep.nostrEventId)}
-                    onExpand={() => handleExpandEph(ep.nostrEventId)}
-                    optimistic={myEphIds.has(ep.nostrEventId)}
-                    onReply={isExp ? onReplyEphemeral : undefined}
-                    onInscribe={isExp ? onInscribeEphemeral : undefined}
-                    onViewTx={isExp ? expandPost : undefined}
+                  <ExpandableContentBlock
+                    content={ep.content}
+                    level={0}
+                    isBitcoinInscribed={ep.anchoredToBtc}
+                    author={shortNostrPubkey(ep.nostrPubkey)}
+                    datePosted={formatTime(new Date(ep.createdAt).getTime())}
+                    viewCount={ep.boostCount > 0 ? ep.boostCount : undefined}
+                    onReply={onReplyEphemeral ? () => onReplyEphemeral(ep) : undefined}
+                    onUpvote={() => {}}
+                    onMoreActions={() => {}}
+                    onClick={() => handleExpandEph(ep.nostrEventId)}
+                    hasChildren={kids.length > 0}
+                    isChildrenExpanded={isExp}
+                    onToggleChildren={() => handleExpandEph(ep.nostrEventId)}
+                    childrenSlot={kids.length > 0 && isExp ? (
+                      <div className="pl-2 mt-1 min-w-0">
+                        {renderEphTreeExpandable(visibleKids, 1)}
+                        {hiddenCount > 0 && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleShowMoreChildren(ep.nostrEventId); }}
+                            className="flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded border border-white/10 bg-white/[0.02] px-3 py-2 my-2 text-[11px] text-white/40 hover:text-white/60 hover:bg-white/[0.04] hover:border-white/15 transition-colors active:scale-[0.98]"
+                          >
+                            <ChevronDown size={12} strokeWidth={2} />
+                            View {hiddenCount} more
+                          </button>
+                        )}
+                      </div>
+                    ) : undefined}
                   />
-                  {kids.length > 0 && (
-                    <div className="ml-3 border-l-2 border-dashed border-white/25">
-                      {isExp
-                        ? renderEphTree(kids, 0, "thread")
-                        : renderEphTree(kids, 0, "preview")}
-                    </div>
-                  )}
                 </div>,
               ];
             })}
@@ -705,31 +742,47 @@ function TopicsFeed({
                 View {hiddenCount} more
               </button>
             )}
-            </>
-            )}
           </div>
         )}
       </div>
     );
   };
 
-  const rootEph = ephByTopic.get(null) ?? [];
-
-  // Collect topic hashes already rendered via BTC groups
-  const renderedTopicHashes = new Set(groups.map((g) => g.topic?.hash).filter(Boolean));
-
-  // Ephemeral-only topic groups (have topicHash but no BTC posts)
-  const ephOnlyTopics: { hash: string; name: string; posts: EphemeralPost[] }[] = [];
-  for (const [hash, posts] of ephByTopic) {
-    if (hash && !renderedTopicHashes.has(hash) && posts.length > 0) {
-      const name = posts[0].topic ?? hash.slice(0, 8);
-      ephOnlyTopics.push({ hash, name, posts });
+  if (viewSection) {
+    const { sectionKey, label, topic } = viewSection;
+    let sectionPosts: Post[] = [];
+    let sectionEph: EphemeralPost[] = [];
+    if (sectionKey === "_root") {
+      sectionPosts = untaggedPosts;
+      sectionEph = rootEph;
+    } else if (sectionKey === "_ew") {
+      sectionPosts = [...ewPosts, ...(extraEwPosts ?? [])];
+      sectionEph = [];
+    } else {
+      const g = groups.find((gr) => gr.topic?.hash === sectionKey);
+      if (g) {
+        sectionPosts = g.posts;
+        sectionEph = ephByTopic.get(sectionKey) ?? [];
+      } else {
+        const ephOnly = ephOnlyTopics.find((t) => t.hash === sectionKey);
+        if (ephOnly) {
+          sectionPosts = [];
+          sectionEph = ephOnly.posts;
+        }
+      }
     }
+    return (
+      <div className="mb-2">
+        <div className="bg-[#111111]/90 backdrop-blur-sm border border-white/[0.06] border-b-0 px-4 py-3">
+          <span className={`${sz} font-medium text-white/90`}>{sectionKey === "_ew" ? "EternityWall" : label}</span>
+        </div>
+        {renderSection(sectionKey, label, sectionPosts, true, topic ?? null, sectionEph, true)}
+      </div>
+    );
   }
 
   return (
     <>
-      {(untaggedPosts.length > 0 || ephemeralLoading) && renderSection("_root", "/", untaggedPosts, true, null)}
       {groups.map((group) => {
         const topicKey = group.topic?.hash ?? null;
         const eph = topicKey ? (ephByTopic.get(topicKey) ?? []) : [];
@@ -742,7 +795,6 @@ function TopicsFeed({
           eph,
         );
       })}
-      {rootEph.length > 0 && renderSection("_root_eph", "/", [], true, null, rootEph)}
       {ephOnlyTopics.map((t) => renderSection(
         t.hash,
         "/" + t.name,
@@ -751,7 +803,8 @@ function TopicsFeed({
         { hash: t.hash, name: t.name, totalBurned: 0 },
         t.posts,
       ))}
-      {untaggedHasMore && !collapsedTopics.has("_root") && (
+      {(untaggedPosts.length > 0 || rootEph.length > 0) && renderSection("_root", "/", untaggedPosts, true, null, rootEph)}
+      {untaggedHasMore && !effectiveCollapsed.has("_root") && (
         <button
           onClick={() => goToSection("_root")}
           className={`w-full py-2 ${sz} text-white/15 hover:text-white/30 transition-colors bg-[#111111] -mt-2 mb-2`}
@@ -766,7 +819,7 @@ function TopicsFeed({
         />
       )}
       {showEternityWall && ewPosts.length > 0 && renderSection("_ew", "eternitywall", [...ewPosts, ...(extraEwPosts ?? [])], false)}
-      {showEternityWall && !collapsedTopics.has("_ew") && (ewHasMore || (extraEwPosts ?? []).length > 0) && loadMoreEw && (
+      {showEternityWall && !effectiveCollapsed.has("_ew") && (ewHasMore || (extraEwPosts ?? []).length > 0) && loadMoreEw && (
         <div className="bg-[#111111] -mt-2 mb-2 flex justify-center py-4">
           {loadingMoreEw ? (
             <Loader2 className="h-5 w-5 animate-spin text-white/20" />
@@ -799,6 +852,11 @@ export default function Home() {
   const [expandedEphIdTopic, setExpandedEphIdTopic] = useState<string | null>(null);
   const [ephShowMoreTopic, setEphShowMoreTopic] = useState<Set<string>>(new Set());
   const [feedTab, setFeedTab] = useState<FeedTab>("topics");
+  const [viewingTopic, setViewingTopic] = useState<{
+    sectionKey: string;
+    label: string;
+    topic?: { hash: string; name: string | null; totalBurned: number } | null;
+  } | null>(null);
   const [textSize, setTextSize] = useState<TextSize>("sm");
   const [composing, setComposing] = useState<{
     replyToId: string | null;
@@ -816,14 +874,6 @@ export default function Home() {
     setHasStoredIdentity(!!getStoredIdentity() || !!getSessionPubkey());
   }, []);
 
-  const [hasPosted, setHasPosted] = useState(false);
-  useEffect(() => {
-    setHasPosted(typeof window !== "undefined" && localStorage.getItem("ocdn_hasPosted") === "1");
-  }, []);
-  useEffect(() => {
-    if (!hasPosted && feedTab === "profile") setFeedTab("topics");
-  }, [hasPosted, feedTab]);
-
   const [groups, setGroups] = useState<TopicGroup[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -831,11 +881,11 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [collapsedTopics, setCollapsedTopics] = useState<Set<string>>(new Set());
+  const [listViewActive, setListViewActive] = useState(false);
   const [untaggedHasMore, setUntaggedHasMore] = useState(false);
   const [ewHasMore, setEwHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [homeEphemeral, setHomeEphemeral] = useState<EphemeralPost[]>([]);
-  const [ephemeralLoading, setEphemeralLoading] = useState(false);
   const [injectedEphPosts, setInjectedEphPosts] = useState<EphemeralPost[]>([]);
   const [extraEwPosts, setExtraEwPosts] = useState<Post[]>([]);
   const [ewCursor, setEwCursor] = useState<string | null>(null);
@@ -886,7 +936,7 @@ export default function Home() {
 
     const f = filterRef.current;
     const hasFilter = f.type !== "all";
-    const effectiveSort = hasFilter ? "new" : sortMode;
+    const effectiveSort = hasFilter ? (sortMode === "topics" ? "new" : sortMode) : sortMode;
     const params = new URLSearchParams({ sort: effectiveSort });
     if (f.type === "topic") params.set("topic", f.hash);
     else if (f.type === "topicless") params.set("topicless", "true");
@@ -901,28 +951,23 @@ export default function Home() {
     });
 
     if (effectiveSort === "topics" && f.type === "all") {
-      setEphemeralLoading(true);
       fetch("/api/ephemeral?root=true&sort=new&limit=100")
         .then((r) => r.ok ? r.json() : { posts: [] })
         .then((data) => {
           if (version !== fetchVersionRef.current) return;
           setHomeEphemeral(data.posts ?? []);
         })
-        .catch(() => {})
-        .finally(() => setEphemeralLoading(false));
+        .catch(() => {});
     } else if (f.type === "topic") {
-      setEphemeralLoading(true);
       fetch(`/api/ephemeral?topicHash=${f.hash}&sort=new&limit=500`)
         .then((r) => r.ok ? r.json() : { posts: [] })
         .then((data) => {
           if (version !== fetchVersionRef.current) return;
           setHomeEphemeral(data.posts ?? []);
         })
-        .catch(() => {})
-        .finally(() => setEphemeralLoading(false));
+        .catch(() => {});
     } else {
       setHomeEphemeral([]);
-      setEphemeralLoading(false);
     }
 
     feedPromise
@@ -962,28 +1007,6 @@ export default function Home() {
       });
   }, [sortMode, sortDirection, feedFilterKey, includeTopicless, excludedTopicHashes, refreshKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Collapse all topics by default when data first loads
-  const hasInitializedCollapse = useRef(false);
-  useEffect(() => {
-    if (feedFilter.type !== "all" || sortMode !== "topics") return;
-    const hasData = groups.length > 0 || posts.length > 0 || homeEphemeral.length > 0;
-    if (!hasData || ephemeralLoading || hasInitializedCollapse.current) return;
-    hasInitializedCollapse.current = true;
-    const keys = new Set<string>();
-    groups.forEach((g) => keys.add(g.topic?.hash ?? "_standalone"));
-    const hasUntagged = posts.some((p) => p._section === "untagged");
-    const hasRootEph = homeEphemeral.some((e) => !e.topicHash);
-    const hasEw = posts.some((p) => p._section === "ew");
-    if (hasUntagged || ephemeralLoading) keys.add("_root");
-    if (hasRootEph) keys.add("_root_eph");
-    if (hasEw) keys.add("_ew");
-    const renderedHashes = new Set(groups.map((g) => g.topic?.hash).filter(Boolean));
-    homeEphemeral.forEach((e) => {
-      if (e.topicHash && !renderedHashes.has(e.topicHash)) keys.add(e.topicHash);
-    });
-    setCollapsedTopics(keys);
-  }, [feedFilter.type, sortMode, groups, posts, homeEphemeral, ephemeralLoading]);
-
   // ── load more (cursor pagination) ──
   const loadMore = useCallback(() => {
     if (!nextCursor || loadingMoreRef.current || (sortMode === "topics" && feedFilter.type === "all")) return;
@@ -991,7 +1014,7 @@ export default function Home() {
     setLoadingMore(true);
     const version = fetchVersionRef.current;
 
-    const effectiveSort = feedFilter.type !== "all" ? "new" : sortMode;
+    const effectiveSort = feedFilter.type !== "all" ? (sortMode === "topics" ? "new" : sortMode) : sortMode;
     const params = new URLSearchParams({
       sort: effectiveSort,
       cursor: nextCursor,
@@ -1177,13 +1200,10 @@ export default function Home() {
       const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
       if (!nearBottom) return;
 
-      if (sortMode === "topics" && feedFilter.type === "all") {
-        if (feedTab === "wall" && ewHasMore) loadMoreEw();
-        return;
-      }
+      if (sortMode === "topics" && feedFilter.type === "all") return;
       if (nextCursor) loadMore();
     },
-    [sortMode, feedFilter.type, feedTab, nextCursor, loadMore, ewHasMore, loadMoreEw],
+    [sortMode, feedFilter.type, nextCursor, loadMore],
   );
 
   const refreshFeed = useCallback(() => setRefreshKey((k) => k + 1), []);
@@ -1208,10 +1228,6 @@ export default function Home() {
       }
 
       setMyEphemeralPosts((prev) => [post, ...prev]);
-      if (typeof window !== "undefined") {
-        localStorage.setItem("ocdn_hasPosted", "1");
-        setHasPosted(true);
-      }
 
       const sectionKey = post.topicHash ?? "_root";
       setCollapsedTopics((prev) => {
@@ -1247,7 +1263,7 @@ export default function Home() {
 
   const goToSection = useCallback((sectionKey: string, topic?: { hash: string; name: string | null; totalBurned: number } | null) => {
     let newFilter: FeedFilter;
-    if (sectionKey === "_root" || sectionKey === "_root_eph") {
+    if (sectionKey === "_root") {
       newFilter = { type: "topicless" };
       setFeedFilter(newFilter);
       setSearchQuery("/");
@@ -1539,7 +1555,7 @@ export default function Home() {
 
   return (
     <TextSizeCtx.Provider value={textSize}>
-      <div className="flex h-dvh flex-col bg-black text-white md:max-w-md md:mx-auto md:border-x md:border-border pb-[env(safe-area-inset-bottom)]">
+      <div className="relative flex h-dvh flex-col bg-black text-white md:max-w-md md:mx-auto md:border-x md:border-border pb-[env(safe-area-inset-bottom)]">
         <TopBar
             feedFilter={feedFilter}
             onFeedFilterChange={(f: FeedFilter) => {
@@ -1557,20 +1573,14 @@ export default function Home() {
             onSortChange={handleSortChange}
             textSize={textSize}
             onTextSizeChange={setTextSize}
-            onCompose={() =>
-              setComposing({
-                replyToId: null,
-                topicName: feedFilter.type === "topic" ? feedFilter.name : null,
-              })
-            }
             includeTopicless={includeTopicless}
             onIncludeTopiclessChange={setIncludeTopicless}
             excludedTopicHashes={excludedTopicHashes}
             onExcludedTopicHashesChange={setExcludedTopicHashes}
             onReset={resetHome}
-            expandedPostId={feedTab === "profile" ? "profile" : undefined}
-            expandedTopicName={feedTab === "profile" ? undefined : threadTopicName}
-            onBack={feedTab === "profile" ? () => setFeedTab("topics") : undefined}
+            expandedPostId={viewingTopic ? "topic" : feedTab === "profile" ? "profile" : (expandedPostId || focusedEphId) ? "thread" : undefined}
+            expandedTopicName={viewingTopic ? viewingTopic.label : feedTab === "profile" ? undefined : threadTopicName}
+            onBack={viewingTopic ? () => setViewingTopic(null) : feedTab === "profile" ? () => setFeedTab("topics") : (expandedPostId || focusedEphId) ? closeThread : undefined}
           />
 
         <div
@@ -1580,7 +1590,7 @@ export default function Home() {
         >
           {showFeed ? (
             loading && groups.length === 0 && posts.length === 0 ? (
-              <div className="divide-y divide-white/[0.04] rounded-lg border border-white/[0.04] bg-[#111111] overflow-hidden">
+              <div className="divide-y divide-white/[0.04] border border-white/[0.04] bg-[#111111] overflow-hidden">
                 {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
                   <FeedCardSkeleton key={i} variant={i % 3 === 0 ? "short" : "default"} />
                 ))}
@@ -1598,7 +1608,7 @@ export default function Home() {
             ) : (
               <div
                 data-feed-scroll
-                className="h-full overflow-y-auto"
+                className="h-full overflow-auto"
                 onScroll={handleFeedScroll}
               >
                 {sortMode === "topics"
@@ -1611,53 +1621,7 @@ export default function Home() {
                           <LeaderboardSection
                             sz={sz}
                             onNavigate={handleLeaderboardNavigate}
-                            limit={20}
                           />
-                        );
-                      }
-                      if (feedTab === "wall") {
-                        const wallPosts = [...posts.filter((p) => p._section === "ew"), ...extraEwPosts];
-                        return (
-                          <div className="bg-[#111111] rounded-lg border border-white/[0.04] overflow-hidden">
-                            <div className="px-4 py-2.5 border-b border-white/[0.04]">
-                              <span className="bg-white rounded-full px-2 py-0.5 text-blue-600 font-medium text-[13px]">
-                                EternityWall
-                              </span>
-                            </div>
-                            {wallPosts.length === 0 ? (
-                              <div className={`flex h-32 items-center justify-center ${sz} text-white/25`}>No EternityWall posts yet</div>
-                            ) : (
-                              <>
-                              <div className="divide-y divide-white/[0.04]">
-                                {wallPosts.map((p) => (
-                                  <FeedCard
-                                    key={p.id}
-                                    post={p}
-                                    onExpand={expandPost}
-                                    onVisible={onPostVisible}
-                                    onReply={(id) => setComposing({ replyToId: id, topicName: resolveTopicForReply(id) })}
-                                    expandPreview
-                                    isExpanded={expandedPostId === p.id}
-                                  />
-                                ))}
-                              </div>
-                              {(ewHasMore || loadingMoreEw) && (
-                                  <div className="flex justify-center py-4">
-                                    {loadingMoreEw ? (
-                                      <Loader2 className="h-5 w-5 animate-spin text-white/20" />
-                                    ) : (
-                                      <button
-                                        onClick={loadMoreEw}
-                                        className={`${sz} text-white/15 hover:text-white/30 transition-colors`}
-                                      >
-                                        more
-                                      </button>
-                                    )}
-                                  </div>
-                                )}
-                              </>
-                            )}
-                          </div>
                         );
                       }
                       if (feedTab === "topics" && feedFilter.type === "all") {
@@ -1667,6 +1631,8 @@ export default function Home() {
                           posts={posts}
                           collapsedTopics={collapsedTopics}
                           toggleTopic={toggleTopic}
+                          listViewActive={listViewActive}
+                          onClearListView={() => setListViewActive(false)}
                           feedFilter={feedFilter}
                           setFeedFilter={setFeedFilter}
                           setSearchQuery={setSearchQuery}
@@ -1691,9 +1657,15 @@ export default function Home() {
                           focusedEphId={focusedEphId}
                           onFocusEph={openEphThread}
                           onNavigateLeaderboard={handleLeaderboardNavigate}
-                          showLeaderboard={true}
-                          showEternityWall={true}
-                          ephemeralLoading={ephemeralLoading}
+                          showLeaderboard={false}
+                          showEternityWall={false}
+                          refreshFeed={refreshFeed}
+                          onComposeForTopic={(sectionKey, topic) => {
+                            const topicName = sectionKey === "_root" ? null : sectionKey === "_ew" ? "EternityWall" : (topic?.name ?? null);
+                            setComposing({ replyToId: null, replyToNostrId: null, topicName });
+                          }}
+                          onViewTopic={(sectionKey, label, topic) => setViewingTopic({ sectionKey, label: sectionKey === "_ew" ? "EternityWall" : label, topic: topic ?? undefined })}
+                          viewSection={viewingTopic}
                         />
                         );
                       }
@@ -1713,7 +1685,7 @@ export default function Home() {
                       ) : (
                         <>
                           {posts.length > 0 && (
-                            <div className="bg-[#111111] rounded-lg border border-white/[0.04]">
+                            <div className="bg-[#111111] border border-white/[0.04]">
                               {(() => {
                                 const seen = new Set<string>();
                                 const isTopicView = feedFilter.type === "topic";
@@ -1846,7 +1818,7 @@ export default function Home() {
                         }
 
                         return (
-                          <div className="bg-[#111111] mb-2 rounded-lg border border-white/[0.04]">
+                          <div className="bg-[#111111] mb-2 border border-white/[0.04]">
                             <div className="pl-4">
                               {renderTopicBranch(roots, 0, "topic-root")}
                             </div>
@@ -1867,14 +1839,29 @@ export default function Home() {
           )}
         </div>
 
+        {showFeed && feedTab === "topics" && !viewingTopic && !expandedPostId && !focusedEphId && !composing && (
+          <button
+            onClick={() => setComposing({ replyToId: null, topicName: feedFilter.type === "topic" ? feedFilter.name : null })}
+            aria-label="New post"
+            className="absolute right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-[#FF6800] text-white shadow-lg shadow-black/30 active:scale-95 transition-transform"
+            style={{ bottom: "calc(env(safe-area-inset-bottom) + 64px)" }}
+          >
+            <svg width={24} height={24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+        )}
+
         {showFeed && (
           <BottomNav
             tab={feedTab}
             onTabChange={(t) => {
+              if (t === "topics" && feedTab === "profile") setListViewActive(true);
               setFeedTab(t);
               closeThread();
             }}
-            hideProfile={!hasPosted}
+            showBack={!!viewingTopic}
+            onBack={viewingTopic ? () => setViewingTopic(null) : undefined}
           />
         )}
 
@@ -1891,7 +1878,7 @@ export default function Home() {
 
         {feedTab === "profile" && (
           <ProfileSheet
-            onClose={() => setFeedTab("topics")}
+            onClose={() => { setListViewActive(true); setFeedTab("topics"); }}
             onExpand={(id) => { setFeedTab("topics"); openThread(id); }}
             onReplyEphemeral={(ep) => setComposing({ replyToId: null, replyToNostrId: ep.nostrEventId, topicName: ep.topic })}
             onCompose={() => setComposing({ replyToId: null, topicName: feedFilter.type === "topic" ? feedFilter.name : null })}

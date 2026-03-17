@@ -1,31 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { rateLimit, parsePageSize, errorResponse, log, mapEphemeralPost } from "@/lib/api-utils";
-import type { EphemeralPost as PrismaEphemeralPost } from "@/generated/prisma/client";
 
 export const dynamic = "force-dynamic";
-
-const EPHEMERAL_SELECT = {
-  nostrEventId: true,
-  nostrPubkey: true,
-  content: true,
-  topic: true,
-  topicHash: true,
-  parentContentHash: true,
-  parentNostrId: true,
-  replyDepth: true,
-  anchoredToBtc: true,
-  powDifficulty: true,
-  upvoteWeight: true,
-  boostCount: true,
-  lastBoostedAt: true,
-  expiresAt: true,
-  promotedToHash: true,
-  createdAt: true,
-} as const;
-
-const ROOT_CACHE_TTL_MS = 45_000;
-const rootCache = new Map<string, { data: { posts: unknown[] }; ts: number }>();
 
 /**
  * GET /api/ephemeral
@@ -62,20 +39,13 @@ export async function GET(request: Request) {
 
   try {
     // Balanced fetch for the "all topics" home feed: 3 queries total
-    // 1) roots (paginated)  2) their direct children  3) grandchildren
+    // 1) all true roots (parentNostrId IS NULL) — every topic represented
+    // 2) their direct children  3) grandchildren
     if (root && !topicHash && !parentHash && !pubkey && !cursor) {
-      const cacheKey = `root:${sort}:${order}:${limit}`;
-      const cached = rootCache.get(cacheKey);
-      if (cached && Date.now() - cached.ts < ROOT_CACHE_TTL_MS) {
-        return NextResponse.json(cached.data);
-      }
-
       const now = new Date();
       const expiry = { gt: now };
 
-      // Fetch a large pool to enable per-topic diversification (so /pol, /g, /lit, /fit, /adv appear alongside /biz)
-      const fetchSize = Math.min(limit * 12, 1500);
-      const rootsRaw = await prisma.ephemeralPost.findMany({
+      const roots = await prisma.ephemeralPost.findMany({
         where: {
           parentContentHash: null,
           parentNostrId: null,
@@ -85,41 +55,14 @@ export async function GET(request: Request) {
         orderBy: sort === "top"
           ? [{ upvoteWeight: order }, { createdAt: order }]
           : [{ createdAt: order }],
-        take: fetchSize,
-        select: EPHEMERAL_SELECT,
       });
-
-      // Diversify: take top N per topic so each board (biz, pol, g, etc.) is represented
-      const PER_TOPIC = Math.max(15, Math.ceil(limit / 6));
-      const byTopic = new Map<string | null, typeof rootsRaw>();
-      for (const p of rootsRaw) {
-        const key = p.topicHash ?? null;
-        const arr = byTopic.get(key) ?? [];
-        if (arr.length < PER_TOPIC) arr.push(p);
-        byTopic.set(key, arr);
-      }
-      const roots = Array.from(byTopic.values())
-        .flat()
-        .sort((a, b) => {
-          if (sort === "top") {
-            const diff = Number(b.upvoteWeight - a.upvoteWeight);
-            return order === "desc" ? diff : -diff;
-          }
-          const at = a.createdAt.getTime();
-          const bt = b.createdAt.getTime();
-          return order === "desc" ? bt - at : at - bt;
-        })
-        .slice(0, limit);
 
       const seen = new Set(roots.map((p) => p.nostrEventId));
       const allPosts = [...roots];
 
       if (seen.size > 0) {
-        const rootIds = [...seen];
         const children = await prisma.ephemeralPost.findMany({
-          where: { parentNostrId: { in: rootIds }, expiresAt: expiry, promotedToHash: null },
-          take: limit * 3,
-          select: EPHEMERAL_SELECT,
+          where: { parentNostrId: { in: [...seen] }, expiresAt: expiry, promotedToHash: null },
         });
         const newChildIds: string[] = [];
         for (const c of children) {
@@ -133,8 +76,6 @@ export async function GET(request: Request) {
         if (newChildIds.length > 0) {
           const grandchildren = await prisma.ephemeralPost.findMany({
             where: { parentNostrId: { in: newChildIds }, expiresAt: expiry, promotedToHash: null },
-            take: limit * 2,
-            select: EPHEMERAL_SELECT,
           });
           for (const gc of grandchildren) {
             if (!seen.has(gc.nostrEventId)) {
@@ -145,9 +86,7 @@ export async function GET(request: Request) {
         }
       }
 
-      const data = { posts: allPosts.map((p) => mapEphemeralPost(p as PrismaEphemeralPost)) };
-      rootCache.set(cacheKey, { data, ts: Date.now() });
-      return NextResponse.json(data);
+      return NextResponse.json({ posts: allPosts.map(mapEphemeralPost) });
     }
 
     const where: Record<string, unknown> = {

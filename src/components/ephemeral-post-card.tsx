@@ -115,14 +115,14 @@ export function EphemeralPostCard({
       onClick={() => onExpand?.(post.nostrEventId)}
       className="relative border border-dashed border-white/[0.08] py-2 px-4 bg-white/[0.04] cursor-pointer"
     >
-      <p className={`${ts(sz)} text-white/90 leading-snug whitespace-pre-wrap`}>
+      <p className={`${ts(sz)} text-white/90 leading-relaxed whitespace-pre-wrap`}>
         <PostContent content={post.content} />
       </p>
 
       <div className={`flex items-center gap-1.5 text-[10px] tabular-nums mt-1.5`}>
         {displayZeros > 0 && (
           <>
-            <span className={`font-medium ${isMining ? "text-[#f4b63f]/60 animate-pulse" : "text-white/40"}`}>
+            <span className={`font-medium ${isMining ? "text-yellow-400/60 animate-pulse" : "text-white/40"}`}>
               {displayZeros}z
             </span>
             <span className="text-white/10">&middot;</span>

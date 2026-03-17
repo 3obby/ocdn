@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import { X } from "lucide-react";
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { formatSats, type EphemeralPost } from "@/lib/mock-data";
 import { useTextSize, ts } from "@/lib/text-size";
 import {
@@ -66,6 +67,8 @@ export function ComposeSheet({
   const [step, setStep] = useState<Step>(initialText ? "preview" : "compose");
   const [text, setText] = useState(initialText ?? "");
   const [localTopic, setLocalTopic] = useState(topicName ?? "");
+  const [topicInputFocused, setTopicInputFocused] = useState(false);
+  const [inscribeOnChain, setInscribeOnChain] = useState(true);
   const [cost, setCost] = useState<CostEstimate | null>(null);
   const [payment, setPayment] = useState<PaymentData | null>(null);
   const [payStatus, setPayStatus] = useState<PaymentStatus>("creating");
@@ -373,20 +376,26 @@ export function ComposeSheet({
   const postLabel = minedDifficulty > 0 ? `post ${minedDifficulty}z` : "post";
 
   return (
-    <Sheet open onOpenChange={(open) => !open && onClose()}>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
       {copied && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 rounded-lg bg-white/90 text-black text-sm font-medium animate-in fade-in duration-200">
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 rounded-lg bg-zinc-800 border border-white/[0.08] text-white/90 text-sm font-medium animate-in fade-in duration-200 shadow-lg">
           Copied to clipboard
         </div>
       )}
-      <SheetContent
-        side="bottom"
+      <DialogContent
         showCloseButton={false}
-        className="bg-black border-t border-border p-0 rounded-t-xl max-h-[80vh] flex flex-col"
+        className="bg-[#111111] border border-white/[0.06] p-0 rounded-2xl max-h-[90vh] flex flex-col w-[calc(100%-2rem)] max-w-md"
       >
-        <SheetHeader className="px-4 pt-3 pb-2 border-b border-border shrink-0">
-          <SheetTitle
-            className={`${ts(sz)} text-white/40 font-light tracking-wide`}
+        <DialogHeader className="px-4 pt-4 pb-3 border-b border-white/[0.06] shrink-0 flex-row items-center justify-between gap-2">
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white/40 hover:text-white/70 hover:bg-white/[0.06] transition-colors active:scale-95"
+          >
+            <X size={18} strokeWidth={2} />
+          </button>
+          <DialogTitle
+            className={`${ts(sz)} text-white/50 font-medium tracking-wide flex-1 text-center`}
           >
             {step === "compose"
               ? label
@@ -397,61 +406,98 @@ export function ComposeSheet({
                   : payStatus === "confirmed"
                     ? "posted"
                     : "broadcasting\u2026"}
-          </SheetTitle>
-        </SheetHeader>
+          </DialogTitle>
+          {step === "compose" && !isReply && (
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                role="switch"
+                aria-checked={inscribeOnChain}
+                aria-label="Inscribe on Bitcoin chain"
+                onClick={() => setInscribeOnChain((v) => !v)}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-white/20 focus:ring-offset-2 focus:ring-offset-[#111111] ${
+                  inscribeOnChain ? "bg-[#FF6800]" : "bg-white/20"
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition ${
+                    inscribeOnChain ? "translate-x-6" : "translate-x-0.5"
+                  }`}
+                />
+              </button>
+              {inscribeOnChain && cost && (
+                <button
+                  onClick={handleNext}
+                  disabled={!text.trim()}
+                  title={`${formatSats(cost.totalSats)} sats to inscribe`}
+                  className={`flex min-h-8 items-center rounded-lg border border-white/10 px-2.5 py-1.5 ${ts(sz)} text-[11px] transition-colors active:scale-95 ${
+                    !text.trim()
+                      ? "cursor-not-allowed border-white/5 bg-white/[0.02] text-white/30"
+                      : "bg-white/[0.02] text-white/60 hover:bg-white/[0.04] hover:border-white/15 hover:text-white/80"
+                  }`}
+                >
+                  <span className="tabular-nums">{formatSats(cost.totalSats)} sats</span>
+                </button>
+              )}
+            </div>
+          )}
+          {!(step === "compose" && !isReply) && <div className="w-10 shrink-0" aria-hidden />}
+        </DialogHeader>
 
         {step === "compose" && (
           <>
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="flex-1 overflow-y-auto px-4 pt-2 pb-4">
               {!isReply && (
-                <div className="flex items-center gap-1 mb-3 pb-2 border-b border-white/[0.06]">
-                  <span className="text-white/20 text-[13px]">/</span>
-                  <input
-                    type="text"
-                    value={localTopic}
-                    onChange={(e) => setLocalTopic(e.target.value)}
-                    placeholder="e.g. bitcoin"
-                    className={`flex-1 bg-transparent ${ts(sz)} text-white/50 outline-none placeholder:text-white/15`}
-                  />
+                <div className="flex flex-col gap-1.5 mb-2 w-full min-w-0 overflow-hidden">
+                  {activeTopic && !topicInputFocused ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-white/[0.08] px-3 py-1.5 text-[13px] text-white/70">
+                      /{activeTopic}
+                      <button
+                        type="button"
+                        onClick={() => setLocalTopic("")}
+                        className="ml-0.5 -mr-1 text-white/40 hover:text-white/60"
+                        aria-label="Remove topic"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ) : (
+                    <div className="w-full min-w-0">
+                      <input
+                        type="text"
+                        value={localTopic}
+                        onChange={(e) => setLocalTopic(e.target.value)}
+                        onFocus={() => setTopicInputFocused(true)}
+                        onBlur={() => setTopicInputFocused(false)}
+                        placeholder="Add topic (e.g. bitcoin)"
+                        className={`block w-full min-w-0 rounded-full bg-white/[0.06] px-3 py-2.5 ${ts(sz)} text-white/70 outline-none placeholder:text-white/25 border border-transparent focus:border-white/10 transition-colors`}
+                      />
+                    </div>
+                  )}
                 </div>
               )}
               <textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
-                placeholder="\u2026"
+                placeholder="What's happening?"
                 autoFocus
-                className={`w-full h-full min-h-[120px] resize-none bg-transparent ${ts(sz)} text-white placeholder:text-white/15 outline-none leading-relaxed`}
+                className={`w-full min-h-[160px] resize-none bg-transparent ${ts(sz)} text-white/90 placeholder:text-white/25 outline-none leading-relaxed py-2`}
               />
             </div>
-            <div className="flex items-center justify-between px-4 py-3 border-t border-border shrink-0">
+            <div className="flex items-center justify-between px-4 py-3 border-t border-white/[0.06] shrink-0">
               <span className={`text-[10px] text-white/15 font-mono truncate max-w-[120px]`}>
                 {sessionPubkey ? sessionPubkey.slice(0, 8) + "\u2026" : ""}
               </span>
-              <div className="flex items-center gap-2">
-                {cost && (
-                  <button
-                    className={`px-3 py-2 ${ts(sz)} tracking-wide transition-colors text-white/25 hover:text-white/50 ${
-                      !text.trim() ? "opacity-40 cursor-not-allowed" : ""
-                    }`}
-                    onClick={handleNext}
-                    disabled={!text.trim()}
-                    title={`${formatSats(cost.totalSats)} sats`}
-                  >
-                    ₿
-                  </button>
-                )}
-                <button
-                  className={`px-5 py-2 ${ts(sz)} tracking-wide transition-all active:scale-95 ${
+              <button
+                  className={`flex min-h-[44px] items-center justify-center rounded-lg px-5 py-2 ${ts(sz)} font-medium tracking-wide transition-all active:scale-95 ${
                     text.trim() && !isSubmitting
-                      ? "text-black bg-white hover:bg-white/90"
-                      : "text-black/40 bg-white/20 cursor-not-allowed"
+                      ? "bg-[#FF6800] text-white hover:bg-[#FF6800]/90"
+                      : "bg-white/20 text-white/40 cursor-not-allowed"
                   }`}
                   onClick={handlePostFree}
                   disabled={!text.trim() || isSubmitting}
                 >
                   {postSuccess ? "Posted \u2713" : isSubmitting ? "posting\u2026" : postLabel}
                 </button>
-              </div>
             </div>
           </>
         )}
@@ -459,10 +505,10 @@ export function ComposeSheet({
         {step === "preview" && (
           <>
             <div className="flex-1 overflow-y-auto p-4">
-              <div className="border border-border/50 rounded-lg p-4 mb-4 shadow-sm">
+              <div className="border border-white/[0.08] bg-zinc-900/95 rounded-lg p-4 mb-4 shadow-[0_2px_10px_rgba(0,0,0,0.35)]">
                 {activeTopic && !isReply && (
-                  <span className={`${ts(sz)} text-burn/60 block mb-1`}>
-                    {activeTopic}
+                  <span className={`${ts(sz)} text-[#FF6800]/80 block mb-2`}>
+                    /{activeTopic}
                   </span>
                 )}
                 <p className={`${ts(sz)} text-white/90 leading-relaxed whitespace-pre-wrap`}>
@@ -471,22 +517,22 @@ export function ComposeSheet({
               </div>
 
               {cost && (
-                <div className="space-y-1.5">
+                <div className="space-y-2 rounded-lg border border-white/[0.08] bg-zinc-900/50 p-4">
                   <div className="flex justify-between">
-                    <span className={`${ts(sz)} text-white/30`}>miner fee</span>
-                    <span className={`${ts(sz)} text-white/50 tabular-nums`}>
+                    <span className={`${ts(sz)} text-white/40`}>miner fee</span>
+                    <span className={`${ts(sz)} text-white/60 tabular-nums`}>
                       {formatSats(cost.minerFee)} sats
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className={`${ts(sz)} text-white/30`}>portal fee</span>
-                    <span className={`${ts(sz)} text-white/50 tabular-nums`}>
+                    <span className={`${ts(sz)} text-white/40`}>portal fee</span>
+                    <span className={`${ts(sz)} text-white/60 tabular-nums`}>
                       {formatSats(cost.rake)} sats
                     </span>
                   </div>
-                  <div className="flex justify-between border-t border-border/30 pt-1.5">
-                    <span className={`${ts(sz)} text-white/60`}>total</span>
-                    <span className={`${ts(sz)} text-white tabular-nums`}>
+                  <div className="flex justify-between border-t border-white/[0.06] pt-2">
+                    <span className={`${ts(sz)} text-white/70`}>total</span>
+                    <span className={`${ts(sz)} text-white font-medium tabular-nums`}>
                       {formatSats(cost.totalSats)} sats
                     </span>
                   </div>
@@ -494,15 +540,15 @@ export function ComposeSheet({
               )}
             </div>
 
-            <div className="flex items-center gap-2 px-4 py-3 border-t border-border shrink-0">
+            <div className="flex items-center gap-2 px-4 py-3 border-t border-white/[0.06] shrink-0">
               <button
-                className={`flex-1 px-4 py-2 ${ts(sz)} tracking-wide text-white/40 hover:text-white/60 transition-colors`}
+                className={`flex min-h-[44px] flex-1 items-center justify-center rounded-full border border-white/10 bg-white/[0.02] ${ts(sz)} text-white/50 hover:text-white/70 hover:bg-white/[0.04] hover:border-white/15 transition-colors active:scale-95`}
                 onClick={() => setStep("compose")}
               >
                 back
               </button>
               <button
-                className={`flex-1 px-4 py-2 ${ts(sz)} tracking-wide text-black bg-white hover:bg-white/90 transition-all active:scale-95`}
+                className={`flex min-h-[44px] flex-1 items-center justify-center rounded-full ${ts(sz)} font-medium bg-[#FF6800] text-white hover:bg-[#FF6800]/90 transition-all active:scale-95`}
                 onClick={handlePay}
               >
                 pay with bitcoin
@@ -575,7 +621,7 @@ export function ComposeSheet({
 
                   <a
                     href={payment.bitcoinUri}
-                    className={`w-full text-center px-4 py-2.5 ${ts(sz)} tracking-wide text-white/60 border border-border/50 hover:border-border hover:text-white/80 transition-colors`}
+                    className={`flex min-h-[44px] w-full items-center justify-center rounded-full border border-white/10 bg-white/[0.02] ${ts(sz)} text-white/60 hover:text-white/80 hover:bg-white/[0.04] hover:border-white/15 transition-colors`}
                   >
                     open in wallet
                   </a>
@@ -604,9 +650,9 @@ export function ComposeSheet({
               )}
             </div>
 
-            <div className="flex items-center px-4 py-3 border-t border-border shrink-0">
+            <div className="flex items-center px-4 py-3 border-t border-white/[0.06] shrink-0">
               <button
-                className={`px-4 py-2 ${ts(sz)} tracking-wide text-white/30 hover:text-white/50 transition-colors`}
+                className={`flex min-h-[44px] items-center justify-center rounded-full border border-white/10 bg-white/[0.02] px-4 ${ts(sz)} text-white/50 hover:text-white/70 hover:bg-white/[0.04] hover:border-white/15 transition-colors active:scale-95`}
                 onClick={() => {
                   if (pollRef.current) clearInterval(pollRef.current);
                   setStep("preview");
@@ -651,7 +697,7 @@ export function ComposeSheet({
             )}
           </div>
         )}
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }

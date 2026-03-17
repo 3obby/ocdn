@@ -142,7 +142,6 @@ export function mapPost(
   return {
     id: p.contentHash,
     contentHash: p.contentHash,
-    txid: p.txid,
     protocol: p.protocol,
     authorPubkey: p.authorPubkey,
     text: p.content,
