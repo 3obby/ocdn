@@ -29,6 +29,38 @@ function parseContent(raw: string): Segment[] {
   return segments;
 }
 
+function renderSegments(segments: Segment[]) {
+  return segments.map((seg, i) => {
+    if (seg.type === "text") {
+      return <Fragment key={i}>{seg.value}</Fragment>;
+    }
+    if (seg.internal) {
+      return (
+        <span
+          key={i}
+          className="text-blue-400/70 cursor-pointer hover:text-blue-400 transition-colors"
+          title={seg.label || "referenced post"}
+        >
+          {seg.label || ">>ref"}
+        </span>
+      );
+    }
+    return (
+      <a
+        key={i}
+        href={seg.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-white/30 hover:text-white/50 transition-colors"
+        title="View on 4chan"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {seg.label || seg.href}
+      </a>
+    );
+  });
+}
+
 export function PostContent({
   content,
   className,
@@ -36,45 +68,26 @@ export function PostContent({
   content: string;
   className?: string;
 }) {
-  const segments = parseContent(content);
-  const hasLinks = segments.some((s) => s.type === "link");
+  const paragraphs = content.split(/\n\n+/);
 
-  if (!hasLinks) {
-    return <span className={className}>{content}</span>;
+  if (paragraphs.length <= 1) {
+    const segments = parseContent(content);
+    const hasLinks = segments.some((s) => s.type === "link");
+    if (!hasLinks) return <span className={className}>{content}</span>;
+    return <span className={className}>{renderSegments(segments)}</span>;
   }
 
   return (
-    <span className={className}>
-      {segments.map((seg, i) => {
-        if (seg.type === "text") {
-          return <Fragment key={i}>{seg.value}</Fragment>;
-        }
-        if (seg.internal) {
-          return (
-            <span
-              key={i}
-              className="text-blue-400/70 cursor-pointer hover:text-blue-400 transition-colors"
-              title={seg.label || "referenced post"}
-            >
-              {seg.label || ">>ref"}
-            </span>
-          );
-        }
-        // External link (4chan etc)
+    <div className={className}>
+      {paragraphs.map((para, i) => {
+        const segments = parseContent(para);
+        const hasLinks = segments.some((s) => s.type === "link");
         return (
-          <a
-            key={i}
-            href={seg.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-white/30 hover:text-white/50 transition-colors"
-            title={`View on 4chan`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {seg.label || seg.href}
-          </a>
+          <p key={i} className="mb-3 last:mb-0">
+            {hasLinks ? renderSegments(segments) : para}
+          </p>
         );
       })}
-    </span>
+    </div>
   );
 }

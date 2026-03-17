@@ -1,11 +1,13 @@
 "use client";
 
 import { useRef, useState, useEffect, useCallback } from "react";
-import { type ThreadItem, type EphemeralPost } from "@/lib/mock-data";
+import { type ThreadItem, type EphemeralPost, formatTime, shortNostrPubkey } from "@/lib/mock-data";
 import { useTextSize, ts } from "@/lib/text-size";
 import { ThreadCard } from "./feed-card";
-import { EphemeralPostCard } from "./ephemeral-post-card";
-import { Loader2 } from "lucide-react";
+import { ExpandableContentBlock } from "./expandable-content-block";
+import { ChevronDown, Loader2 } from "lucide-react";
+
+const CHILDREN_INITIAL_LIMIT = 7;
 
 function EphemeralTree({ posts, onReply, onInscribe, onViewTx }: {
   posts: EphemeralPost[];
@@ -13,9 +15,11 @@ function EphemeralTree({ posts, onReply, onInscribe, onViewTx }: {
   onInscribe?: (post: EphemeralPost) => void;
   onViewTx?: (contentHash: string) => void;
 }) {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [showMoreChildren, setShowMoreChildren] = useState<Set<string>>(new Set());
 
   const childrenOf = new Map<string, EphemeralPost[]>();
+  const postsById = new Map(posts.map((p) => [p.nostrEventId, p]));
   const roots: EphemeralPost[] = [];
   for (const ep of posts) {
     if (ep.parentNostrId && posts.some((p) => p.nostrEventId === ep.parentNostrId)) {
@@ -27,31 +31,78 @@ function EphemeralTree({ posts, onReply, onInscribe, onViewTx }: {
     }
   }
 
-  function renderBranch(items: EphemeralPost[]): React.ReactNode {
+  function toggleExpand(id: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+        const queue = childrenOf.get(id) ?? [];
+        for (let i = 0; i < queue.length; i++) {
+          const c = queue[i];
+          next.delete(c.nostrEventId);
+          const grandkids = childrenOf.get(c.nostrEventId);
+          if (grandkids) for (const g of grandkids) queue.push(g);
+        }
+      } else {
+        next.add(id);
+        let cur = postsById.get(id);
+        while (cur?.parentNostrId && postsById.has(cur.parentNostrId)) {
+          next.add(cur.parentNostrId);
+          cur = postsById.get(cur.parentNostrId);
+        }
+      }
+      return next;
+    });
+  }
+
+  function toggleShowMoreChildren(parentId: string) {
+    setShowMoreChildren((prev) => { const n = new Set(prev); if (n.has(parentId)) n.delete(parentId); else n.add(parentId); return n; });
+  }
+
+  function renderBranch(items: EphemeralPost[], depth: number): React.ReactNode {
     return items.map((ep) => {
       const kids = childrenOf.get(ep.nostrEventId) ?? [];
-      const isExp = expandedId === ep.nostrEventId;
+      const isExp = expandedIds.has(ep.nostrEventId);
+      const toggle = () => toggleExpand(ep.nostrEventId);
+      const showAllKids = showMoreChildren.has(ep.nostrEventId);
+      const visibleKids = showAllKids || kids.length <= CHILDREN_INITIAL_LIMIT ? kids : kids.slice(0, CHILDREN_INITIAL_LIMIT);
+      const hiddenCount = kids.length - visibleKids.length;
       return (
-        <div key={ep.nostrEventId} className="pl-2">
-          <EphemeralPostCard
-            post={ep}
-            isExpanded={isExp}
-            onExpand={(id) => setExpandedId((prev) => prev === id ? null : id)}
-            onReply={onReply}
-            onInscribe={onInscribe}
-            onViewTx={onViewTx}
-          />
-          {kids.length > 0 && isExp && (
-            <div className="ml-3 border-l-2 border-dashed border-white/25">
-              {renderBranch(kids)}
+        <ExpandableContentBlock
+          key={ep.nostrEventId}
+          content={ep.content}
+          level={depth}
+          isBitcoinInscribed={ep.anchoredToBtc}
+          author={shortNostrPubkey(ep.nostrPubkey)}
+          datePosted={formatTime(new Date(ep.createdAt).getTime())}
+          viewCount={ep.boostCount > 0 ? ep.boostCount : undefined}
+          onReply={onReply ? () => onReply(ep) : undefined}
+          onUpvote={() => {}}
+          onMoreActions={() => {}}
+          onClick={toggle}
+          hasChildren={kids.length > 0}
+          isChildrenExpanded={isExp}
+          onToggleChildren={toggle}
+          childrenSlot={kids.length > 0 && isExp ? (
+            <div className="pl-2 mt-1">
+              {renderBranch(visibleKids, depth + 1)}
+              {hiddenCount > 0 && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); toggleShowMoreChildren(ep.nostrEventId); }}
+                  className="flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded border border-white/10 bg-white/[0.02] px-3 py-2 my-2 text-[11px] text-white/40 hover:text-white/60 hover:bg-white/[0.04] hover:border-white/15 transition-colors active:scale-[0.98]"
+                >
+                  <ChevronDown size={12} strokeWidth={2} />
+                  View {hiddenCount} more
+                </button>
+              )}
             </div>
-          )}
-        </div>
+          ) : undefined}
+        />
       );
     });
   }
 
-  return <>{renderBranch(roots)}</>;
+  return <>{renderBranch(roots, 0)}</>;
 }
 
 function Skeleton({ lines = 1 }: { lines?: number }) {
