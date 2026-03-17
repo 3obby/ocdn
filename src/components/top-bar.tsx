@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Search, X, Plus, Pencil, Check, ArrowLeft, ArrowUpDown, LayoutList, Clock, Flame, ArrowUp, ArrowDown } from "lucide-react";
+import { Search, X, Check, ArrowLeft, ArrowUpDown, LayoutList, Clock, Flame, ArrowUp, ArrowDown, Settings } from "lucide-react";
 import { formatSats } from "@/lib/mock-data";
 import type { FeedFilter, SortMode } from "@/lib/mock-data";
 import type { TextSize } from "@/lib/text-size";
@@ -60,7 +60,6 @@ export function TopBar({
   onSortChange,
   textSize,
   onTextSizeChange,
-  onCompose,
   includeTopicless,
   onIncludeTopiclessChange,
   excludedTopicHashes,
@@ -79,7 +78,6 @@ export function TopBar({
   onSortChange: (m: SortMode) => void;
   textSize: TextSize;
   onTextSizeChange: (s: TextSize) => void;
-  onCompose: () => void;
   includeTopicless: boolean;
   onIncludeTopiclessChange: (v: boolean) => void;
   excludedTopicHashes: string[];
@@ -276,17 +274,7 @@ export function TopBar({
           </button>
         )}
 
-        {/* Text size toggle */}
-        <button
-          onClick={() => onTextSizeChange(textSize === "sm" ? "lg" : "sm")}
-          aria-label="Text size"
-          className="flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center text-white/40 hover:text-white/70 transition-colors active:scale-95"
-        >
-          <span className={`${textSize === "sm" ? "text-white" : ""} text-[11px] leading-none`}>a</span>
-          <span className={`${textSize === "lg" ? "text-white" : ""} text-[18px] leading-none`}>A</span>
-        </button>
-
-        {/* Search bar — between aA and Sort */}
+        {/* Search bar */}
         <div className="flex min-w-0 flex-1 items-center rounded-full bg-white/[0.06]">
           {showClear && (
             <button
@@ -317,25 +305,25 @@ export function TopBar({
           </div>
         </div>
 
-        {/* Sort icon (with dropdown) + Compose button */}
-          <div ref={sortDropdownRef} className="relative">
-            <button
-              onClick={() => setSortDropdownOpen((o) => !o)}
-              aria-label="Sort"
-              aria-expanded={sortDropdownOpen}
-              title={SORT_ARIA[sortMode]}
-              className={`flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-full transition-colors active:scale-95 ${
-                sortDropdownOpen ? "bg-white/[0.15] text-white" : "bg-white/[0.09] text-white/70 hover:bg-white/[0.15] hover:text-white"
-              }`}
-            >
-              <ArrowUpDown size={iconSize} strokeWidth={2} />
-            </button>
-            {sortDropdownOpen && (
-              <div className="absolute right-0 top-full z-50 mt-1 flex gap-1 rounded-lg border border-border bg-elevated p-1.5 shadow-lg">
-                {(["topics", "new", "top"] as SortMode[]).map((m) => {
-                  const dir = sortDirections[m] ?? "desc";
-                  const isSelected = sortMode === m;
-                  return (
+        {/* Settings (text size + sort) */}
+        <div ref={sortDropdownRef} className="relative">
+          <button
+            onClick={() => setSortDropdownOpen((o) => !o)}
+            aria-label="Settings"
+            aria-expanded={sortDropdownOpen}
+            title="Settings"
+            className={`flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-full transition-colors active:scale-95 ${
+              sortDropdownOpen ? "bg-white/[0.15] text-white" : "bg-white/[0.09] text-white/70 hover:bg-white/[0.15] hover:text-white"
+            }`}
+          >
+            <Settings size={iconSize} strokeWidth={2} />
+          </button>
+          {sortDropdownOpen && (
+            <div className="absolute right-0 top-full z-50 mt-1 flex gap-1 rounded-lg border border-border bg-elevated p-2 shadow-lg">
+              {(["topics", "new", "top"] as SortMode[]).map((m) => {
+                const dir = sortDirections[m] ?? "desc";
+                const isSelected = sortMode === m;
+                return (
                   <button
                     key={m}
                     onClick={() => {
@@ -353,19 +341,21 @@ export function TopBar({
                       {isSelected && (dir === "desc" ? <ArrowDown size={9} strokeWidth={2.5} /> : <ArrowUp size={9} strokeWidth={2.5} />)}
                     </span>
                   </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-          <button
-            onClick={onCompose}
-            aria-label="Compose"
-            className="flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white/70 hover:bg-white/[0.15] hover:text-white transition-colors active:scale-95"
-          >
-            <Plus size={iconSize} strokeWidth={2} className="mr-0.5" />
-            <Pencil size={iconSize - 2} strokeWidth={2} />
-          </button>
+                );
+              })}
+              <button
+                onClick={() => onTextSizeChange(textSize === "sm" ? "lg" : "sm")}
+                aria-label="Text size"
+                className={`flex h-10 items-center justify-center gap-1.5 rounded-md px-3 transition-colors shrink-0 ${
+                  textSize === "sm" ? "bg-white/[0.12] text-white" : "text-white/50 hover:text-white/80"
+                }`}
+              >
+                <span className="text-[11px]">a</span>
+                <span className="text-lg">A</span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Topic list dropdown when search bar focused */}
