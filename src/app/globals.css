@@ -30,6 +30,7 @@
   --radius-xl: calc(var(--radius) + 4px);
   --color-burn: #f7931a;
   --color-elevated: var(--elevated);
+  --color-accent-orange: #ff6800;
 }
 
 :root {
