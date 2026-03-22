@@ -81,6 +81,11 @@ interface InsertedEntry {
  * Supports parentSourceId on replies for proper nested threading.
  */
 export async function POST(request: Request) {
+  if (process.env.ENABLE_4CHAN_SEEDING === "false") {
+    log("info", "api/seed/ingest", "seeding disabled via ENABLE_4CHAN_SEEDING=false");
+    return NextResponse.json({ inserted: 0, skipped: 0, errors: 0, disabled: true }, { status: 200 });
+  }
+
   const authErr = requireWriteAuth(request);
   if (authErr) return authErr;
 

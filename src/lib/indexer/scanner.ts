@@ -53,7 +53,8 @@ export async function runIndexer(config: IndexerConfig): Promise<void> {
     ilog("backfill complete");
   }
 
-  ilog("real-time mode", { pollIntervalMs });
+  const disconnectBetweenPolls = process.env.DB_DISCONNECT_BETWEEN_POLLS !== "false";
+  ilog("real-time mode", { pollIntervalMs, disconnectBetweenPolls });
 
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -61,6 +62,9 @@ export async function runIndexer(config: IndexerConfig): Promise<void> {
       nextHeight = await pollOnce(rpc, prisma, nextHeight);
     } catch (e) {
       elog("poll error", { error: (e as Error).message });
+    }
+    if (disconnectBetweenPolls) {
+      try { await (prisma as unknown as { $disconnect: () => Promise<void> }).$disconnect(); } catch {}
     }
     await sleep(pollIntervalMs);
   }

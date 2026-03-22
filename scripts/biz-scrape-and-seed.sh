@@ -5,14 +5,14 @@
 # (respects 4chan API rate limits) and each seed phase is drip-fed over a
 # share of the cycle window.
 #
-# Boards: biz, g, pol, lit, fit, adv
+# Boards: configurable via SEED_BOARDS env var (default: biz)
 #
-# Designed to run every 2 hours via cron. Re-scans pick up new threads
+# Designed to run every 12 hours via cron. Re-scans pick up new threads
 # and update upvoteWeight on existing ones based on reply activity.
 # Most posts are duplicates on re-scan so processing is fast.
 #
 # crontab entry:
-#   0 */2 * * * /home/ocdn/ocdn/scripts/biz-scrape-and-seed.sh >> /home/ocdn/ocdn/logs/seed.log 2>&1
+#   0 */12 * * * /home/ocdn/ocdn/scripts/biz-scrape-and-seed.sh >> /home/ocdn/ocdn/logs/seed.log 2>&1
 #
 set -euo pipefail
 
@@ -21,7 +21,14 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 VENV_DIR="$PROJECT_DIR/.venv-seed"
 LOG_PREFIX="[seed-pipeline]"
 
-BOARDS=(biz g pol lit fit adv)
+# Gate: skip entirely when seeding is disabled
+if [ "${ENABLE_4CHAN_SEEDING:-true}" = "false" ]; then
+  echo "$LOG_PREFIX $(date '+%Y-%m-%d %H:%M:%S')  Seeding disabled (ENABLE_4CHAN_SEEDING=false), exiting"
+  exit 0
+fi
+
+# Configurable board list — default to just biz to minimize DB writes
+IFS=',' read -ra BOARDS <<< "${SEED_BOARDS:-biz}"
 SCRAPE_DELAY=3        # seconds between board scrapes (4chan asks ≤1 req/sec)
 DRIP_HOURS_PER=0      # no drip on re-scan (most posts are dupes, fast)
 

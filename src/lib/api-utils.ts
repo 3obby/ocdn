@@ -142,6 +142,7 @@ export function mapPost(
   return {
     id: p.contentHash,
     contentHash: p.contentHash,
+    txid: p.txid,
     protocol: p.protocol,
     authorPubkey: p.authorPubkey,
     text: p.content,
@@ -168,7 +169,7 @@ export function mapTopic(t: { topicHash: string; topicName: string | null; total
 // ═══ TIP HEIGHT CACHE ═══
 
 let _tipHeightCache: { height: number; ts: number } | null = null;
-const TIP_CACHE_TTL = 10_000;
+const TIP_CACHE_TTL = 30_000;
 
 export async function getTipHeight(prisma: { indexerState: { findFirst: (args?: object) => Promise<{ chainTipHeight: number } | null> } }): Promise<number> {
   if (_tipHeightCache && Date.now() - _tipHeightCache.ts < TIP_CACHE_TTL) {

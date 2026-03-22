@@ -59,6 +59,49 @@ function EphemeralTree({ posts, onReply, onInscribe, onViewTx }: {
     setShowMoreChildren((prev) => { const n = new Set(prev); if (n.has(parentId)) n.delete(parentId); else n.add(parentId); return n; });
   }
 
+  function countDesc(id: string): number {
+    let count = 0;
+    const kids = childrenOf.get(id) ?? [];
+    for (const k of kids) { count += 1 + countDesc(k.nostrEventId); }
+    return count;
+  }
+
+  function toggleAll(id: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        const toRemove = [id];
+        const queue = childrenOf.get(id) ?? [];
+        for (let i = 0; i < queue.length; i++) {
+          toRemove.push(queue[i].nostrEventId);
+          const gk = childrenOf.get(queue[i].nostrEventId);
+          if (gk) queue.push(...gk);
+        }
+        toRemove.forEach((eid) => next.delete(eid));
+      } else {
+        const toAdd = [id];
+        const queue = childrenOf.get(id) ?? [];
+        for (let i = 0; i < queue.length; i++) {
+          toAdd.push(queue[i].nostrEventId);
+          const gk = childrenOf.get(queue[i].nostrEventId);
+          if (gk) queue.push(...gk);
+        }
+        let cur = postsById.get(id);
+        while (cur?.parentNostrId && postsById.has(cur.parentNostrId)) {
+          toAdd.push(cur.parentNostrId);
+          cur = postsById.get(cur.parentNostrId);
+        }
+        toAdd.forEach((eid) => next.add(eid));
+        setShowMoreChildren((prev2) => {
+          const n = new Set(prev2);
+          toAdd.forEach((eid) => n.add(eid));
+          return n;
+        });
+      }
+      return next;
+    });
+  }
+
   function renderBranch(items: EphemeralPost[], depth: number): React.ReactNode {
     return items.map((ep) => {
       const kids = childrenOf.get(ep.nostrEventId) ?? [];
@@ -67,6 +110,7 @@ function EphemeralTree({ posts, onReply, onInscribe, onViewTx }: {
       const showAllKids = showMoreChildren.has(ep.nostrEventId);
       const visibleKids = showAllKids || kids.length <= CHILDREN_INITIAL_LIMIT ? kids : kids.slice(0, CHILDREN_INITIAL_LIMIT);
       const hiddenCount = kids.length - visibleKids.length;
+      const descCount = countDesc(ep.nostrEventId);
       return (
         <ExpandableContentBlock
           key={ep.nostrEventId}
@@ -76,9 +120,10 @@ function EphemeralTree({ posts, onReply, onInscribe, onViewTx }: {
           author={shortNostrPubkey(ep.nostrPubkey)}
           datePosted={formatTime(new Date(ep.createdAt).getTime())}
           viewCount={ep.boostCount > 0 ? ep.boostCount : undefined}
+          nostrEventId={ep.nostrEventId}
+          childCount={descCount}
+          onExpandAllChildren={() => toggleAll(ep.nostrEventId)}
           onReply={onReply ? () => onReply(ep) : undefined}
-          onUpvote={() => {}}
-          onMoreActions={() => {}}
           onClick={toggle}
           hasChildren={kids.length > 0}
           isChildrenExpanded={isExp}

@@ -12,6 +12,16 @@ import {
 } from "@/lib/api-utils";
 import type { TopicGroup, Post as FrontendPost } from "@/lib/mock-data";
 
+const FEED_CACHE_SECONDS = Number(process.env.FEED_CACHE_SECONDS ?? "15");
+
+function cachedJson(data: unknown): NextResponse {
+  const res = NextResponse.json(data);
+  if (FEED_CACHE_SECONDS > 0) {
+    res.headers.set("Cache-Control", `public, s-maxage=${FEED_CACHE_SECONDS}, stale-while-revalidate=${FEED_CACHE_SECONDS * 2}`);
+  }
+  return res;
+}
+
 /** Batch-fetch ephemeral counts for a list of content hashes. */
 async function batchEphemeralCounts(hashes: string[]): Promise<Map<string, number>> {
   if (hashes.length === 0) return new Map();
@@ -67,14 +77,14 @@ export async function GET(request: Request) {
     const tipHeight = await getTipHeight(prisma);
 
     if (section === "untagged" || section === "ew") {
-      return NextResponse.json(await getSectionFeed(section, cursor, limit, tipHeight));
+      return cachedJson(await getSectionFeed(section, cursor, limit, tipHeight));
     }
 
     if (sort === "topics") {
-      return NextResponse.json(await getGroupedFeed(topicFilter, topicless, excludeTopicless, excludeTopics, protocolFilter, limit, tipHeight, order));
+      return cachedJson(await getGroupedFeed(topicFilter, topicless, excludeTopicless, excludeTopics, protocolFilter, limit, tipHeight, order));
     }
 
-    return NextResponse.json(await getFlatFeed(sort as "new" | "top", topicFilter, topicless, excludeTopicless, excludeTopics, protocolFilter, cursor, limit, tipHeight, order));
+    return cachedJson(await getFlatFeed(sort as "new" | "top", topicFilter, topicless, excludeTopicless, excludeTopics, protocolFilter, cursor, limit, tipHeight, order));
   } catch (err) {
     log("error", "api/feed", "feed query failed", { error: String(err) });
     return errorResponse("Internal server error", 500);

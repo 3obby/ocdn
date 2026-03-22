@@ -20,6 +20,8 @@ export type EphemeralPost = {
 export type Post = {
   id: string;
   contentHash: string;
+  /** On-chain reveal tx; used for block explorer links */
+  txid?: string;
   protocol: string;
   authorPubkey: string;
   text: string;

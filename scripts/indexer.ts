@@ -16,9 +16,13 @@ const BOOST_TTL_EXTENSION_MS = 30 * 60 * 1000;
 
 const DEFAULTS = {
   startHeight: Number(process.env.INDEXER_START_HEIGHT ?? "0"),
-  pollIntervalMs: Number(process.env.INDEXER_POLL_MS ?? "10000"),
+  pollIntervalMs: Number(process.env.INDEXER_POLL_MS ?? "60000"),
   stateFlushInterval: Number(process.env.INDEXER_FLUSH_INTERVAL ?? "50"),
 };
+
+const TX_MONITOR_INTERVAL_MS = Number(process.env.TX_MONITOR_INTERVAL_MS ?? "300000");
+const CLEANUP_INTERVAL_MS = Number(process.env.CLEANUP_INTERVAL_MS ?? "3600000");
+const PAYMENT_POLL_INTERVAL_MS = Number(process.env.PAYMENT_POLL_INTERVAL_MS ?? "300000");
 
 function slog(level: string, msg: string, data?: Record<string, unknown>) {
   const entry = JSON.stringify({ ts: new Date().toISOString(), level, ctx: "indexer-main", msg, ...(data ? { data } : {}) });
@@ -76,17 +80,32 @@ async function main() {
       });
       if (boostsPruned.count > 0) slog("info", "pruned old nostr boosts", { count: boostsPruned.count });
     } catch {}
-  }, 15 * 60 * 1000);
+  }, CLEANUP_INTERVAL_MS);
 
-  // Tx monitor: rebroadcast stuck reveals, confirm completed txs
   const txMonitorInterval = setInterval(async () => {
     try {
+      const hasPending = await prisma.pendingTx.count({
+        where: { status: { notIn: ["confirmed", "failed"] } },
+      });
+      if (hasPending === 0) return;
       await runTxMonitor(rpc, prisma);
     } catch (e) {
       slog("warn", "tx monitor error", { error: String(e) });
     }
-  }, 60_000);
-  slog("info", "tx monitor started", { intervalMs: 60_000 });
+  }, TX_MONITOR_INTERVAL_MS);
+  slog("info", "tx monitor started", { intervalMs: TX_MONITOR_INTERVAL_MS });
+
+  const paymentPollInterval = setInterval(async () => {
+    try {
+      const hasPending = await prisma.paymentRequest.count({
+        where: { status: "pending", expiresAt: { gt: new Date() } },
+      });
+      if (hasPending === 0) return;
+      slog("info", "pending payments found", { count: hasPending });
+    } catch (e) {
+      slog("warn", "payment poll error", { error: String(e) });
+    }
+  }, PAYMENT_POLL_INTERVAL_MS);
 
   const _shutdown = shutdown;
   process.removeAllListeners("SIGINT");
@@ -94,6 +113,7 @@ async function main() {
   const shutdownFull = async () => {
     clearInterval(cleanupInterval);
     clearInterval(txMonitorInterval);
+    clearInterval(paymentPollInterval);
     nostrSub.close();
     await _shutdown();
   };

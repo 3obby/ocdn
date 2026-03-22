@@ -3,26 +3,31 @@ import { mapPost, getTipHeight, bigintToNumber, log } from "@/lib/api-utils";
 
 export const dynamic = "force-dynamic";
 
-const POLL_INTERVAL_MS = 5_000;
-const HEARTBEAT_INTERVAL_MS = 30_000;
+const BASE_POLL_MS = Number(process.env.SSE_POLL_INTERVAL_MS ?? "30000");
+const MIN_POLL_MS = 10_000;
+const MAX_POLL_MS = 120_000;
+const HEARTBEAT_INTERVAL_MS = 60_000;
+const IDLE_BACKOFF_FACTOR = 1.5;
 
 /**
  * GET /api/events
  *
  * Server-Sent Events stream. Polls the DB for new content since the client's
  * last-seen height and pushes events when new posts/burns/signals appear.
- *
- * Query params:
- *   since=<blockHeight>   start streaming from this height (default: current tip)
+ * Uses adaptive backoff: poll interval increases during idle periods and
+ * resets when new data is found.
  */
 export async function GET(request: Request) {
+  if (process.env.ENABLE_REALTIME_SSE === "false") {
+    return new Response("SSE disabled", { status: 503 });
+  }
+
   const { searchParams } = new URL(request.url);
   const sinceParam = searchParams.get("since");
 
   let lastSeenHeight = sinceParam ? parseInt(sinceParam, 10) : 0;
   if (isNaN(lastSeenHeight) || lastSeenHeight < 0) lastSeenHeight = 0;
 
-  // If no since param provided, start from current tip
   if (!sinceParam) {
     const tipHeight = await getTipHeight(prisma);
     lastSeenHeight = tipHeight;
@@ -42,19 +47,21 @@ export async function GET(request: Request) {
         }
       };
 
-      // Send initial connection event
       send("connected", { lastSeenHeight });
 
+      let currentPollMs = Math.max(BASE_POLL_MS, MIN_POLL_MS);
       let heartbeatCounter = 0;
 
       const poll = async () => {
         if (closed) return;
 
+        let hadData = false;
         try {
           const tipHeight = await getTipHeight(prisma);
 
           if (tipHeight > lastSeenHeight) {
-            // New posts since lastSeenHeight
+            hadData = true;
+
             const newPosts = await prisma.post.findMany({
               where: { blockHeight: { gt: lastSeenHeight } },
               include: { burns: { select: { amount: true } } },
@@ -69,7 +76,6 @@ export async function GET(request: Request) {
               });
             }
 
-            // New burns since lastSeenHeight
             const newBurns = await prisma.burn.findMany({
               where: { blockHeight: { gt: lastSeenHeight } },
               orderBy: { blockHeight: "asc" },
@@ -88,7 +94,6 @@ export async function GET(request: Request) {
               });
             }
 
-            // New signals since lastSeenHeight
             const newSignals = await prisma.signal.findMany({
               where: { blockHeight: { gt: lastSeenHeight } },
               orderBy: { blockHeight: "asc" },
@@ -107,13 +112,11 @@ export async function GET(request: Request) {
               });
             }
 
-            // Tip update
             send("tip", { height: tipHeight });
             lastSeenHeight = tipHeight;
           }
 
-          // Heartbeat every ~30s
-          heartbeatCounter += POLL_INTERVAL_MS;
+          heartbeatCounter += currentPollMs;
           if (heartbeatCounter >= HEARTBEAT_INTERVAL_MS) {
             send("heartbeat", { ts: Date.now(), tipHeight });
             heartbeatCounter = 0;
@@ -122,15 +125,19 @@ export async function GET(request: Request) {
           log("error", "sse", "poll error", { error: String(err) });
         }
 
+        if (hadData) {
+          currentPollMs = Math.max(BASE_POLL_MS, MIN_POLL_MS);
+        } else {
+          currentPollMs = Math.min(currentPollMs * IDLE_BACKOFF_FACTOR, MAX_POLL_MS);
+        }
+
         if (!closed) {
-          setTimeout(poll, POLL_INTERVAL_MS);
+          setTimeout(poll, currentPollMs);
         }
       };
 
-      // Start polling loop
       poll();
 
-      // Handle client disconnect
       request.signal.addEventListener("abort", () => {
         closed = true;
         try { controller.close(); } catch { /* already closed */ }

@@ -14,7 +14,6 @@ import {
   type FeedFilter,
   type EphemeralPost,
 } from "@/lib/mock-data";
-import { topicAvatarProps, formatTopicStats } from "@/lib/topic-utils";
 import { flushSync } from "react-dom";
 import { ChevronRight, ChevronDown, Loader2, Zap, Plus, Pencil } from "lucide-react";
 import { type TextSize, TextSizeCtx } from "@/lib/text-size";
@@ -381,16 +380,12 @@ function TopicsFeed({
   onClearListView?: () => void;
   refreshFeed?: () => void;
   onComposeForTopic?: (sectionKey: string, topic?: { hash: string; name: string | null; totalBurned: number } | null) => void;
-  onViewTopic?: (sectionKey: string, label: string, topic?: { hash: string; name: string | null; totalBurned: number } | null) => void;
-  viewSection?: { sectionKey: string; label: string; topic?: { hash: string; name: string | null; totalBurned: number } | null } | null;
 }) {
   const {
     listViewActive = false,
     onClearListView,
     onComposeForTopic,
-    onViewTopic,
-    viewSection,
-  } = arguments[0] as typeof arguments[0] & { listViewActive?: boolean; onClearListView?: () => void; onComposeForTopic?: (sectionKey: string, topic?: { hash: string; name: string | null; totalBurned: number } | null) => void; onViewTopic?: (sectionKey: string, label: string, topic?: { hash: string; name: string | null; totalBurned: number } | null) => void; viewSection?: { sectionKey: string; label: string; topic?: { hash: string; name: string | null; totalBurned: number } | null } | null };
+  } = arguments[0] as typeof arguments[0] & { listViewActive?: boolean; onClearListView?: () => void; onComposeForTopic?: (sectionKey: string, topic?: { hash: string; name: string | null; totalBurned: number } | null) => void };
   const untaggedPosts = posts.filter((p) => p._section === "untagged");
   const ewPosts = posts.filter((p) => p._section === "ew");
 
@@ -445,20 +440,7 @@ function TopicsFeed({
   const [expandedEphIds, setExpandedEphIds] = useState<Set<string>>(new Set());
   const [showMore, setShowMore] = useState<Set<string>>(new Set());
   const [showMoreChildren, setShowMoreChildren] = useState<Set<string>>(new Set());
-  const [upvotedSectionIds, setUpvotedSectionIds] = useState<Set<string>>(new Set());
   const CHILDREN_INITIAL_LIMIT = 7;
-
-  function sumBoostCountForSection(roots: EphemeralPost[]): number {
-    let total = 0;
-    const queue = [...roots];
-    for (let i = 0; i < queue.length; i++) {
-      const ep = queue[i];
-      total += ep.boostCount ?? 0;
-      const kids = ephChildrenOf.get(ep.nostrEventId) ?? [];
-      queue.push(...kids);
-    }
-    return total;
-  }
 
   useEffect(() => {
     if (!focusedEphId) {
@@ -484,6 +466,54 @@ function TopicsFeed({
 
   function toggleShowMoreChildren(parentId: string) {
     setShowMoreChildren((prev) => { const n = new Set(prev); if (n.has(parentId)) n.delete(parentId); else n.add(parentId); return n; });
+  }
+
+  function countDescendants(id: string): number {
+    let count = 0;
+    const kids = ephChildrenOf.get(id) ?? [];
+    for (const kid of kids) {
+      count += 1 + countDescendants(kid.nostrEventId);
+    }
+    return count;
+  }
+
+  function collectAllDescendantIds(id: string): string[] {
+    const ids: string[] = [];
+    const queue = ephChildrenOf.get(id) ?? [];
+    for (let i = 0; i < queue.length; i++) {
+      ids.push(queue[i].nostrEventId);
+      const grandkids = ephChildrenOf.get(queue[i].nostrEventId);
+      if (grandkids) queue.push(...grandkids);
+    }
+    return ids;
+  }
+
+  function handleToggleAllEph(id: string) {
+    const isExpanded = expandedEphIds.has(id);
+    if (isExpanded) {
+      const toRemove = new Set([id, ...collectAllDescendantIds(id)]);
+      setExpandedEphIds((prev) => {
+        const next = new Set(prev);
+        toRemove.forEach((eid) => next.delete(eid));
+        return next;
+      });
+    } else {
+      const descendantIds = collectAllDescendantIds(id);
+      const toExpand = new Set([id, ...descendantIds]);
+      let cur = ephById.get(id);
+      while (cur?.parentNostrId && ephById.has(cur.parentNostrId)) {
+        toExpand.add(cur.parentNostrId);
+        cur = ephById.get(cur.parentNostrId);
+      }
+      setExpandedEphIds((prev) => new Set([...prev, ...toExpand]));
+      // Also reveal all "show more" limits so every child is visible
+      setShowMoreChildren((prev) => {
+        const next = new Set(prev);
+        next.add(id);
+        descendantIds.forEach((did) => next.add(did));
+        return next;
+      });
+    }
   }
 
   function handleExpandEph(id: string) {
@@ -544,6 +574,7 @@ function TopicsFeed({
       const showAll = showMoreChildren.has(ep.nostrEventId);
       const visibleKids = showAll || kids.length <= CHILDREN_INITIAL_LIMIT ? kids : kids.slice(0, CHILDREN_INITIAL_LIMIT);
       const hiddenCount = kids.length - visibleKids.length;
+      const descCount = countDescendants(ep.nostrEventId);
       return (
         <ExpandableContentBlock
           key={ep.nostrEventId}
@@ -553,9 +584,10 @@ function TopicsFeed({
           author={shortNostrPubkey(ep.nostrPubkey)}
           datePosted={formatTime(new Date(ep.createdAt).getTime())}
           viewCount={ep.boostCount > 0 ? ep.boostCount : undefined}
+          nostrEventId={ep.nostrEventId}
+          childCount={descCount}
+          onExpandAllChildren={() => handleToggleAllEph(ep.nostrEventId)}
           onReply={onReplyEphemeral ? () => onReplyEphemeral(ep) : undefined}
-          onUpvote={() => {}}
-          onMoreActions={() => {}}
           onClick={() => handleExpandEph(ep.nostrEventId)}
           hasChildren={kids.length > 0}
           isChildrenExpanded={isExp}
@@ -603,7 +635,6 @@ function TopicsFeed({
     detailMode?: boolean,
   ) => {
     const isCollapsed = detailMode ? false : effectiveCollapsed.has(sectionKey);
-    const totalBurned = topic?.totalBurned ?? 0;
 
     // Merge BTC + ephemeral into one sorted list (BTC first by burnTotal, then ephemeral by upvoteWeight)
     const items: FeedItem[] = [
@@ -617,15 +648,7 @@ function TopicsFeed({
     const visibleItems = rootShowAll || externallyPaginated ? items : items.slice(0, ROOT_LIMIT);
     const hiddenCount = rootShowAll || externallyPaginated ? 0 : items.length - visibleItems.length;
 
-    const postCount = sectionPosts.length + (sectionEph?.length ?? 0);
-    const { bg, initials } = sectionKey === "_ew"
-      ? { bg: "bg-blue-500/30" as const, initials: "EW" }
-      : topic
-        ? topicAvatarProps(topic.name, topic.hash)
-        : { bg: "bg-white/10" as const, initials: "—" };
-
     const hasBtcContent = sectionPosts.length > 0;
-    const viewCount = sectionPosts.reduce((sum, p) => sum + (p.viewCount ?? 0), 0);
 
     return (
       <div key={sectionKey} className="bg-[#111111]/90 backdrop-blur-sm mb-2 border border-white/[0.06] overflow-x-auto overflow-y-visible">
@@ -634,23 +657,8 @@ function TopicsFeed({
             label={sectionKey === "_ew" ? "EternityWall" : label}
             isListOfTopics={sectionKey === "_root" && label === "/"}
             isBitcoinInscribed={hasBtcContent}
-            viewCount={viewCount > 0 ? viewCount : undefined}
-            upvoteCount={(() => {
-              const base = sumBoostCountForSection(sectionEph ?? []);
-              return base + (upvotedSectionIds.has(sectionKey) ? 1 : 0);
-            })()}
-            hasUpvoted={upvotedSectionIds.has(sectionKey)}
             onExpand={() => effectiveToggleTopic(sectionKey)}
-            onReply={onComposeForTopic
-              ? () => onComposeForTopic(sectionKey, topic ?? undefined)
-              : () => goToSection(sectionKey, topic ?? undefined)}
-            onUpvote={() => setUpvotedSectionIds((prev) => new Set(prev).add(sectionKey))}
-            onMoreActions={() => {}}
-            onOptimisticUpvote={() => setUpvotedSectionIds((prev) => new Set(prev).add(sectionKey))}
-            onBoosted={() => refreshFeed?.()}
-            boostTarget={sectionEph?.[0] ? { nostrEventId: sectionEph[0].nostrEventId } : undefined}
             isExpanded={!isCollapsed}
-            onViewTopic={onViewTopic ? () => onViewTopic(sectionKey, sectionKey === "_ew" ? "EternityWall" : label, topic ?? undefined) : undefined}
           />
         )}
         {!isCollapsed && (
@@ -671,10 +679,8 @@ function TopicsFeed({
                       author={shortPubkey(p.authorPubkey)}
                       datePosted={formatTime(p.timestamp)}
                       viewCount={p.viewCount ?? 0}
-                      contentHash={p.id}
+                      txid={p.txid}
                       onReply={() => onReply?.(p.id)}
-                      onUpvote={() => {}}
-                      onMoreActions={() => {}}
                       onClick={() => onPostVisible?.(p.id)}
                     />
                   </div>,
@@ -687,6 +693,7 @@ function TopicsFeed({
               const showAllKids = showMoreChildren.has(ep.nostrEventId);
               const visibleKids = showAllKids ? kids : kids.slice(0, CHILDREN_INITIAL_LIMIT);
               const hiddenCount = kids.length > CHILDREN_INITIAL_LIMIT && !showAllKids ? kids.length - CHILDREN_INITIAL_LIMIT : 0;
+              const descCount = countDescendants(ep.nostrEventId);
               return [
                 <div key={ep.nostrEventId} className="pt-2 first:pt-0">
                   <ExpandableContentBlock
@@ -696,9 +703,10 @@ function TopicsFeed({
                     author={shortNostrPubkey(ep.nostrPubkey)}
                     datePosted={formatTime(new Date(ep.createdAt).getTime())}
                     viewCount={ep.boostCount > 0 ? ep.boostCount : undefined}
+                    nostrEventId={ep.nostrEventId}
+                    childCount={descCount}
+                    onExpandAllChildren={() => handleToggleAllEph(ep.nostrEventId)}
                     onReply={onReplyEphemeral ? () => onReplyEphemeral(ep) : undefined}
-                    onUpvote={() => {}}
-                    onMoreActions={() => {}}
                     onClick={() => handleExpandEph(ep.nostrEventId)}
                     hasChildren={kids.length > 0}
                     isChildrenExpanded={isExp}
@@ -742,39 +750,6 @@ function TopicsFeed({
       </div>
     );
   };
-
-  if (viewSection) {
-    const { sectionKey, label, topic } = viewSection;
-    let sectionPosts: Post[] = [];
-    let sectionEph: EphemeralPost[] = [];
-    if (sectionKey === "_root") {
-      sectionPosts = untaggedPosts;
-      sectionEph = rootEph;
-    } else if (sectionKey === "_ew") {
-      sectionPosts = [...ewPosts, ...(extraEwPosts ?? [])];
-      sectionEph = [];
-    } else {
-      const g = groups.find((gr) => gr.topic?.hash === sectionKey);
-      if (g) {
-        sectionPosts = g.posts;
-        sectionEph = ephByTopic.get(sectionKey) ?? [];
-      } else {
-        const ephOnly = ephOnlyTopics.find((t) => t.hash === sectionKey);
-        if (ephOnly) {
-          sectionPosts = [];
-          sectionEph = ephOnly.posts;
-        }
-      }
-    }
-    return (
-      <div className="mb-2">
-        <div className="bg-[#111111]/90 backdrop-blur-sm border border-white/[0.06] border-b-0 px-4 py-3">
-          <span className={`${sz} font-medium text-white/90`}>{sectionKey === "_ew" ? "EternityWall" : label}</span>
-        </div>
-        {renderSection(sectionKey, label, sectionPosts, true, topic ?? null, sectionEph, true)}
-      </div>
-    );
-  }
 
   return (
     <>
@@ -861,11 +836,6 @@ export default function Home() {
   const [expandedEphIdTopic, setExpandedEphIdTopic] = useState<string | null>(null);
   const [ephShowMoreTopic, setEphShowMoreTopic] = useState<Set<string>>(new Set());
   const [feedTab, setFeedTab] = useState<FeedTab>("topics");
-  const [viewingTopic, setViewingTopic] = useState<{
-    sectionKey: string;
-    label: string;
-    topic?: { hash: string; name: string | null; totalBurned: number } | null;
-  } | null>(null);
   const [textSize, setTextSize] = useState<TextSize>("sm");
   const [composing, setComposing] = useState<{
     replyToId: string | null;
@@ -1630,9 +1600,9 @@ export default function Home() {
             excludedTopicHashes={excludedTopicHashes}
             onExcludedTopicHashesChange={setExcludedTopicHashes}
             onReset={resetHome}
-            expandedPostId={viewingTopic ? "topic" : feedTab === "profile" ? "profile" : (expandedPostId || focusedEphId) ? "thread" : undefined}
-            expandedTopicName={viewingTopic ? viewingTopic.label : feedTab === "profile" ? undefined : threadTopicName}
-            onBack={viewingTopic ? () => setViewingTopic(null) : feedTab === "profile" ? () => setFeedTab("topics") : (expandedPostId || focusedEphId) ? closeThread : undefined}
+            expandedPostId={feedTab === "profile" ? "profile" : (expandedPostId || focusedEphId) ? "thread" : undefined}
+            expandedTopicName={feedTab === "profile" ? undefined : threadTopicName}
+            onBack={feedTab === "profile" ? () => setFeedTab("topics") : (expandedPostId || focusedEphId) ? closeThread : undefined}
           />
 
         <div
@@ -1718,8 +1688,6 @@ export default function Home() {
                             const topicName = sectionKey === "_root" ? null : sectionKey === "_ew" ? "EternityWall" : (topic?.name ?? null);
                             setComposing({ replyToId: null, replyToNostrId: null, topicName });
                           }}
-                          onViewTopic={(sectionKey, label, topic) => setViewingTopic({ sectionKey, label: sectionKey === "_ew" ? "EternityWall" : label, topic: topic ?? undefined })}
-                          viewSection={viewingTopic}
                         />
                         );
                       }
@@ -1893,7 +1861,7 @@ export default function Home() {
           )}
         </div>
 
-        {showFeed && feedTab === "topics" && !viewingTopic && !expandedPostId && !focusedEphId && !composing && (
+        {showFeed && feedTab === "topics" && !expandedPostId && !focusedEphId && !composing && (
           <button
             onClick={() => setComposing({ replyToId: null, topicName: feedFilter.type === "topic" ? feedFilter.name : null })}
             aria-label="New post"
@@ -1914,8 +1882,8 @@ export default function Home() {
               setFeedTab(t);
               closeThread();
             }}
-            showBack={!!viewingTopic}
-            onBack={viewingTopic ? () => setViewingTopic(null) : undefined}
+            showBack={false}
+            onBack={undefined}
           />
         )}
 

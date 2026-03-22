@@ -4,6 +4,16 @@ import { rateLimit, parsePageSize, errorResponse, log, mapEphemeralPost } from "
 
 export const dynamic = "force-dynamic";
 
+const EPH_CACHE_SECONDS = Number(process.env.EPH_CACHE_SECONDS ?? "10");
+
+function cachedJson(data: unknown): NextResponse {
+  const res = NextResponse.json(data);
+  if (EPH_CACHE_SECONDS > 0) {
+    res.headers.set("Cache-Control", `public, s-maxage=${EPH_CACHE_SECONDS}, stale-while-revalidate=${EPH_CACHE_SECONDS * 2}`);
+  }
+  return res;
+}
+
 // Fields needed for display — rawEvent is large JSON we never send to the frontend
 const EPH_SELECT = {
   nostrEventId: true,
@@ -110,13 +120,13 @@ export async function GET(request: Request) {
       );
 
       const roots = perTopicResults.flat();
-      return NextResponse.json({ posts: roots.map(mapEphemeralPost) });
+      return cachedJson({ posts: roots.map(mapEphemeralPost) });
     }
 
     // ── Children/grandchildren fetch for a set of root IDs ──
     if (childrenOf) {
       const rootIds = childrenOf.split(",").filter(Boolean).slice(0, 300);
-      if (rootIds.length === 0) return NextResponse.json({ posts: [] });
+      if (rootIds.length === 0) return cachedJson({ posts: [] });
 
       const children = await prisma.ephemeralPost.findMany({
         where: { parentNostrId: { in: rootIds }, expiresAt: expiry, promotedToHash: null },
@@ -133,7 +143,7 @@ export async function GET(request: Request) {
           })
         : [];
 
-      return NextResponse.json({
+      return cachedJson({
         posts: [...children, ...grandchildren].map(mapEphemeralPost),
       });
     }
@@ -187,7 +197,7 @@ export async function GET(request: Request) {
         }
       }
 
-      return NextResponse.json({ posts: allPosts.map(mapEphemeralPost) });
+      return cachedJson({ posts: allPosts.map(mapEphemeralPost) });
     }
 
     // ── Standard paginated fetch (by topic, parent, or pubkey) ──
@@ -264,7 +274,7 @@ export async function GET(request: Request) {
       });
     }
 
-    return NextResponse.json({
+    return cachedJson({
       posts: page.map(mapEphemeralPost),
       nextCursor,
     });

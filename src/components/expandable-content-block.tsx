@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { MessageCircle, Zap, MoreHorizontal, Plus, ChevronDown, Eye } from "lucide-react";
+import { useState, useCallback } from "react";
+import { MessageCircle, Zap, MoreHorizontal, Eye, Link2, Copy } from "lucide-react";
 import { useTextSize, ts } from "@/lib/text-size";
 import { PostContent } from "@/components/post-content";
+import { BoostButton } from "@/components/boost-button";
+import { txExplorerHref } from "@/lib/explorer-url";
 
 const PREVIEW_LINES = 4;
 
@@ -12,8 +14,6 @@ export function ExpandableContentBlock({
   level,
   isBitcoinInscribed,
   onReply,
-  onUpvote,
-  onMoreActions,
   onClick,
   hasChildren = false,
   isChildrenExpanded = false,
@@ -22,15 +22,15 @@ export function ExpandableContentBlock({
   author,
   datePosted,
   viewCount,
-  contentHash,
-  onViewInscription,
+  txid,
+  nostrEventId,
+  childCount = 0,
+  onExpandAllChildren,
 }: {
   content: string;
   level: number;
   isBitcoinInscribed: boolean;
   onReply?: () => void;
-  onUpvote?: () => void;
-  onMoreActions?: () => void;
   onClick?: () => void;
   hasChildren?: boolean;
   isChildrenExpanded?: boolean;
@@ -39,48 +39,82 @@ export function ExpandableContentBlock({
   author?: string;
   datePosted?: string;
   viewCount?: number;
-  contentHash?: string;
-  onViewInscription?: (contentHash: string) => void;
+  txid?: string | null;
+  nostrEventId?: string | null;
+  childCount?: number;
+  onExpandAllChildren?: () => void;
 }) {
   const sz = useTextSize();
   const [expanded, setExpanded] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [copiedFeedback, setCopiedFeedback] = useState<string | null>(null);
   const lines = content.split(/\r?\n/);
   const hasManyLines = lines.length > PREVIEW_LINES;
   const showExpand = !expanded && hasManyLines;
   const displayContent = expanded || !hasManyLines ? content : lines.slice(0, PREVIEW_LINES).join("\n");
 
-  // Dark-theme gradient: zinc scale for cohesion, subtle steps so L-shape stays clear
   const levelColors = [
-    "bg-zinc-900/95",   // 0: darkest (top level), slightly above page bg
-    "bg-zinc-800/90",   // 1: one step lighter
-    "bg-zinc-700/85",   // 2
-    "bg-zinc-600/80",   // 3
-    "bg-zinc-500/75",   // 4: lightest
+    "bg-zinc-900/95",
+    "bg-zinc-800/90",
+    "bg-zinc-700/85",
+    "bg-zinc-600/80",
+    "bg-zinc-500/75",
   ];
   const bgClass = levelColors[Math.min(level, levelColors.length - 1)] ?? levelColors[levelColors.length - 1];
 
-  // Narrow left strip in parent color for children grouping (preserves L-shape)
   const levelAccentColors = [
-    "rgb(24 24 27)",   // zinc-900 (matches level 0 card)
-    "rgb(39 39 42)",   // zinc-800
-    "rgb(63 63 70)",   // zinc-700
-    "rgb(82 82 91)",   // zinc-600
-    "rgb(113 113 122)", // zinc-500
+    "rgb(24 24 27)",
+    "rgb(39 39 42)",
+    "rgb(63 63 70)",
+    "rgb(82 82 91)",
+    "rgb(113 113 122)",
   ];
   const stripColor = levelAccentColors[Math.min(level, levelAccentColors.length - 1)] ?? levelAccentColors[levelAccentColors.length - 1];
 
-  // Card click: expand/collapse children (when has children) or onClick (when no children).
-  // Text expand/collapse is only via the "expand"/"collapse" text buttons.
   const cardClickHandler = hasChildren ? onToggleChildren : onClick;
 
-  const showMeta = author != null || datePosted != null || (viewCount != null && viewCount > 0);
+  const hasViewCount = viewCount != null && viewCount > 0;
+  const hasExplorer = Boolean(isBitcoinInscribed && txid);
+  const showViewAffordance = hasViewCount || hasExplorer;
+  const showMeta = author != null || datePosted != null || showViewAffordance;
 
-  // Non-rectangular shape: bottom only spans the icon width (not full width). L-shaped cutout bottom-left.
-  const notchW = 16; // indent for vertical dotted line alignment
+  const viewEyeClass = isBitcoinInscribed
+    ? "text-yellow-400 hover:text-yellow-300"
+    : "text-white/40 hover:text-white/55";
+
+  const notchW = 16;
   const notchH = 48;
-  const lineExtensionUp = notchH + 8; // extend line to meet parent L-corner (buffer for clean connection)
-  const iconBarWidth = 140; // bottom edge only extends this far from the right (icons + padding)
-  const clipPath = `polygon(0 0, 100% 0, 100% 100%, calc(100% - ${iconBarWidth}px) 100%, calc(100% - ${iconBarWidth}px) calc(100% - ${notchH}px), 0 calc(100% - ${notchH}px))`;
+  const lineExtensionUp = notchH + 8;
+  const iconBarWidth = 164;
+  const metaH = 32;
+
+  const clipPath = showMeta
+    ? `polygon(0 0, 65% 0, 65% ${metaH}px, 100% ${metaH}px, 100% 100%, calc(100% - ${iconBarWidth}px) 100%, calc(100% - ${iconBarWidth}px) calc(100% - ${notchH}px), 0 calc(100% - ${notchH}px))`
+    : `polygon(0 0, 100% 0, 100% 100%, calc(100% - ${iconBarWidth}px) 100%, calc(100% - ${iconBarWidth}px) calc(100% - ${notchH}px), 0 calc(100% - ${notchH}px))`;
+
+  const showCopied = useCallback((label: string) => {
+    setCopiedFeedback(label);
+    setTimeout(() => setCopiedFeedback(null), 1500);
+  }, []);
+
+  const handleCopyContent = useCallback(() => {
+    navigator.clipboard?.writeText(content);
+    showCopied("copied");
+    setMoreMenuOpen(false);
+  }, [content, showCopied]);
+
+  const handleCopyLink = useCallback(() => {
+    const id = nostrEventId ?? txid;
+    if (id) {
+      const url = `${window.location.origin}/${encodeURIComponent(id)}`;
+      navigator.clipboard?.writeText(url);
+      showCopied("link copied");
+    } else {
+      navigator.clipboard?.writeText(content);
+      showCopied("copied");
+    }
+    setMoreMenuOpen(false);
+  }, [nostrEventId, txid, content, showCopied]);
 
   const cardBody = (
     <div
@@ -88,48 +122,44 @@ export function ExpandableContentBlock({
         cardClickHandler ? "cursor-pointer" : ""
       } ${bgClass}`}
       style={{
-        boxShadow: "0 2px 10px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06), inset 0 -1px 0 rgba(0,0,0,0.05)",
+        filter: "drop-shadow(0 2px 6px rgba(0,0,0,0.35))",
         clipPath,
         WebkitClipPath: clipPath,
       }}
       onClick={cardClickHandler}
     >
-      {hasChildren && (
-        <span
-          className="pointer-events-none absolute right-4 top-3 flex h-6 w-6 items-center justify-center text-white/50"
-          aria-hidden
-        >
-          {isChildrenExpanded ? <ChevronDown size={14} strokeWidth={2.5} /> : <Plus size={14} strokeWidth={2.5} />}
-        </span>
-      )}
+      {/* ++N / --N button is rendered outside clip-path, in the outer wrapper */}
       {showMeta && (
-        <div className="flex items-center gap-2 px-4 py-2 text-white/40 border-b border-white/[0.06]" style={{ fontSize: "11px" }}>
-          {viewCount != null && viewCount > 0 && (
-            isBitcoinInscribed && contentHash && onViewInscription ? (
-              <button
-                onClick={(e) => { e.stopPropagation(); onViewInscription(contentHash); }}
-                className="flex items-center gap-0.5 tabular-nums hover:text-white/60 transition-colors"
-                aria-label="View inscription"
+        <div className="flex items-center gap-2 px-4 text-white/40 border-b border-white/[0.06]" style={{ fontSize: "11px", height: metaH }}>
+          {showViewAffordance && (
+            hasExplorer ? (
+              <a
+                href={txExplorerHref(txid!)}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className={`flex items-center gap-0.5 tabular-nums transition-colors underline-offset-2 hover:underline ${viewEyeClass}`}
+                aria-label="View inscription transaction on block explorer"
               >
-                <Eye size={10} strokeWidth={1.5} />
-                {viewCount}
-              </button>
+                <Eye size={10} strokeWidth={1.5} className="shrink-0" />
+                {hasViewCount ? viewCount : null}
+              </a>
             ) : (
-              <span className="flex items-center gap-0.5 tabular-nums">
-                <Eye size={10} strokeWidth={1.5} />
-                {viewCount}
+              <span className={`flex items-center gap-0.5 tabular-nums transition-colors ${viewEyeClass}`}>
+                <Eye size={10} strokeWidth={1.5} className="shrink-0" />
+                {hasViewCount ? viewCount : null}
               </span>
             )
           )}
           {author && (
             <>
-              {(viewCount != null && viewCount > 0) && <span className="text-white/15">&middot;</span>}
+              {showViewAffordance && <span className="text-white/15">&middot;</span>}
               <span>{author}</span>
             </>
           )}
           {datePosted && (
             <>
-              {(author || (viewCount != null && viewCount > 0)) && <span className="text-white/15">&middot;</span>}
+              {(author || showViewAffordance) && <span className="text-white/15">&middot;</span>}
               <span>{datePosted}</span>
             </>
           )}
@@ -156,11 +186,21 @@ export function ExpandableContentBlock({
           collapse
         </button>
       )}
-      <div className="flex items-center justify-end gap-1 border-t border-white/[0.06] pl-0.5 pr-0.5 pb-2.5 pt-2 mt-1">
-        {onUpvote && (
+      <div className="relative flex items-center justify-end gap-1.5 border-t border-white/[0.06] pl-2 pr-2 pb-2.5 pt-2 mt-1">
+        {nostrEventId ? (
+          <span
+            onClick={(e) => e.stopPropagation()}
+            className="flex min-h-[44px] min-w-[44px] items-center justify-center"
+          >
+            <BoostButton
+              target={{ nostrEventId }}
+              size={14}
+            />
+          </span>
+        ) : (
           <button
-            onClick={(e) => { e.stopPropagation(); onUpvote(); }}
-            className="flex min-h-[44px] min-w-[44px] items-center justify-center text-white/50 hover:text-[#FF6800] transition-colors active:scale-95"
+            onClick={(e) => { e.stopPropagation(); onReply?.(); }}
+            className="flex min-h-[44px] min-w-[44px] items-center justify-center text-white/50 hover:text-yellow-400 transition-colors active:scale-95"
             aria-label="Upvote"
           >
             <Zap size={14} strokeWidth={2} />
@@ -175,21 +215,61 @@ export function ExpandableContentBlock({
             <MessageCircle size={14} strokeWidth={2} />
           </button>
         )}
-        {onMoreActions && (
+        <div className="relative">
           <button
-            onClick={(e) => { e.stopPropagation(); onMoreActions(); }}
+            onClick={(e) => { e.stopPropagation(); setMoreMenuOpen((v) => !v); }}
             className="flex min-h-[44px] min-w-[44px] items-center justify-center text-white/50 hover:text-white/80 transition-colors active:scale-95"
             aria-label="More actions"
           >
-            <MoreHorizontal size={16} strokeWidth={2} />
+            {copiedFeedback ? (
+              <span className="text-[10px] text-green-400/80">{copiedFeedback}</span>
+            ) : (
+              <MoreHorizontal size={16} strokeWidth={2} />
+            )}
           </button>
-        )}
+          {moreMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setMoreMenuOpen(false); }} />
+              <div
+                className="absolute right-0 bottom-full mb-1 z-50 min-w-[140px] rounded border border-white/10 bg-zinc-900 shadow-xl shadow-black/50"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  onClick={handleCopyContent}
+                  className="flex w-full items-center gap-2 px-3 py-2.5 text-[12px] text-white/70 hover:bg-white/[0.06] hover:text-white transition-colors"
+                >
+                  <Copy size={12} strokeWidth={2} />
+                  Copy text
+                </button>
+                {(nostrEventId || txid) && (
+                  <button
+                    onClick={handleCopyLink}
+                    className="flex w-full items-center gap-2 px-3 py-2.5 text-[12px] text-white/70 hover:bg-white/[0.06] hover:text-white transition-colors"
+                  >
+                    <Link2 size={12} strokeWidth={2} />
+                    Copy link
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
 
   return (
-    <div className="mx-2 mb-2 min-w-0">
+    <div className="relative mx-2 mb-2 min-w-0" data-nostr-id={nostrEventId ?? undefined}>
+      {hasChildren && childCount > 0 && (
+        <button
+          onClick={onExpandAllChildren}
+          className="absolute right-3 z-20 font-mono text-[11px] tabular-nums text-[#FF6800] hover:text-[#ff8533] transition-colors active:scale-95"
+          style={{ top: showMeta ? 6 : 8 }}
+          aria-label={isChildrenExpanded ? "Collapse all children" : "Expand all children"}
+        >
+          {isChildrenExpanded ? `\u2212\u2212${childCount}` : `++${childCount}`}
+        </button>
+      )}
       {cardBody}
       {isChildrenExpanded && hasChildren && childrenSlot && (
         <div
