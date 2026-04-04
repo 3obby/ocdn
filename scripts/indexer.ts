@@ -16,11 +16,11 @@ const BOOST_TTL_EXTENSION_MS = 30 * 60 * 1000;
 
 const DEFAULTS = {
   startHeight: Number(process.env.INDEXER_START_HEIGHT ?? "0"),
-  pollIntervalMs: Number(process.env.INDEXER_POLL_MS ?? "60000"),
+  pollIntervalMs: Number(process.env.INDEXER_POLL_MS ?? "600000"),
   stateFlushInterval: Number(process.env.INDEXER_FLUSH_INTERVAL ?? "50"),
 };
 
-const TX_MONITOR_INTERVAL_MS = Number(process.env.TX_MONITOR_INTERVAL_MS ?? "300000");
+const TX_MONITOR_INTERVAL_MS = Number(process.env.TX_MONITOR_INTERVAL_MS ?? "600000");
 const CLEANUP_INTERVAL_MS = Number(process.env.CLEANUP_INTERVAL_MS ?? "3600000");
 const PAYMENT_POLL_INTERVAL_MS = Number(process.env.PAYMENT_POLL_INTERVAL_MS ?? "300000");
 

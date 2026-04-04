@@ -18,7 +18,7 @@ import { checkAndSettlePayments } from "../src/lib/payment-settler";
 neonConfig.webSocketConstructor = ws;
 
 const ACTIVE_POLL_MS = Number(process.env.PAYMENT_POLL_MS ?? "10000");
-const IDLE_POLL_MS = Number(process.env.PAYMENT_IDLE_POLL_MS ?? "300000");
+const IDLE_POLL_MS = Number(process.env.PAYMENT_IDLE_POLL_MS ?? "600000");
 
 function createPrisma() {
   const adapter = new PrismaNeon({ connectionString: process.env.DATABASE_URL! });
